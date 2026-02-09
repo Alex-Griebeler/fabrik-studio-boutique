@@ -13,11 +13,12 @@ import logoFabrik from "@/assets/logo-fabrik.png";
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
 
-  const { signIn, resetPassword } = useAuth();
+  const { signIn, signUp, resetPassword } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -28,13 +29,22 @@ export default function Login() {
     const { error } = await signIn(email, password);
     setIsLoading(false);
     if (error) {
-      toast({
-        title: "Erro ao entrar",
-        description: "Email ou senha incorretos.",
-        variant: "destructive",
-      });
+      toast({ title: "Erro ao entrar", description: "Email ou senha incorretos.", variant: "destructive" });
     } else {
       navigate("/dashboard");
+    }
+  };
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    const { error } = await signUp(email, password, fullName);
+    setIsLoading(false);
+    if (error) {
+      toast({ title: "Erro ao criar conta", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Conta criada!", description: "Você já pode fazer login." });
+      setMode("login");
     }
   };
 
@@ -44,18 +54,17 @@ export default function Login() {
     const { error } = await resetPassword(email);
     setIsLoading(false);
     if (error) {
-      toast({
-        title: "Erro",
-        description: "Não foi possível enviar o email de recuperação.",
-        variant: "destructive",
-      });
+      toast({ title: "Erro", description: "Não foi possível enviar o email de recuperação.", variant: "destructive" });
     } else {
-      toast({
-        title: "Email enviado",
-        description: "Verifique sua caixa de entrada para redefinir sua senha.",
-      });
-      setIsForgotPassword(false);
+      toast({ title: "Email enviado", description: "Verifique sua caixa de entrada para redefinir sua senha." });
+      setMode("login");
     }
+  };
+
+  const titles = {
+    login: { h1: "Entrar", p: "Acesse o sistema de gestão Fabrik." },
+    signup: { h1: "Criar conta", p: "Preencha os dados para criar sua conta." },
+    forgot: { h1: "Recuperar senha", p: "Informe seu email para receber o link de recuperação." },
   };
 
   return (
@@ -66,123 +75,90 @@ export default function Login() {
         <div className="relative z-10 flex flex-col items-center gap-8 px-12 text-center">
           <img src={logoFabrik} alt="Fabrik" className="h-24 w-auto brightness-0 invert" />
           <div className="space-y-3">
-            <p className="text-lg font-light tracking-wide text-secondary-foreground/80">
-              Sistema de Gestão
-            </p>
+            <p className="text-lg font-light tracking-wide text-secondary-foreground/80">Sistema de Gestão</p>
             <div className="h-px w-16 mx-auto bg-primary/50" />
-            <p className="text-sm text-secondary-foreground/50 max-w-xs">
-              Gerencie seu studio com eficiência, do treino ao financeiro.
-            </p>
+            <p className="text-sm text-secondary-foreground/50 max-w-xs">Gerencie seu studio com eficiência, do treino ao financeiro.</p>
           </div>
         </div>
       </div>
 
       {/* Right — Form */}
       <div className="flex w-full lg:w-1/2 items-center justify-center p-6 sm:p-12 bg-background relative">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleTheme}
-          className="absolute top-6 right-6 h-9 w-9 text-muted-foreground hover:text-foreground"
-        >
+        <Button variant="ghost" size="icon" onClick={toggleTheme} className="absolute top-6 right-6 h-9 w-9 text-muted-foreground hover:text-foreground">
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
 
         <div className="w-full max-w-sm animate-fade-in">
-          {/* Mobile logo */}
           <div className="flex justify-center mb-10 lg:hidden">
             <img src={logoFabrik} alt="Fabrik" className="h-16 w-auto" />
           </div>
 
           <div className="space-y-1 mb-8">
-            <h1 className="font-display text-2xl font-bold tracking-tight">
-              {isForgotPassword ? "Recuperar senha" : "Entrar"}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {isForgotPassword
-                ? "Informe seu email para receber o link de recuperação."
-                : "Acesse o sistema de gestão Fabrik."}
-            </p>
+            <h1 className="font-display text-2xl font-bold tracking-tight">{titles[mode].h1}</h1>
+            <p className="text-sm text-muted-foreground">{titles[mode].p}</p>
           </div>
 
-          {isForgotPassword ? (
+          {mode === "forgot" && (
             <form onSubmit={handleForgotPassword} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Email
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seu@email.com"
-                  required
-                  className="h-11"
-                />
+                <Label htmlFor="email" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Email</Label>
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" required className="h-11" />
               </div>
               <Button type="submit" className="w-full h-11 font-semibold" disabled={isLoading}>
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Enviar link
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Enviar link
               </Button>
-              <button
-                type="button"
-                onClick={() => setIsForgotPassword(false)}
-                className="block w-full text-center text-sm text-muted-foreground hover:text-primary transition-colors"
-              >
-                Voltar ao login
-              </button>
+              <button type="button" onClick={() => setMode("login")} className="block w-full text-center text-sm text-muted-foreground hover:text-primary transition-colors">Voltar ao login</button>
             </form>
-          ) : (
-            <form onSubmit={handleLogin} className="space-y-5">
+          )}
+
+          {mode === "signup" && (
+            <form onSubmit={handleSignUp} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Email
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seu@email.com"
-                  required
-                  className="h-11"
-                />
+                <Label htmlFor="fullName" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Nome completo</Label>
+                <Input id="fullName" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Seu nome" required className="h-11" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Senha
-                </Label>
+                <Label htmlFor="email" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Email</Label>
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" required className="h-11" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Senha</Label>
                 <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    className="h-11 pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
+                  <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required className="h-11 pr-10" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
               <Button type="submit" className="w-full h-11 font-semibold" disabled={isLoading}>
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Entrar
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Criar conta
               </Button>
-              <button
-                type="button"
-                onClick={() => setIsForgotPassword(true)}
-                className="block w-full text-center text-sm text-muted-foreground hover:text-primary transition-colors"
-              >
-                Esqueci minha senha
-              </button>
+              <button type="button" onClick={() => setMode("login")} className="block w-full text-center text-sm text-muted-foreground hover:text-primary transition-colors">Já tenho conta</button>
+            </form>
+          )}
+
+          {mode === "login" && (
+            <form onSubmit={handleLogin} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Email</Label>
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" required className="h-11" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Senha</Label>
+                <div className="relative">
+                  <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required className="h-11 pr-10" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <Button type="submit" className="w-full h-11 font-semibold" disabled={isLoading}>
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Entrar
+              </Button>
+              <div className="flex justify-between">
+                <button type="button" onClick={() => setMode("forgot")} className="text-sm text-muted-foreground hover:text-primary transition-colors">Esqueci minha senha</button>
+                <button type="button" onClick={() => setMode("signup")} className="text-sm text-muted-foreground hover:text-primary transition-colors">Criar conta</button>
+              </div>
             </form>
           )}
         </div>
