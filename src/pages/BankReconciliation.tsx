@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useCallback } from "react";
 import {
   Upload, FileText, ArrowDownCircle, ArrowUpCircle, CheckCircle2, AlertCircle,
-  Loader2, Wand2, Check, X, EyeOff, Zap, CheckSquare,
+  Loader2, Wand2, Check, X, EyeOff, Zap, CheckSquare, Link2,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { KPICard } from "@/components/shared/KPICard";
@@ -20,6 +20,8 @@ import {
 import { formatCents } from "@/hooks/usePlans";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { ManualMatchDialog } from "@/components/finance/ManualMatchDialog";
+import type { BankTransaction } from "@/hooks/useBankReconciliation";
 
 const typeLabels: Record<string, string> = {
   pix_received: "PIX Recebido",
@@ -75,6 +77,7 @@ export default function BankReconciliation() {
   const [filterType, setFilterType] = useState<string>("all");
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
+  const [manualMatchTx, setManualMatchTx] = useState<BankTransaction | null>(null);
 
   const { data: imports, isLoading: loadingImports } = useBankImports();
   const { data: transactions, isLoading: loadingTx } = useBankTransactions(selectedImport ?? imports?.[0]?.id ?? null);
@@ -440,22 +443,39 @@ export default function BankReconciliation() {
                             </>
                           )}
                           {tx.match_status === "unmatched" && !hasSuggestion && (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-7 w-7"
-                                    onClick={() => ignoreMutation.mutate(tx.id)}
-                                    disabled={ignoreMutation.isPending}
-                                  >
-                                    <EyeOff className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Ignorar transação</TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7"
+                                      onClick={() => setManualMatchTx(tx)}
+                                    >
+                                      <Link2 className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Vincular manualmente a uma fatura ou despesa</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7"
+                                      onClick={() => ignoreMutation.mutate(tx.id)}
+                                      disabled={ignoreMutation.isPending}
+                                    >
+                                      <EyeOff className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Ignorar transação</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </>
                           )}
                         </div>
                       </TableCell>
@@ -476,6 +496,20 @@ export default function BankReconciliation() {
           <p className="text-sm">Importe um extrato OFX do Itaú para começar a conciliação.</p>
         </div>
       )}
+
+      <ManualMatchDialog
+        open={!!manualMatchTx}
+        onOpenChange={(open) => { if (!open) setManualMatchTx(null); }}
+        transaction={manualMatchTx}
+        onConfirm={(matchedType, matchedId) => {
+          if (!manualMatchTx) return;
+          approveMutation.mutate(
+            { transactionId: manualMatchTx.id, matchedType, matchedId },
+            { onSuccess: () => setManualMatchTx(null) }
+          );
+        }}
+        isPending={approveMutation.isPending}
+      />
     </div>
   );
 }
