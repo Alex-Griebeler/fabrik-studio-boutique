@@ -1,37 +1,11 @@
-import { Users, Clock, User, ChevronDown, ChevronUp, Plus, X, UserCheck, UserX, Trash2, Pencil } from "lucide-react";
-import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Users, Clock, User } from "lucide-react";
 import {
   ClassSession,
   useModalities,
   getModalityColor,
-  useCreateBooking,
-  useUpdateBookingStatus,
-  useDeleteSession,
-  useUpdateSession,
-  useCancelSingleOccurrence,
-  useDeleteThisAndFollowing,
-  useDeleteAllOccurrences,
-  useUpdateThisAndFollowing,
-  useUpdateAllOccurrences,
-  BookingStatus,
 } from "@/hooks/useSchedule";
-import { useStudents } from "@/hooks/useStudents";
 import { cn } from "@/lib/utils";
-import { SessionFormDialog } from "./SessionFormDialog";
-import { RecurringActionDialog, RecurringAction } from "./RecurringActionDialog";
+import { SessionDetailPopover } from "./SessionDetailPopover";
 
 interface SessionCardProps {
   session: ClassSession;
@@ -39,79 +13,11 @@ interface SessionCardProps {
 }
 
 export function SessionCard({ session, compact }: SessionCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [addingStudent, setAddingStudent] = useState(false);
-  const [selectedStudentId, setSelectedStudentId] = useState("");
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showRecurringDelete, setShowRecurringDelete] = useState(false);
-  const [showRecurringEdit, setShowRecurringEdit] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
-  const [pendingEditAction, setPendingEditAction] = useState<RecurringAction | null>(null);
-
   const { data: modalities } = useModalities();
   const mod = modalities?.find((m) => m.slug === session.modality);
 
   const confirmedBookings = session.bookings?.filter((b) => b.status === "confirmed") ?? [];
-  const waitlistBookings = session.bookings?.filter((b) => b.status === "waitlist") ?? [];
-  const spotsLeft = session.capacity - confirmedBookings.length;
-  const isFull = spotsLeft <= 0;
-
-  const { data: students } = useStudents("", "active");
-  const createBooking = useCreateBooking();
-  const updateBookingStatus = useUpdateBookingStatus();
-  const deleteSession = useDeleteSession();
-  const cancelSingle = useCancelSingleOccurrence();
-  const deleteFollowing = useDeleteThisAndFollowing();
-  const deleteAll = useDeleteAllOccurrences();
-
-  const isRecurring = !!session.template_id;
-
-  const bookedStudentIds = new Set(
-    session.bookings?.filter((b) => b.status !== "cancelled").map((b) => b.student_id)
-  );
-  const availableStudents = students?.filter((s) => !bookedStudentIds.has(s.id)) ?? [];
-
-  const handleAddStudent = () => {
-    if (!selectedStudentId) return;
-    const status: BookingStatus = isFull ? "waitlist" : "confirmed";
-    createBooking.mutate(
-      { session_id: session.id, student_id: selectedStudentId, status },
-      { onSuccess: () => { setSelectedStudentId(""); setAddingStudent(false); } }
-    );
-  };
-
-  const handleDeleteClick = () => {
-    if (isRecurring) {
-      setShowRecurringDelete(true);
-    } else {
-      setShowDeleteConfirm(true);
-    }
-  };
-
-  const handleRecurringDelete = (action: RecurringAction) => {
-    setShowRecurringDelete(false);
-    if (action === "this") {
-      cancelSingle.mutate(session.id);
-    } else if (action === "this_and_following") {
-      deleteFollowing.mutate({ session });
-    } else if (action === "all" && session.template_id) {
-      deleteAll.mutate(session.template_id);
-    }
-  };
-
-  const handleEditClick = () => {
-    if (isRecurring) {
-      setShowRecurringEdit(true);
-    } else {
-      setShowEdit(true);
-    }
-  };
-
-  const handleRecurringEdit = (action: RecurringAction) => {
-    setShowRecurringEdit(false);
-    setPendingEditAction(action);
-    setShowEdit(true);
-  };
+  const isFull = confirmedBookings.length >= session.capacity;
 
   const time = session.start_time.slice(0, 5);
   const endMinutes =
@@ -122,174 +28,59 @@ export function SessionCard({ session, compact }: SessionCardProps) {
 
   const colorClass = mod ? getModalityColor(mod.color) : getModalityColor("primary");
 
+  // Compact chip for weekly grid
+  if (compact) {
+    return (
+      <SessionDetailPopover session={session}>
+        <button
+          className={cn(
+            "w-full text-left rounded-md px-1.5 py-0.5 text-[11px] leading-tight font-medium border-l-[3px] transition-all",
+            "hover:shadow-md hover:brightness-95 cursor-pointer",
+            session.status === "cancelled" && "opacity-40 line-through",
+            colorClass
+          )}
+        >
+          <div className="truncate font-semibold">{mod?.name ?? session.modality}</div>
+          <div className="truncate opacity-70 text-[10px]">{time}–{endTime}</div>
+        </button>
+      </SessionDetailPopover>
+    );
+  }
+
+  // Full card for daily view
   return (
-    <div
-      className={cn(
-        "rounded-lg border p-3 transition-colors",
-        session.status === "cancelled" && "opacity-50",
-        colorClass
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm">{mod?.name ?? session.modality}</span>
-            <span className="text-xs opacity-70 flex items-center gap-1">
+    <SessionDetailPopover session={session}>
+      <button
+        className={cn(
+          "w-full text-left rounded-lg border-l-4 p-3 transition-all bg-card hover:shadow-md cursor-pointer border",
+          session.status === "cancelled" && "opacity-40",
+          colorClass
+        )}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-semibold text-sm">{mod?.name ?? session.modality}</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
               <Clock className="h-3 w-3" />
-              {time}–{endTime}
-            </span>
-          </div>
-          {session.instructor && (
-            <p className="text-xs opacity-70 mt-0.5 flex items-center gap-1">
-              <User className="h-3 w-3" /> {session.instructor.full_name}
+              {time} – {endTime}
+              <span className="opacity-40 mx-0.5">·</span>
+              {session.duration_minutes}min
             </p>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Badge variant={isFull ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
-            <Users className="h-3 w-3 mr-0.5" />
+            {session.instructor && (
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                <User className="h-3 w-3" /> {session.instructor.full_name}
+              </p>
+            )}
+          </div>
+          <div className={cn(
+            "flex items-center gap-1 text-[10px] font-medium rounded-full px-2 py-0.5",
+            isFull ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
+          )}>
+            <Users className="h-3 w-3" />
             {confirmedBookings.length}/{session.capacity}
-          </Badge>
-          {!compact && (
-            <>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleEditClick} title="Editar aula">
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleDeleteClick} title="Excluir aula">
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpanded(!expanded)}>
-                {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              </Button>
-            </>
-          )}
+          </div>
         </div>
-      </div>
-
-      {expanded && !compact && (
-        <div className="mt-3 space-y-2 border-t pt-2 border-current/10">
-          {confirmedBookings.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 opacity-60">Confirmados</p>
-              <div className="space-y-1">
-                {confirmedBookings.map((b) => (
-                  <div key={b.id} className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1">
-                      <UserCheck className="h-3 w-3" /> {b.student?.full_name ?? "—"}
-                    </span>
-                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-50 hover:opacity-100"
-                      onClick={() => updateBookingStatus.mutate({ id: b.id, status: "cancelled" })}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {waitlistBookings.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 opacity-60">Lista de Espera</p>
-              <div className="space-y-1">
-                {waitlistBookings.map((b) => (
-                  <div key={b.id} className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1">
-                      <UserX className="h-3 w-3" /> {b.student?.full_name ?? "—"}
-                    </span>
-                    <div className="flex gap-0.5">
-                      {!isFull && (
-                        <Button variant="ghost" size="icon" className="h-5 w-5"
-                          onClick={() => updateBookingStatus.mutate({ id: b.id, status: "confirmed" })} title="Confirmar">
-                          <UserCheck className="h-3 w-3" />
-                        </Button>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-5 w-5 opacity-50 hover:opacity-100"
-                        onClick={() => updateBookingStatus.mutate({ id: b.id, status: "cancelled" })}>
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {addingStudent ? (
-            <div className="flex items-center gap-1.5">
-              <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
-                <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Selecione aluno" /></SelectTrigger>
-                <SelectContent>
-                  {availableStudents.map((s) => (
-                    <SelectItem key={s.id} value={s.id} className="text-xs">{s.full_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button size="sm" className="h-7 text-xs px-2" onClick={handleAddStudent} disabled={!selectedStudentId || createBooking.isPending}>
-                {isFull ? "Espera" : "Add"}
-              </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAddingStudent(false)}>
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ) : (
-            <Button variant="ghost" size="sm" className="w-full h-7 text-xs" onClick={() => setAddingStudent(true)}>
-              <Plus className="h-3 w-3 mr-1" /> Agendar Aluno
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* Edit dialog */}
-      <SessionFormDialog
-        open={showEdit}
-        onOpenChange={(open) => {
-          setShowEdit(open);
-          if (!open) setPendingEditAction(null);
-        }}
-        editSession={session}
-        recurringAction={pendingEditAction}
-      />
-
-      {/* Recurring edit choice */}
-      <RecurringActionDialog
-        open={showRecurringEdit}
-        onOpenChange={setShowRecurringEdit}
-        title="Editar evento recorrente"
-        description="Este evento faz parte de uma série recorrente."
-        onSelect={handleRecurringEdit}
-        variant="edit"
-      />
-
-      {/* Recurring delete choice */}
-      <RecurringActionDialog
-        open={showRecurringDelete}
-        onOpenChange={setShowRecurringDelete}
-        title="Excluir evento recorrente"
-        description="Este evento faz parte de uma série recorrente."
-        onSelect={handleRecurringDelete}
-        variant="delete"
-        isPending={cancelSingle.isPending || deleteFollowing.isPending || deleteAll.isPending}
-      />
-
-      {/* Non-recurring delete confirmation */}
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir aula?</AlertDialogTitle>
-            <AlertDialogDescription>
-              A aula de {mod?.name ?? session.modality} às {session.start_time.slice(0, 5)} será removida permanentemente, incluindo todos os agendamentos.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deleteSession.mutate(session.id)}
-              className="bg-destructive text-destructive-foreground"
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      </button>
+    </SessionDetailPopover>
   );
 }
