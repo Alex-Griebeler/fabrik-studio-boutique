@@ -1,14 +1,15 @@
-import { Users, Clock, User, CheckCircle2 } from "lucide-react";
+import { Users, Clock, User, CheckCircle2, AlertCircle } from "lucide-react";
 import {
-  ClassSession,
+  Session,
   useModalities,
   getModalityColor,
+  SESSION_STATUS_MAP,
 } from "@/hooks/useSchedule";
 import { cn } from "@/lib/utils";
 import { SessionDetailPopover } from "./SessionDetailPopover";
 
 interface SessionCardProps {
-  session: ClassSession;
+  session: Session;
   compact?: boolean;
 }
 
@@ -17,18 +18,15 @@ export function SessionCard({ session, compact }: SessionCardProps) {
   const mod = modalities?.find((m) => m.slug === session.modality);
 
   const confirmedBookings = session.bookings?.filter((b) => b.status === "confirmed" || b.status === "no_show") ?? [];
-  const noShowCount = session.bookings?.filter((b) => b.status === "no_show").length ?? 0;
-  const presentCount = confirmedBookings.length - noShowCount;
   const isFull = confirmedBookings.length >= session.capacity;
+  const isCancelled = session.status === "cancelled_on_time" || session.status === "cancelled_late";
+  const isCompleted = session.status === "completed";
 
   const time = session.start_time.slice(0, 5);
-  const endMinutes =
-    parseInt(session.start_time.slice(0, 2)) * 60 +
-    parseInt(session.start_time.slice(3, 5)) +
-    session.duration_minutes;
-  const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+  const endTime = session.end_time.slice(0, 5);
 
   const colorClass = mod ? getModalityColor(mod.color) : getModalityColor("primary");
+  const statusInfo = SESSION_STATUS_MAP[session.status];
 
   // Compact chip for weekly grid
   if (compact) {
@@ -38,7 +36,7 @@ export function SessionCard({ session, compact }: SessionCardProps) {
           className={cn(
             "w-full text-left rounded-md px-1.5 py-0.5 text-[11px] leading-tight font-medium border-l-[3px] transition-all",
             "hover:shadow-md hover:brightness-95 cursor-pointer",
-            session.status === "cancelled" && "opacity-40 line-through",
+            isCancelled && "opacity-40 line-through",
             colorClass
           )}
         >
@@ -55,31 +53,61 @@ export function SessionCard({ session, compact }: SessionCardProps) {
       <button
         className={cn(
           "w-full text-left rounded-lg border-l-4 p-3 transition-all bg-card hover:shadow-md cursor-pointer border",
-          session.status === "cancelled" && "opacity-40",
+          isCancelled && "opacity-40",
           colorClass
         )}
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <p className="font-display font-semibold text-sm">{mod?.name ?? session.modality}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="font-display font-semibold text-sm">{mod?.name ?? session.modality}</p>
+              {session.session_type === "personal" && (
+                <span className="text-[9px] bg-primary/10 text-primary px-1 rounded">Personal</span>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
               <Clock className="h-3 w-3" />
               {time} – {endTime}
               <span className="opacity-40 mx-0.5">·</span>
               {session.duration_minutes}min
             </p>
-            {session.instructor && (
+            {session.trainer && (
               <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <User className="h-3 w-3" /> {session.instructor.full_name}
+                <User className="h-3 w-3" /> {session.trainer.full_name}
               </p>
             )}
+            {session.student && session.session_type === "personal" && (
+              <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                <User className="h-3 w-3" /> {session.student.full_name}
+              </p>
+            )}
+            {/* Check-in indicators */}
+            {(session.trainer_checkin_at || session.student_checkin_at) && (
+              <div className="flex items-center gap-1 mt-1">
+                {session.trainer_checkin_at && (
+                  <CheckCircle2 className="h-3 w-3 text-success" />
+                )}
+                {session.student_checkin_at && (
+                  <CheckCircle2 className="h-3 w-3 text-info" />
+                )}
+              </div>
+            )}
           </div>
-          <div className={cn(
-            "flex items-center gap-1 text-[10px] font-medium rounded-full px-2 py-0.5",
-            isFull ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
-          )}>
-            <Users className="h-3 w-3" />
-            {confirmedBookings.length}/{session.capacity}
+          <div className="flex flex-col items-end gap-1">
+            {session.session_type === "group" && (
+              <div className={cn(
+                "flex items-center gap-1 text-[10px] font-medium rounded-full px-2 py-0.5",
+                isFull ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
+              )}>
+                <Users className="h-3 w-3" />
+                {confirmedBookings.length}/{session.capacity}
+              </div>
+            )}
+            {session.status !== "scheduled" && (
+              <span className={cn("text-[9px] font-medium rounded-full px-1.5 py-0.5", statusInfo.color)}>
+                {statusInfo.label}
+              </span>
+            )}
           </div>
         </div>
       </button>

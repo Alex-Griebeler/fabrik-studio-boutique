@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, Clock, User, Plus, X, UserCheck, UserX, Trash2, Pencil, CheckCircle2, XCircle } from "lucide-react";
+import { Users, Clock, User, Plus, X, UserCheck, UserX, Trash2, Pencil, CheckCircle2, XCircle, LogIn } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  ClassSession,
+  Session,
   useModalities,
   getModalityColor,
   useCreateBooking,
@@ -28,14 +28,18 @@ import {
   useCancelSingleOccurrence,
   useDeleteThisAndFollowing,
   useDeleteAllOccurrences,
+  useTrainerCheckin,
+  useStudentCheckin,
+  useCompleteSession,
   BookingStatus,
+  SESSION_STATUS_MAP,
 } from "@/hooks/useSchedule";
 import { useStudents } from "@/hooks/useStudents";
 import { SessionFormDialog } from "./SessionFormDialog";
 import { RecurringActionDialog, RecurringAction } from "./RecurringActionDialog";
 
 interface SessionDetailPopoverProps {
-  session: ClassSession;
+  session: Session;
   children: React.ReactNode;
 }
 
@@ -53,15 +57,13 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
   const mod = modalities?.find((m) => m.slug === session.modality);
 
   const confirmedBookings = session.bookings?.filter((b) => b.status === "confirmed" || b.status === "no_show") ?? [];
-  const checkedInBookings = confirmedBookings.filter((b) => b.status === "confirmed");
-  const noShowBookings = confirmedBookings.filter((b) => b.status === "no_show");
   const waitlistBookings = session.bookings?.filter((b) => b.status === "waitlist") ?? [];
-  
-  // Determine if session is in the past (for check-in mode)
-  const sessionDateTime = new Date(`${session.session_date}T${session.start_time}`);
-  const isPast = sessionDateTime <= new Date();
   const spotsLeft = session.capacity - confirmedBookings.length;
   const isFull = spotsLeft <= 0;
+
+  const sessionDateTime = new Date(`${session.session_date}T${session.start_time}`);
+  const isPast = sessionDateTime <= new Date();
+  const statusInfo = SESSION_STATUS_MAP[session.status];
 
   const { data: students } = useStudents("", "active");
   const createBooking = useCreateBooking();
@@ -70,8 +72,12 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
   const cancelSingle = useCancelSingleOccurrence();
   const deleteFollowing = useDeleteThisAndFollowing();
   const deleteAll = useDeleteAllOccurrences();
+  const trainerCheckin = useTrainerCheckin();
+  const studentCheckin = useStudentCheckin();
+  const completeSession = useCompleteSession();
 
   const isRecurring = !!session.template_id;
+  const isGroup = session.session_type === "group";
 
   const bookedStudentIds = new Set(
     session.bookings?.filter((b) => b.status !== "cancelled").map((b) => b.student_id)
@@ -119,11 +125,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
   };
 
   const time = session.start_time.slice(0, 5);
-  const endMinutes =
-    parseInt(session.start_time.slice(0, 2)) * 60 +
-    parseInt(session.start_time.slice(3, 5)) +
-    session.duration_minutes;
-  const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+  const endTime = session.end_time.slice(0, 5);
 
   return (
     <>
@@ -133,12 +135,20 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
           {/* Header */}
           <div className="flex items-center justify-between p-3 pb-2 border-b">
             <div>
-              <h4 className="font-display font-semibold text-sm">{mod?.name ?? session.modality}</h4>
+              <div className="flex items-center gap-1.5">
+                <h4 className="font-display font-semibold text-sm">{mod?.name ?? session.modality}</h4>
+                {!isGroup && <span className="text-[9px] bg-primary/10 text-primary px-1 rounded">Personal</span>}
+              </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                 <Clock className="h-3 w-3" /> {time} – {endTime}
                 <span className="text-muted-foreground/50 mx-1">·</span>
                 {session.duration_minutes}min
               </p>
+              {session.status !== "scheduled" && (
+                <Badge variant="outline" className={`text-[9px] mt-1 ${statusInfo.color}`}>
+                  {statusInfo.label}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-0.5">
               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleEditClick}>
@@ -152,25 +162,69 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
 
           {/* Details */}
           <div className="p-3 space-y-3">
-            {session.instructor && (
+            {session.trainer && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <User className="h-3.5 w-3.5" />
-                <span>{session.instructor.full_name}</span>
+                <span>{session.trainer.full_name}</span>
+                {session.trainer_checkin_at && <CheckCircle2 className="h-3 w-3 text-success ml-auto" />}
               </div>
             )}
 
-            <div className="flex items-center gap-2 text-xs">
-              <Badge variant={isFull ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
-                <Users className="h-3 w-3 mr-0.5" />
-                {confirmedBookings.length}/{session.capacity}
-              </Badge>
-              {spotsLeft > 0 && (
-                <span className="text-muted-foreground">{spotsLeft} vaga{spotsLeft !== 1 ? "s" : ""}</span>
-              )}
-            </div>
+            {session.student && session.session_type === "personal" && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <User className="h-3.5 w-3.5" />
+                <span>{session.student.full_name}</span>
+                {session.student_checkin_at && <CheckCircle2 className="h-3 w-3 text-info ml-auto" />}
+              </div>
+            )}
 
-            {/* Confirmed / Check-in */}
-            {confirmedBookings.length > 0 && (
+            {/* Check-in buttons */}
+            {session.status === "scheduled" && isPast && (
+              <div className="flex gap-2">
+                {!session.trainer_checkin_at && session.trainer_id && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1"
+                    onClick={() => trainerCheckin.mutate(session.id)} disabled={trainerCheckin.isPending}>
+                    <LogIn className="h-3 w-3 mr-1" /> Check-in Treinador
+                  </Button>
+                )}
+                {!session.student_checkin_at && session.session_type === "personal" && session.student_id && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1"
+                    onClick={() => studentCheckin.mutate(session.id)} disabled={studentCheckin.isPending}>
+                    <LogIn className="h-3 w-3 mr-1" /> Check-in Aluno
+                  </Button>
+                )}
+                {session.trainer_checkin_at && (
+                  <Button variant="default" size="sm" className="h-7 text-xs flex-1"
+                    onClick={() => completeSession.mutate(session.id)} disabled={completeSession.isPending}>
+                    <CheckCircle2 className="h-3 w-3 mr-1" /> Concluir
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Group capacity */}
+            {isGroup && (
+              <div className="flex items-center gap-2 text-xs">
+                <Badge variant={isFull ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
+                  <Users className="h-3 w-3 mr-0.5" />
+                  {confirmedBookings.length}/{session.capacity}
+                </Badge>
+                {spotsLeft > 0 && (
+                  <span className="text-muted-foreground">{spotsLeft} vaga{spotsLeft !== 1 ? "s" : ""}</span>
+                )}
+              </div>
+            )}
+
+            {/* Financial info (personal sessions) */}
+            {session.session_type === "personal" && session.payment_amount_cents > 0 && (
+              <div className="text-[10px] text-muted-foreground bg-muted/50 rounded px-2 py-1">
+                Taxa: R$ {(session.payment_amount_cents / 100).toFixed(2)}
+                {session.is_paid && <span className="text-success ml-1">· Pago</span>}
+              </div>
+            )}
+
+            {/* Confirmed bookings (group) */}
+            {isGroup && confirmedBookings.length > 0 && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 text-muted-foreground">
                   {isPast ? "Presença" : "Confirmados"}
@@ -190,24 +244,14 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                       </span>
                       <div className="flex gap-0.5">
                         {isPast && b.status === "confirmed" && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 text-destructive/60 hover:text-destructive"
-                            title="Marcar falta"
-                            onClick={() => updateBookingStatus.mutate({ id: b.id, status: "no_show" })}
-                          >
+                          <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive/60 hover:text-destructive" title="Marcar falta"
+                            onClick={() => updateBookingStatus.mutate({ id: b.id, status: "no_show" })}>
                             <XCircle className="h-3 w-3" />
                           </Button>
                         )}
                         {isPast && b.status === "no_show" && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 text-success/60 hover:text-success"
-                            title="Reverter para presente"
-                            onClick={() => updateBookingStatus.mutate({ id: b.id, status: "confirmed" })}
-                          >
+                          <Button variant="ghost" size="icon" className="h-5 w-5 text-success/60 hover:text-success" title="Reverter"
+                            onClick={() => updateBookingStatus.mutate({ id: b.id, status: "confirmed" })}>
                             <CheckCircle2 className="h-3 w-3" />
                           </Button>
                         )}
@@ -250,28 +294,30 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
               </div>
             )}
 
-            {/* Add student */}
-            {addingStudent ? (
-              <div className="flex items-center gap-1.5">
-                <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
-                  <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Selecione aluno" /></SelectTrigger>
-                  <SelectContent>
-                    {availableStudents.map((s) => (
-                      <SelectItem key={s.id} value={s.id} className="text-xs">{s.full_name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button size="sm" className="h-7 text-xs px-2" onClick={handleAddStudent} disabled={!selectedStudentId || createBooking.isPending}>
-                  {isFull ? "Espera" : "Add"}
+            {/* Add student (group) */}
+            {isGroup && (
+              addingStudent ? (
+                <div className="flex items-center gap-1.5">
+                  <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+                    <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Selecione aluno" /></SelectTrigger>
+                    <SelectContent>
+                      {availableStudents.map((s) => (
+                        <SelectItem key={s.id} value={s.id} className="text-xs">{s.full_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" className="h-7 text-xs px-2" onClick={handleAddStudent} disabled={!selectedStudentId || createBooking.isPending}>
+                    {isFull ? "Espera" : "Add"}
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAddingStudent(false)}>
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" className="w-full h-7 text-xs" onClick={() => setAddingStudent(true)}>
+                  <Plus className="h-3 w-3 mr-1" /> Agendar Aluno
                 </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAddingStudent(false)}>
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ) : (
-              <Button variant="outline" size="sm" className="w-full h-7 text-xs" onClick={() => setAddingStudent(true)}>
-                <Plus className="h-3 w-3 mr-1" /> Agendar Aluno
-              </Button>
+              )
             )}
           </div>
         </PopoverContent>
@@ -284,29 +330,19 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
         editSession={session}
         recurringAction={pendingEditAction}
       />
-      <RecurringActionDialog
-        open={showRecurringEdit}
-        onOpenChange={setShowRecurringEdit}
-        title="Editar evento recorrente"
-        description="Este evento faz parte de uma série recorrente."
-        onSelect={handleRecurringEdit}
-        variant="edit"
-      />
-      <RecurringActionDialog
-        open={showRecurringDelete}
-        onOpenChange={setShowRecurringDelete}
-        title="Excluir evento recorrente"
-        description="Este evento faz parte de uma série recorrente."
-        onSelect={handleRecurringDelete}
-        variant="delete"
-        isPending={cancelSingle.isPending || deleteFollowing.isPending || deleteAll.isPending}
-      />
+      <RecurringActionDialog open={showRecurringEdit} onOpenChange={setShowRecurringEdit}
+        title="Editar evento recorrente" description="Este evento faz parte de uma série recorrente."
+        onSelect={handleRecurringEdit} variant="edit" />
+      <RecurringActionDialog open={showRecurringDelete} onOpenChange={setShowRecurringDelete}
+        title="Excluir evento recorrente" description="Este evento faz parte de uma série recorrente."
+        onSelect={handleRecurringDelete} variant="delete"
+        isPending={cancelSingle.isPending || deleteFollowing.isPending || deleteAll.isPending} />
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir aula?</AlertDialogTitle>
+            <AlertDialogTitle>Excluir sessão?</AlertDialogTitle>
             <AlertDialogDescription>
-              A aula de {mod?.name ?? session.modality} às {time} será removida permanentemente.
+              A sessão de {mod?.name ?? session.modality} às {time} será removida permanentemente.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

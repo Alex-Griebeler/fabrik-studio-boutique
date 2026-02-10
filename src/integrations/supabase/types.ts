@@ -635,6 +635,91 @@ export type Database = {
           },
         ]
       }
+      makeup_credits: {
+        Row: {
+          contract_id: string | null
+          created_at: string
+          expires_at: string | null
+          id: string
+          notes: string | null
+          original_session_id: string | null
+          status: Database["public"]["Enums"]["makeup_credit_status"]
+          student_id: string
+          updated_at: string
+          used_at: string | null
+          used_session_id: string | null
+        }
+        Insert: {
+          contract_id?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          notes?: string | null
+          original_session_id?: string | null
+          status?: Database["public"]["Enums"]["makeup_credit_status"]
+          student_id: string
+          updated_at?: string
+          used_at?: string | null
+          used_session_id?: string | null
+        }
+        Update: {
+          contract_id?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          notes?: string | null
+          original_session_id?: string | null
+          status?: Database["public"]["Enums"]["makeup_credit_status"]
+          student_id?: string
+          updated_at?: string
+          used_at?: string | null
+          used_session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "makeup_credits_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "makeup_credits_original_session_id_fkey"
+            columns: ["original_session_id"]
+            isOneToOne: false
+            referencedRelation: "payable_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "makeup_credits_original_session_id_fkey"
+            columns: ["original_session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "makeup_credits_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "makeup_credits_used_session_id_fkey"
+            columns: ["used_session_id"]
+            isOneToOne: false
+            referencedRelation: "payable_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "makeup_credits_used_session_id_fkey"
+            columns: ["used_session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nfse: {
         Row: {
           amount_cents: number
@@ -792,6 +877,33 @@ export type Database = {
         }
         Relationships: []
       }
+      policies: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           auth_user_id: string
@@ -824,6 +936,223 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      sessions: {
+        Row: {
+          actual_start_time: string | null
+          adjusted_at: string | null
+          adjusted_by: string | null
+          adjustment_reason: string | null
+          assistant_hourly_rate_cents: number | null
+          assistant_payment_amount_cents: number | null
+          assistant_trainer_id: string | null
+          cancellation_reason: string | null
+          cancellation_within_cutoff: boolean | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          capacity: number
+          contract_id: string | null
+          created_at: string
+          dispute_reason: string | null
+          dispute_resolution: string | null
+          disputed_at: string | null
+          disputed_by: string | null
+          duration_minutes: number
+          end_time: string
+          id: string
+          is_exception: boolean
+          is_makeup: boolean
+          is_paid: boolean
+          late_minutes: number | null
+          makeup_credit_id: string | null
+          modality: string
+          notes: string | null
+          original_payment_amount_cents: number | null
+          paid_at: string | null
+          payment_amount_cents: number | null
+          payment_hours: number | null
+          resolved_at: string | null
+          resolved_by: string | null
+          session_date: string
+          session_type: Database["public"]["Enums"]["session_type"]
+          start_time: string
+          status: Database["public"]["Enums"]["full_session_status"]
+          student_checkin_at: string | null
+          student_checkin_lat: number | null
+          student_checkin_lng: number | null
+          student_checkin_method:
+            | Database["public"]["Enums"]["checkin_method"]
+            | null
+          student_id: string | null
+          template_id: string | null
+          trainer_checkin_at: string | null
+          trainer_checkin_lat: number | null
+          trainer_checkin_lng: number | null
+          trainer_checkin_method:
+            | Database["public"]["Enums"]["checkin_method"]
+            | null
+          trainer_hourly_rate_cents: number | null
+          trainer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          actual_start_time?: string | null
+          adjusted_at?: string | null
+          adjusted_by?: string | null
+          adjustment_reason?: string | null
+          assistant_hourly_rate_cents?: number | null
+          assistant_payment_amount_cents?: number | null
+          assistant_trainer_id?: string | null
+          cancellation_reason?: string | null
+          cancellation_within_cutoff?: boolean | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          capacity?: number
+          contract_id?: string | null
+          created_at?: string
+          dispute_reason?: string | null
+          dispute_resolution?: string | null
+          disputed_at?: string | null
+          disputed_by?: string | null
+          duration_minutes?: number
+          end_time: string
+          id?: string
+          is_exception?: boolean
+          is_makeup?: boolean
+          is_paid?: boolean
+          late_minutes?: number | null
+          makeup_credit_id?: string | null
+          modality: string
+          notes?: string | null
+          original_payment_amount_cents?: number | null
+          paid_at?: string | null
+          payment_amount_cents?: number | null
+          payment_hours?: number | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          session_date: string
+          session_type?: Database["public"]["Enums"]["session_type"]
+          start_time: string
+          status?: Database["public"]["Enums"]["full_session_status"]
+          student_checkin_at?: string | null
+          student_checkin_lat?: number | null
+          student_checkin_lng?: number | null
+          student_checkin_method?:
+            | Database["public"]["Enums"]["checkin_method"]
+            | null
+          student_id?: string | null
+          template_id?: string | null
+          trainer_checkin_at?: string | null
+          trainer_checkin_lat?: number | null
+          trainer_checkin_lng?: number | null
+          trainer_checkin_method?:
+            | Database["public"]["Enums"]["checkin_method"]
+            | null
+          trainer_hourly_rate_cents?: number | null
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          actual_start_time?: string | null
+          adjusted_at?: string | null
+          adjusted_by?: string | null
+          adjustment_reason?: string | null
+          assistant_hourly_rate_cents?: number | null
+          assistant_payment_amount_cents?: number | null
+          assistant_trainer_id?: string | null
+          cancellation_reason?: string | null
+          cancellation_within_cutoff?: boolean | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          capacity?: number
+          contract_id?: string | null
+          created_at?: string
+          dispute_reason?: string | null
+          dispute_resolution?: string | null
+          disputed_at?: string | null
+          disputed_by?: string | null
+          duration_minutes?: number
+          end_time?: string
+          id?: string
+          is_exception?: boolean
+          is_makeup?: boolean
+          is_paid?: boolean
+          late_minutes?: number | null
+          makeup_credit_id?: string | null
+          modality?: string
+          notes?: string | null
+          original_payment_amount_cents?: number | null
+          paid_at?: string | null
+          payment_amount_cents?: number | null
+          payment_hours?: number | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          session_date?: string
+          session_type?: Database["public"]["Enums"]["session_type"]
+          start_time?: string
+          status?: Database["public"]["Enums"]["full_session_status"]
+          student_checkin_at?: string | null
+          student_checkin_lat?: number | null
+          student_checkin_lng?: number | null
+          student_checkin_method?:
+            | Database["public"]["Enums"]["checkin_method"]
+            | null
+          student_id?: string | null
+          template_id?: string | null
+          trainer_checkin_at?: string | null
+          trainer_checkin_lat?: number | null
+          trainer_checkin_lng?: number | null
+          trainer_checkin_method?:
+            | Database["public"]["Enums"]["checkin_method"]
+            | null
+          trainer_hourly_rate_cents?: number | null
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_assistant_trainer_id_fkey"
+            columns: ["assistant_trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_makeup_credit_id_fkey"
+            columns: ["makeup_credit_id"]
+            isOneToOne: false
+            referencedRelation: "makeup_credits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "class_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       students: {
         Row: {
@@ -912,6 +1241,95 @@ export type Database = {
           },
         ]
       }
+      trainers: {
+        Row: {
+          bank_account: string | null
+          bank_agency: string | null
+          bank_name: string | null
+          bio: string | null
+          certifications: string[] | null
+          cpf: string | null
+          created_at: string
+          email: string | null
+          full_name: string
+          hired_at: string | null
+          hourly_rate_assistant_cents: number
+          hourly_rate_main_cents: number
+          id: string
+          is_active: boolean
+          notes: string | null
+          payment_method: Database["public"]["Enums"]["trainer_payment_method"]
+          phone: string | null
+          pix_key: string | null
+          pix_key_type: string | null
+          profile_id: string | null
+          session_rate_cents: number
+          specialties: string[] | null
+          terminated_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          bank_account?: string | null
+          bank_agency?: string | null
+          bank_name?: string | null
+          bio?: string | null
+          certifications?: string[] | null
+          cpf?: string | null
+          created_at?: string
+          email?: string | null
+          full_name: string
+          hired_at?: string | null
+          hourly_rate_assistant_cents?: number
+          hourly_rate_main_cents?: number
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          payment_method?: Database["public"]["Enums"]["trainer_payment_method"]
+          phone?: string | null
+          pix_key?: string | null
+          pix_key_type?: string | null
+          profile_id?: string | null
+          session_rate_cents?: number
+          specialties?: string[] | null
+          terminated_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bank_account?: string | null
+          bank_agency?: string | null
+          bank_name?: string | null
+          bio?: string | null
+          certifications?: string[] | null
+          cpf?: string | null
+          created_at?: string
+          email?: string | null
+          full_name?: string
+          hired_at?: string | null
+          hourly_rate_assistant_cents?: number
+          hourly_rate_main_cents?: number
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          payment_method?: Database["public"]["Enums"]["trainer_payment_method"]
+          phone?: string | null
+          pix_key?: string | null
+          pix_key_type?: string | null
+          profile_id?: string | null
+          session_rate_cents?: number
+          specialties?: string[] | null
+          terminated_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trainers_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -935,7 +1353,62 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      payable_sessions: {
+        Row: {
+          assistant_hourly_rate_cents: number | null
+          assistant_payment_amount_cents: number | null
+          assistant_trainer_id: string | null
+          assistant_trainer_name: string | null
+          contract_id: string | null
+          duration_minutes: number | null
+          end_time: string | null
+          id: string | null
+          is_paid: boolean | null
+          modality: string | null
+          paid_at: string | null
+          payment_amount_cents: number | null
+          payment_hours: number | null
+          session_date: string | null
+          session_type: Database["public"]["Enums"]["session_type"] | null
+          start_time: string | null
+          status: Database["public"]["Enums"]["full_session_status"] | null
+          student_id: string | null
+          student_name: string | null
+          trainer_hourly_rate_cents: number | null
+          trainer_id: string | null
+          trainer_name: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_assistant_trainer_id_fkey"
+            columns: ["assistant_trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       has_role: {
@@ -953,8 +1426,18 @@ export type Database = {
     Enums: {
       app_role: "admin" | "instructor" | "student" | "manager" | "reception"
       booking_status: "confirmed" | "cancelled" | "waitlist" | "no_show"
+      checkin_method: "manual" | "qr_code" | "geolocation" | "auto"
       contract_status: "active" | "suspended" | "cancelled" | "expired"
       expense_status: "pending" | "paid" | "cancelled"
+      full_session_status:
+        | "scheduled"
+        | "cancelled_on_time"
+        | "cancelled_late"
+        | "no_show"
+        | "completed"
+        | "disputed"
+        | "adjusted"
+        | "late_arrival"
       interaction_type:
         | "phone_call"
         | "whatsapp"
@@ -964,6 +1447,7 @@ export type Database = {
         | "follow_up"
         | "note"
       invoice_status: "pending" | "paid" | "overdue" | "cancelled"
+      makeup_credit_status: "available" | "used" | "expired"
       payment_method:
         | "pix"
         | "credit_card"
@@ -991,7 +1475,9 @@ export type Database = {
         | "avulso"
         | "unico"
       session_status: "scheduled" | "cancelled" | "completed"
+      session_type: "personal" | "group"
       student_status: "lead" | "active" | "inactive" | "suspended"
+      trainer_payment_method: "hourly" | "per_session" | "hybrid"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1121,8 +1607,19 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "instructor", "student", "manager", "reception"],
       booking_status: ["confirmed", "cancelled", "waitlist", "no_show"],
+      checkin_method: ["manual", "qr_code", "geolocation", "auto"],
       contract_status: ["active", "suspended", "cancelled", "expired"],
       expense_status: ["pending", "paid", "cancelled"],
+      full_session_status: [
+        "scheduled",
+        "cancelled_on_time",
+        "cancelled_late",
+        "no_show",
+        "completed",
+        "disputed",
+        "adjusted",
+        "late_arrival",
+      ],
       interaction_type: [
         "phone_call",
         "whatsapp",
@@ -1133,6 +1630,7 @@ export const Constants = {
         "note",
       ],
       invoice_status: ["pending", "paid", "overdue", "cancelled"],
+      makeup_credit_status: ["available", "used", "expired"],
       payment_method: [
         "pix",
         "credit_card",
@@ -1163,7 +1661,9 @@ export const Constants = {
         "unico",
       ],
       session_status: ["scheduled", "cancelled", "completed"],
+      session_type: ["personal", "group"],
       student_status: ["lead", "active", "inactive", "suspended"],
+      trainer_payment_method: ["hourly", "per_session", "hybrid"],
     },
   },
 } as const
