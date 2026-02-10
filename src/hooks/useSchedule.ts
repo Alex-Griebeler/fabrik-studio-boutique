@@ -63,6 +63,12 @@ const COLOR_MAP: Record<string, string> = {
   warning: "bg-warning/15 text-warning border-warning/30",
   secondary: "bg-secondary/15 text-secondary border-secondary/30",
   accent: "bg-accent/30 text-accent-foreground border-accent/50",
+  purple: "bg-purple-500/15 text-purple-600 border-purple-500/30",
+  pink: "bg-pink-500/15 text-pink-600 border-pink-500/30",
+  orange: "bg-orange-500/15 text-orange-600 border-orange-500/30",
+  teal: "bg-teal-500/15 text-teal-600 border-teal-500/30",
+  indigo: "bg-indigo-500/15 text-indigo-600 border-indigo-500/30",
+  cyan: "bg-cyan-500/15 text-cyan-600 border-cyan-500/30",
 };
 
 export function getModalityColor(color: string): string {

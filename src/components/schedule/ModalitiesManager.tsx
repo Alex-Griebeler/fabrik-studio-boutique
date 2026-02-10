@@ -34,6 +34,12 @@ const AVAILABLE_COLORS = [
   { value: "success", label: "Verde" },
   { value: "warning", label: "Amarelo" },
   { value: "secondary", label: "Cinza" },
+  { value: "purple", label: "Roxo" },
+  { value: "pink", label: "Rosa" },
+  { value: "orange", label: "Laranja" },
+  { value: "teal", label: "Turquesa" },
+  { value: "indigo", label: "Índigo" },
+  { value: "cyan", label: "Ciano" },
 ];
 
 export function ModalitiesManager() {
@@ -165,7 +171,20 @@ export function ModalitiesManager() {
                   {AVAILABLE_COLORS.map((c) => (
                     <SelectItem key={c.value} value={c.value}>
                       <span className="flex items-center gap-2">
-                        <span className={cn("w-3 h-3 rounded-full", `bg-${c.value}`)} />
+                        <span className={cn("w-3 h-3 rounded-full shrink-0", {
+                          "bg-primary": c.value === "primary",
+                          "bg-destructive": c.value === "destructive",
+                          "bg-info": c.value === "info",
+                          "bg-success": c.value === "success",
+                          "bg-warning": c.value === "warning",
+                          "bg-secondary": c.value === "secondary",
+                          "bg-purple-500": c.value === "purple",
+                          "bg-pink-500": c.value === "pink",
+                          "bg-orange-500": c.value === "orange",
+                          "bg-teal-500": c.value === "teal",
+                          "bg-indigo-500": c.value === "indigo",
+                          "bg-cyan-500": c.value === "cyan",
+                        })} />
                         {c.label}
                       </span>
                     </SelectItem>
