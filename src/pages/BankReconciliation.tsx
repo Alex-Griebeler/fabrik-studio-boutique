@@ -37,10 +37,10 @@ const typeLabels: Record<string, string> = {
 };
 
 const matchStatusLabels: Record<string, string> = {
-  unmatched: "Não conciliado",
-  suggested: "Sugestão",
-  auto_matched: "Conciliado (auto)",
-  manual_matched: "Conciliado (manual)",
+  unmatched: "Pendente",
+  suggested: "Verificar",
+  auto_matched: "Vinculado",
+  manual_matched: "Vinculado",
   ignored: "Ignorado",
 };
 
@@ -192,7 +192,7 @@ export default function BankReconciliation() {
 
   return (
     <div>
-      <PageHeader title="Conciliação Bancária" description="Importe extratos e concilie com faturas e despesas" />
+      <PageHeader title="Conciliação Bancária" description="Importe extratos do banco e vincule cada movimentação à sua respectiva fatura ou despesa" />
 
       {/* Upload + Import selector */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -228,10 +228,12 @@ export default function BankReconciliation() {
                     disabled={matchMutation.isPending}
                   >
                     {matchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
-                    Sugerir Matches
+                    Buscar Vínculos
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Analisa transações e sugere matches para revisão</TooltipContent>
+                <TooltipContent className="max-w-xs text-center">
+                  O sistema compara as movimentações do extrato com suas faturas e despesas pendentes e sugere vínculos para você revisar antes de confirmar.
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
 
@@ -243,10 +245,12 @@ export default function BankReconciliation() {
                     disabled={matchMutation.isPending}
                   >
                     {matchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
-                    Auto-conciliar
+                    Vincular Automático
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Aplica automaticamente matches de alta confiança</TooltipContent>
+                <TooltipContent className="max-w-xs text-center">
+                  Vincula automaticamente as movimentações do extrato que têm correspondência exata (mesmo valor e data) com faturas ou despesas pendentes — sem necessidade de revisão.
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
@@ -259,8 +263,8 @@ export default function BankReconciliation() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Wand2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              <span className="text-sm font-semibold text-blue-800 dark:text-blue-300">
-                {matchSuggestions.length} sugestões de match encontradas
+               <span className="text-sm font-semibold text-blue-800 dark:text-blue-300">
+                 {matchSuggestions.length} possíveis vínculos encontrados
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -288,7 +292,7 @@ export default function BankReconciliation() {
             </div>
           </div>
           <p className="text-xs text-blue-600 dark:text-blue-400">
-            Marque as sugestões desejadas e aprove em lote, ou aprove/rejeite individualmente.
+            Revise os vínculos sugeridos. Marque os corretos e confirme em lote, ou confirme/descarte um por um.
           </p>
         </div>
       )}
@@ -300,10 +304,10 @@ export default function BankReconciliation() {
           <KPICard title="Créditos" value={formatCents(kpis.credits)} icon={ArrowDownCircle} />
           <KPICard title="Débitos" value={formatCents(kpis.debits)} icon={ArrowUpCircle} />
           <KPICard
-            title="Conciliados"
+            title="Vinculados"
             value={`${kpis.matched} / ${kpis.total}`}
             icon={kpis.unmatched > 0 ? AlertCircle : CheckCircle2}
-            description={kpis.unmatched > 0 ? `${kpis.unmatched} pendentes` : "Tudo conciliado!"}
+            description={kpis.unmatched > 0 ? `${kpis.unmatched} pendentes` : "Tudo vinculado!"}
           />
         </div>
       )}
@@ -317,9 +321,9 @@ export default function BankReconciliation() {
               <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="credit">Créditos</SelectItem>
               <SelectItem value="debit">Débitos</SelectItem>
-              <SelectItem value="unmatched">Não conciliados</SelectItem>
-              <SelectItem value="auto_matched">Conciliados (auto)</SelectItem>
-              <SelectItem value="manual_matched">Conciliados (manual)</SelectItem>
+              <SelectItem value="unmatched">Pendentes</SelectItem>
+              <SelectItem value="auto_matched">Vinculados (automático)</SelectItem>
+              <SelectItem value="manual_matched">Vinculados (manual)</SelectItem>
               <SelectItem value="ignored">Ignorados</SelectItem>
             </SelectContent>
           </Select>
@@ -415,7 +419,7 @@ export default function BankReconciliation() {
                                       <Check className="h-4 w-4" />
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>Aprovar match ({suggestion.matched_type === "invoice" ? "fatura" : "despesa"})</TooltipContent>
+                                  <TooltipContent>Confirmar vínculo com {suggestion.matched_type === "invoice" ? "fatura" : "despesa"}</TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
                               <TooltipProvider>
@@ -430,7 +434,7 @@ export default function BankReconciliation() {
                                       <X className="h-4 w-4" />
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>Rejeitar sugestão</TooltipContent>
+                                  <TooltipContent>Descartar sugestão</TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
                             </>
