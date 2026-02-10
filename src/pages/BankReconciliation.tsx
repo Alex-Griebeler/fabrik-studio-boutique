@@ -1,19 +1,20 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
 import {
   Upload, FileText, ArrowDownCircle, ArrowUpCircle, CheckCircle2, AlertCircle,
-  Loader2, Wand2, Check, X, EyeOff, Zap,
+  Loader2, Wand2, Check, X, EyeOff, Zap, CheckSquare,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { KPICard } from "@/components/shared/KPICard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useBankImports, useBankTransactions, useUploadBankStatement,
-  useRunMatching, useApproveMatch, useRejectMatch, useIgnoreTransaction,
+  useRunMatching, useApproveMatch, useRejectMatch, useIgnoreTransaction, useBatchApproveMatches,
   type MatchSuggestion,
 } from "@/hooks/useBankReconciliation";
 import { formatCents } from "@/hooks/usePlans";
@@ -73,6 +74,7 @@ export default function BankReconciliation() {
   const [selectedImport, setSelectedImport] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>("all");
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
+  const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
 
   const { data: imports, isLoading: loadingImports } = useBankImports();
   const { data: transactions, isLoading: loadingTx } = useBankTransactions(selectedImport ?? imports?.[0]?.id ?? null);
@@ -81,6 +83,7 @@ export default function BankReconciliation() {
   const approveMutation = useApproveMatch();
   const rejectMutation = useRejectMatch();
   const ignoreMutation = useIgnoreTransaction();
+  const batchApproveMutation = useBatchApproveMatches();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -139,12 +142,52 @@ export default function BankReconciliation() {
   const handleApprove = (suggestion: MatchSuggestion) => {
     approveMutation.mutate(
       { transactionId: suggestion.transaction_id, matchedType: suggestion.matched_type, matchedId: suggestion.matched_id },
-      { onSuccess: () => setMatchSuggestions((prev) => prev.filter((s) => s.transaction_id !== suggestion.transaction_id)) }
+      { onSuccess: () => {
+        setMatchSuggestions((prev) => prev.filter((s) => s.transaction_id !== suggestion.transaction_id));
+        setSelectedTxIds((prev) => { const next = new Set(prev); next.delete(suggestion.transaction_id); return next; });
+      }}
     );
   };
 
   const handleReject = (transactionId: string) => {
     setMatchSuggestions((prev) => prev.filter((s) => s.transaction_id !== transactionId));
+    setSelectedTxIds((prev) => { const next = new Set(prev); next.delete(transactionId); return next; });
+  };
+
+  const toggleSelect = useCallback((txId: string) => {
+    setSelectedTxIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(txId)) next.delete(txId); else next.add(txId);
+      return next;
+    });
+  }, []);
+
+  const selectableSuggestions = useMemo(() => {
+    return matchSuggestions.filter((s) => {
+      const tx = transactions?.find((t) => t.id === s.transaction_id);
+      return tx && tx.match_status === "unmatched";
+    });
+  }, [matchSuggestions, transactions]);
+
+  const toggleSelectAll = useCallback(() => {
+    const allIds = selectableSuggestions.map((s) => s.transaction_id);
+    const allSelected = allIds.every((id) => selectedTxIds.has(id));
+    if (allSelected) {
+      setSelectedTxIds(new Set());
+    } else {
+      setSelectedTxIds(new Set(allIds));
+    }
+  }, [selectableSuggestions, selectedTxIds]);
+
+  const handleBatchApprove = () => {
+    const toApprove = selectableSuggestions.filter((s) => selectedTxIds.has(s.transaction_id));
+    if (!toApprove.length) return;
+    batchApproveMutation.mutate(toApprove, {
+      onSuccess: () => {
+        setMatchSuggestions((prev) => prev.filter((s) => !selectedTxIds.has(s.transaction_id)));
+        setSelectedTxIds(new Set());
+      },
+    });
   };
 
   return (
@@ -213,14 +256,39 @@ export default function BankReconciliation() {
       {/* Match suggestions banner */}
       {matchSuggestions.length > 0 && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-4 mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Wand2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            <span className="text-sm font-semibold text-blue-800 dark:text-blue-300">
-              {matchSuggestions.length} sugestões de match encontradas
-            </span>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Wand2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <span className="text-sm font-semibold text-blue-800 dark:text-blue-300">
+                {matchSuggestions.length} sugestões de match encontradas
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {selectedTxIds.size} selecionadas
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={toggleSelectAll}
+              >
+                <CheckSquare className="h-4 w-4 mr-1" />
+                {selectableSuggestions.length > 0 && selectableSuggestions.every((s) => selectedTxIds.has(s.transaction_id))
+                  ? "Desmarcar todas"
+                  : "Selecionar todas"}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleBatchApprove}
+                disabled={selectedTxIds.size === 0 || batchApproveMutation.isPending}
+              >
+                {batchApproveMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />}
+                Aprovar selecionadas ({selectedTxIds.size})
+              </Button>
+            </div>
           </div>
-          <p className="text-xs text-blue-600 dark:text-blue-400 mb-3">
-            Revise as sugestões na tabela abaixo e aprove ou rejeite cada uma.
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            Marque as sugestões desejadas e aprove em lote, ou aprove/rejeite individualmente.
           </p>
         </div>
       )}
@@ -264,6 +332,7 @@ export default function BankReconciliation() {
           <Table>
             <TableHeader>
               <TableRow>
+                {matchSuggestions.length > 0 && <TableHead className="w-[40px]" />}
                 <TableHead>Data</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Descrição</TableHead>
@@ -276,11 +345,11 @@ export default function BankReconciliation() {
             <TableBody>
               {loadingTx ? (
                 Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}><TableCell colSpan={7}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
+                  <TableRow key={i}><TableCell colSpan={matchSuggestions.length > 0 ? 8 : 7}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
                 ))
               ) : !filteredTx.length ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={matchSuggestions.length > 0 ? 8 : 7} className="text-center text-muted-foreground py-8">
                     Nenhuma transação encontrada
                   </TableCell>
                 </TableRow>
@@ -290,6 +359,16 @@ export default function BankReconciliation() {
                   const hasSuggestion = !!suggestion && tx.match_status === "unmatched";
                   return (
                     <TableRow key={tx.id} className={hasSuggestion ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}>
+                      {matchSuggestions.length > 0 && (
+                        <TableCell>
+                          {hasSuggestion && (
+                            <Checkbox
+                              checked={selectedTxIds.has(tx.id)}
+                              onCheckedChange={() => toggleSelect(tx.id)}
+                            />
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell>{formatDate(tx.posted_date)}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className={tx.transaction_type === "credit"

@@ -221,3 +221,47 @@ export function useIgnoreTransaction() {
     onError: () => toast.error("Erro ao ignorar transação."),
   });
 }
+
+export function useBatchApproveMatches() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (suggestions: MatchSuggestion[]) => {
+      for (const s of suggestions) {
+        const updateData: Record<string, unknown> = {
+          match_status: "manual_matched",
+          match_confidence: "manual",
+          matched_at: new Date().toISOString(),
+        };
+        if (s.matched_type === "invoice") {
+          updateData.matched_invoice_id = s.matched_id;
+        } else {
+          updateData.matched_expense_id = s.matched_id;
+        }
+        const { error } = await supabase
+          .from("bank_transactions")
+          .update(updateData)
+          .eq("id", s.transaction_id);
+        if (error) throw error;
+
+        const { data: tx } = await supabase
+          .from("bank_transactions")
+          .select("posted_date")
+          .eq("id", s.transaction_id)
+          .maybeSingle();
+
+        if (s.matched_type === "invoice") {
+          await supabase.from("invoices").update({ status: "paid", payment_date: tx?.posted_date }).eq("id", s.matched_id);
+        } else {
+          await supabase.from("expenses").update({ status: "paid", payment_date: tx?.posted_date }).eq("id", s.matched_id);
+        }
+      }
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      toast.success(`${variables.length} matches aprovados em lote!`);
+    },
+    onError: () => toast.error("Erro ao aprovar matches em lote."),
+  });
+}
