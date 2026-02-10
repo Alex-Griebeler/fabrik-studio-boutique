@@ -1,12 +1,12 @@
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ClassSession, ClassModality } from "@/hooks/useSchedule";
+import { ClassSession } from "@/hooks/useSchedule";
 import { SessionCard } from "./SessionCard";
 
 interface Props {
   sessions: ClassSession[];
   selectedDate: Date;
-  modalityFilter: ClassModality | "all";
+  modalityFilter: string;
 }
 
 export function DailyList({ sessions, selectedDate, modalityFilter }: Props) {

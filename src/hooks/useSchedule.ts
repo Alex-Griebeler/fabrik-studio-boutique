@@ -2,13 +2,21 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-export type ClassModality = "btb" | "hiit" | "personal" | "pilates" | "recovery";
 export type SessionStatus = "scheduled" | "cancelled" | "completed";
 export type BookingStatus = "confirmed" | "cancelled" | "waitlist" | "no_show";
 
+export interface ClassModality {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
 export interface ClassTemplate {
   id: string;
-  modality: ClassModality;
+  modality: string;
   day_of_week: number;
   start_time: string;
   duration_minutes: number;
@@ -26,7 +34,7 @@ export interface ClassSession {
   session_date: string;
   start_time: string;
   duration_minutes: number;
-  modality: ClassModality;
+  modality: string;
   capacity: number;
   instructor_id: string | null;
   status: SessionStatus;
@@ -46,21 +54,93 @@ export interface ClassBooking {
   student?: { id: string; full_name: string } | null;
 }
 
-export const MODALITY_LABELS: Record<ClassModality, string> = {
-  btb: "BTB",
-  hiit: "HIIT",
-  personal: "Personal",
-  pilates: "Pilates",
-  recovery: "Recovery",
+// Color map for modality slugs → tailwind classes
+const COLOR_MAP: Record<string, string> = {
+  primary: "bg-primary/15 text-primary border-primary/30",
+  destructive: "bg-destructive/15 text-destructive border-destructive/30",
+  info: "bg-info/15 text-info border-info/30",
+  success: "bg-success/15 text-success border-success/30",
+  warning: "bg-warning/15 text-warning border-warning/30",
+  secondary: "bg-secondary/15 text-secondary border-secondary/30",
+  accent: "bg-accent/30 text-accent-foreground border-accent/50",
 };
 
-export const MODALITY_COLORS: Record<ClassModality, string> = {
-  btb: "bg-primary/15 text-primary border-primary/30",
-  hiit: "bg-destructive/15 text-destructive border-destructive/30",
-  personal: "bg-info/15 text-info border-info/30",
-  pilates: "bg-success/15 text-success border-success/30",
-  recovery: "bg-warning/15 text-warning border-warning/30",
-};
+export function getModalityColor(color: string): string {
+  return COLOR_MAP[color] || COLOR_MAP.primary;
+}
+
+// --- Modalities ---
+export function useModalities() {
+  return useQuery({
+    queryKey: ["class_modalities"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("class_modalities")
+        .select("*")
+        .order("sort_order");
+      if (error) throw error;
+      return data as unknown as ClassModality[];
+    },
+  });
+}
+
+export function useActiveModalities() {
+  const { data: all, ...rest } = useModalities();
+  return { data: all?.filter((m) => m.is_active), ...rest };
+}
+
+export function useCreateModality() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { name: string; slug: string; color: string; sort_order?: number }) => {
+      const { error } = await supabase.from("class_modalities").insert({
+        name: data.name,
+        slug: data.slug,
+        color: data.color,
+        sort_order: data.sort_order ?? 0,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_modalities"] });
+      toast.success("Modalidade criada!");
+    },
+    onError: (e: any) => {
+      if (e?.message?.includes("duplicate")) toast.error("Slug já existe.");
+      else toast.error("Erro ao criar modalidade.");
+    },
+  });
+}
+
+export function useUpdateModality() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: string; name?: string; slug?: string; color?: string; is_active?: boolean; sort_order?: number }) => {
+      const { error } = await supabase.from("class_modalities").update(data).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_modalities"] });
+      toast.success("Modalidade atualizada!");
+    },
+    onError: () => toast.error("Erro ao atualizar modalidade."),
+  });
+}
+
+export function useDeleteModality() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("class_modalities").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_modalities"] });
+      toast.success("Modalidade removida!");
+    },
+    onError: () => toast.error("Erro ao remover. Verifique se não há aulas vinculadas."),
+  });
+}
 
 // --- Templates ---
 export function useClassTemplates() {
@@ -133,7 +213,7 @@ export function useCreateSession() {
       session_date: string;
       start_time: string;
       duration_minutes: number;
-      modality: ClassModality;
+      modality: string;
       capacity: number;
       instructor_id?: string | null;
       notes?: string | null;

@@ -56,6 +56,39 @@ export type Database = {
           },
         ]
       }
+      class_modalities: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       class_sessions: {
         Row: {
           capacity: number
@@ -63,7 +96,7 @@ export type Database = {
           duration_minutes: number
           id: string
           instructor_id: string | null
-          modality: Database["public"]["Enums"]["class_modality"]
+          modality: string
           notes: string | null
           session_date: string
           start_time: string
@@ -77,7 +110,7 @@ export type Database = {
           duration_minutes?: number
           id?: string
           instructor_id?: string | null
-          modality: Database["public"]["Enums"]["class_modality"]
+          modality: string
           notes?: string | null
           session_date: string
           start_time: string
@@ -91,7 +124,7 @@ export type Database = {
           duration_minutes?: number
           id?: string
           instructor_id?: string | null
-          modality?: Database["public"]["Enums"]["class_modality"]
+          modality?: string
           notes?: string | null
           session_date?: string
           start_time?: string
@@ -126,7 +159,7 @@ export type Database = {
           instructor_id: string | null
           is_active: boolean
           location: string | null
-          modality: Database["public"]["Enums"]["class_modality"]
+          modality: string
           start_time: string
           updated_at: string
         }
@@ -139,7 +172,7 @@ export type Database = {
           instructor_id?: string | null
           is_active?: boolean
           location?: string | null
-          modality: Database["public"]["Enums"]["class_modality"]
+          modality: string
           start_time: string
           updated_at?: string
         }
@@ -152,7 +185,7 @@ export type Database = {
           instructor_id?: string | null
           is_active?: boolean
           location?: string | null
-          modality?: Database["public"]["Enums"]["class_modality"]
+          modality?: string
           start_time?: string
           updated_at?: string
         }
@@ -507,7 +540,6 @@ export type Database = {
     Enums: {
       app_role: "admin" | "instructor" | "student" | "manager" | "reception"
       booking_status: "confirmed" | "cancelled" | "waitlist" | "no_show"
-      class_modality: "btb" | "hiit" | "personal" | "pilates" | "recovery"
       contract_status: "active" | "suspended" | "cancelled" | "expired"
       invoice_status: "pending" | "paid" | "overdue" | "cancelled"
       payment_method:
@@ -667,7 +699,6 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "instructor", "student", "manager", "reception"],
       booking_status: ["confirmed", "cancelled", "waitlist", "no_show"],
-      class_modality: ["btb", "hiit", "personal", "pilates", "recovery"],
       contract_status: ["active", "suspended", "cancelled", "expired"],
       invoice_status: ["pending", "paid", "overdue", "cancelled"],
       payment_method: [

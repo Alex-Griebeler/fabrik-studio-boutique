@@ -1,13 +1,12 @@
 import { useMemo } from "react";
-import { format, addDays, startOfWeek } from "date-fns";
-import { ptBR } from "date-fns/locale";
-import { ClassSession, ClassModality } from "@/hooks/useSchedule";
+import { format, addDays } from "date-fns";
+import { ClassSession } from "@/hooks/useSchedule";
 import { SessionCard } from "./SessionCard";
 
 interface Props {
   sessions: ClassSession[];
   weekStart: Date;
-  modalityFilter: ClassModality | "all";
+  modalityFilter: string;
 }
 
 const DAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
