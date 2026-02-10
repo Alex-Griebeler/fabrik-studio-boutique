@@ -15,6 +15,7 @@ import Leads from "@/pages/Leads";
 import Finance from "@/pages/Finance";
 import Schedule from "@/pages/Schedule";
 import Reports from "@/pages/Reports";
+import Expenses from "@/pages/Expenses";
 import SettingsPage from "@/pages/SettingsPage";
 import Plans from "@/pages/Plans";
 import NotFound from "@/pages/NotFound";
@@ -77,6 +78,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AppLayout><Finance /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/expenses"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout><Expenses /></AppLayout>
                   </ProtectedRoute>
                 }
               />

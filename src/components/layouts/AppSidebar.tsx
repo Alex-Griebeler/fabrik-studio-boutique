@@ -3,6 +3,7 @@ import {
   Users,
   UserPlus,
   DollarSign,
+  Receipt,
   CalendarDays,
   BarChart3,
   Settings,
@@ -37,6 +38,7 @@ const managementItems = [
 
 const financeItems = [
   { title: "Financeiro", url: "/finance", icon: DollarSign },
+  { title: "Despesas", url: "/expenses", icon: Receipt },
 ];
 
 const operationalItems = [
