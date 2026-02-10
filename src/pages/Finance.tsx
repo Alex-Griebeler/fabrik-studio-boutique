@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Plus, FileText, ScrollText, Search } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Plus, FileText, ScrollText, Search, DollarSign, TrendingUp, AlertTriangle, CheckCircle } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { KPICard } from "@/components/shared/KPICard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,10 @@ function formatDate(d: string | null) {
 export default function Finance() {
   const [tab, setTab] = useState("contracts");
 
+  // All data for KPIs (unfiltered)
+  const { data: allContracts } = useContracts("all");
+  const { data: allInvoices } = useInvoices("all");
+
   // Contracts state
   const [contractStatus, setContractStatus] = useState<"all" | ContractStatus>("all");
   const [contractSearch, setContractSearch] = useState("");
@@ -49,6 +54,28 @@ export default function Finance() {
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const { data: invoices, isLoading: loadingInvoices } = useInvoices(invoiceStatus);
 
+  // KPI calculations
+  const kpis = useMemo(() => {
+    const activeContracts = allContracts?.filter((c) => c.status === "active").length ?? 0;
+    const monthlyRevenue = allContracts
+      ?.filter((c) => c.status === "active")
+      .reduce((sum, c) => sum + ((c.monthly_value_cents || 0) - (c.discount_cents || 0)), 0) ?? 0;
+    const paidThisMonth = allInvoices
+      ?.filter((i) => {
+        if (i.status !== "paid" || !i.payment_date) return false;
+        const now = new Date();
+        const pd = new Date(i.payment_date + "T00:00:00");
+        return pd.getMonth() === now.getMonth() && pd.getFullYear() === now.getFullYear();
+      })
+      .reduce((sum, i) => sum + (i.paid_amount_cents || i.amount_cents), 0) ?? 0;
+    const overdueCount = allInvoices?.filter((i) => i.status === "overdue").length ?? 0;
+    const overdueTotal = allInvoices
+      ?.filter((i) => i.status === "overdue")
+      .reduce((sum, i) => sum + i.amount_cents, 0) ?? 0;
+
+    return { activeContracts, monthlyRevenue, paidThisMonth, overdueCount, overdueTotal };
+  }, [allContracts, allInvoices]);
+
   const filteredContracts = contracts?.filter((c) =>
     !contractSearch.trim() || c.student?.full_name?.toLowerCase().includes(contractSearch.toLowerCase())
   );
@@ -60,6 +87,18 @@ export default function Finance() {
   return (
     <div>
       <PageHeader title="Financeiro" description="Contratos, faturas e pagamentos" />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <KPICard title="Contratos Ativos" value={String(kpis.activeContracts)} icon={ScrollText} />
+        <KPICard title="Receita Mensal Prevista" value={formatCents(kpis.monthlyRevenue)} icon={TrendingUp} />
+        <KPICard title="Recebido este Mês" value={formatCents(kpis.paidThisMonth)} icon={CheckCircle} />
+        <KPICard
+          title="Inadimplência"
+          value={`${kpis.overdueCount} faturas`}
+          icon={AlertTriangle}
+          description={kpis.overdueTotal > 0 ? formatCents(kpis.overdueTotal) : undefined}
+        />
+      </div>
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList>
