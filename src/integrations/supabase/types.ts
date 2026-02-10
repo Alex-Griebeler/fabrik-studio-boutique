@@ -283,6 +283,95 @@ export type Database = {
           },
         ]
       }
+      expense_categories: {
+        Row: {
+          color: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      expenses: {
+        Row: {
+          amount_cents: number
+          category_id: string
+          created_at: string
+          description: string
+          due_date: string
+          id: string
+          notes: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          recurrence: string | null
+          status: Database["public"]["Enums"]["expense_status"]
+          updated_at: string
+        }
+        Insert: {
+          amount_cents: number
+          category_id: string
+          created_at?: string
+          description: string
+          due_date: string
+          id?: string
+          notes?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          recurrence?: string | null
+          status?: Database["public"]["Enums"]["expense_status"]
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          category_id?: string
+          created_at?: string
+          description?: string
+          due_date?: string
+          id?: string
+          notes?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          recurrence?: string | null
+          status?: Database["public"]["Enums"]["expense_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoices: {
         Row: {
           amount_cents: number
@@ -550,6 +639,7 @@ export type Database = {
       app_role: "admin" | "instructor" | "student" | "manager" | "reception"
       booking_status: "confirmed" | "cancelled" | "waitlist" | "no_show"
       contract_status: "active" | "suspended" | "cancelled" | "expired"
+      expense_status: "pending" | "paid" | "cancelled"
       invoice_status: "pending" | "paid" | "overdue" | "cancelled"
       payment_method:
         | "pix"
@@ -709,6 +799,7 @@ export const Constants = {
       app_role: ["admin", "instructor", "student", "manager", "reception"],
       booking_status: ["confirmed", "cancelled", "waitlist", "no_show"],
       contract_status: ["active", "suspended", "cancelled", "expired"],
+      expense_status: ["pending", "paid", "cancelled"],
       invoice_status: ["pending", "paid", "overdue", "cancelled"],
       payment_method: [
         "pix",
