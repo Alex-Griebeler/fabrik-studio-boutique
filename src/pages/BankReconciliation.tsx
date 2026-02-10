@@ -245,7 +245,7 @@ export default function BankReconciliation() {
                     disabled={matchMutation.isPending}
                   >
                     {matchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
-                    Vincular Automático
+                    Vincular Automaticamente
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-center">
