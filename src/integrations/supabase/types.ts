@@ -635,6 +635,121 @@ export type Database = {
           },
         ]
       }
+      nfse: {
+        Row: {
+          amount_cents: number
+          api_response: Json | null
+          authorization_date: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          contract_id: string | null
+          created_at: string
+          created_by: string | null
+          email_sent: boolean | null
+          email_sent_at: string | null
+          email_sent_to: string[] | null
+          error_message: string | null
+          external_id: string | null
+          id: string
+          invoice_id: string
+          nfse_number: string | null
+          pdf_url: string | null
+          service_description: string
+          status: string
+          student_id: string | null
+          tomador_cpf: string | null
+          tomador_email: string | null
+          tomador_endereco: Json | null
+          tomador_nome: string
+          updated_at: string
+          verification_code: string | null
+          xml_url: string | null
+        }
+        Insert: {
+          amount_cents: number
+          api_response?: Json | null
+          authorization_date?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          contract_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          email_sent?: boolean | null
+          email_sent_at?: string | null
+          email_sent_to?: string[] | null
+          error_message?: string | null
+          external_id?: string | null
+          id?: string
+          invoice_id: string
+          nfse_number?: string | null
+          pdf_url?: string | null
+          service_description?: string
+          status?: string
+          student_id?: string | null
+          tomador_cpf?: string | null
+          tomador_email?: string | null
+          tomador_endereco?: Json | null
+          tomador_nome: string
+          updated_at?: string
+          verification_code?: string | null
+          xml_url?: string | null
+        }
+        Update: {
+          amount_cents?: number
+          api_response?: Json | null
+          authorization_date?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          contract_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          email_sent?: boolean | null
+          email_sent_at?: string | null
+          email_sent_to?: string[] | null
+          error_message?: string | null
+          external_id?: string | null
+          id?: string
+          invoice_id?: string
+          nfse_number?: string | null
+          pdf_url?: string | null
+          service_description?: string
+          status?: string
+          student_id?: string | null
+          tomador_cpf?: string | null
+          tomador_email?: string | null
+          tomador_endereco?: Json | null
+          tomador_nome?: string
+          updated_at?: string
+          verification_code?: string | null
+          xml_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfse_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfse_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfse_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plans: {
         Row: {
           category: Database["public"]["Enums"]["plan_category"]

@@ -106,10 +106,27 @@ export function useUpdateInvoice() {
         notes: data.notes || null,
       }).eq("id", id);
       if (error) throw error;
+
+      // Se marcou como paga, disparar emissão de NF-e automaticamente
+      if (data.status === "paid") {
+        try {
+          await supabase.functions.invoke("emit-nfse", {
+            body: { invoice_id: id },
+          });
+        } catch {
+          // Não bloquear o fluxo se a NF-e falhar
+          console.warn("NF-e emission failed, will retry later");
+        }
+      }
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
-      toast.success("Fatura atualizada!");
+      qc.invalidateQueries({ queryKey: ["nfse"] });
+      if (variables.data.status === "paid") {
+        toast.success("Fatura paga! NF-e sendo emitida automaticamente.");
+      } else {
+        toast.success("Fatura atualizada!");
+      }
     },
     onError: () => toast.error("Erro ao atualizar fatura."),
   });

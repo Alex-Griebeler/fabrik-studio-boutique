@@ -1,1 +1,4 @@
 project_id = "hcfzqeutssngprldtymo"
+
+[functions.emit-nfse]
+verify_jwt = false

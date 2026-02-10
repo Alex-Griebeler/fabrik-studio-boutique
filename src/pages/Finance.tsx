@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, FileText, ScrollText, Search, DollarSign, TrendingUp, AlertTriangle, CheckCircle } from "lucide-react";
+import { Plus, FileText, ScrollText, Search, DollarSign, TrendingUp, AlertTriangle, CheckCircle, Receipt } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { KPICard } from "@/components/shared/KPICard";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { useInvoices, invoiceStatusLabels, invoiceStatusColors, type Invoice } f
 import { formatCents } from "@/hooks/usePlans";
 import { ContractFormDialog } from "@/components/finance/ContractFormDialog";
 import { InvoiceFormDialog } from "@/components/finance/InvoiceFormDialog";
+import { NfseTab } from "@/components/finance/NfseTab";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { Database } from "@/integrations/supabase/types";
@@ -107,6 +108,9 @@ export default function Finance() {
           </TabsTrigger>
           <TabsTrigger value="invoices" className="gap-1.5">
             <FileText className="h-4 w-4" /> Faturas
+          </TabsTrigger>
+          <TabsTrigger value="nfse" className="gap-1.5">
+            <Receipt className="h-4 w-4" /> NF-e
           </TabsTrigger>
         </TabsList>
 
@@ -248,6 +252,11 @@ export default function Finance() {
               </TableBody>
             </Table>
           </div>
+        </TabsContent>
+
+        {/* NF-e TAB */}
+        <TabsContent value="nfse">
+          <NfseTab />
         </TabsContent>
       </Tabs>
 
