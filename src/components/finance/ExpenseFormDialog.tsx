@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useCreateExpense,
@@ -13,6 +13,7 @@ import {
   type Expense,
   type ExpenseFormData,
   type ExpenseStatus,
+  type ExpenseCategory,
 } from "@/hooks/useExpenses";
 import { paymentMethodLabels } from "@/hooks/useContracts";
 import type { Database } from "@/integrations/supabase/types";
@@ -37,6 +38,20 @@ export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
   const { data: categories } = useExpenseCategories();
   const createExpense = useCreateExpense();
   const updateExpense = useUpdateExpense();
+
+  // Build grouped categories: groups (parent_id=null) with children
+  const grouped = useMemo(() => {
+    if (!categories) return [];
+    const groups = categories.filter((c) => !c.parent_id);
+    const childMap = new Map<string, ExpenseCategory[]>();
+    categories.filter((c) => c.parent_id).forEach((c) => {
+      const arr = childMap.get(c.parent_id!) || [];
+      arr.push(c);
+      childMap.set(c.parent_id!, arr);
+    });
+    // Only show groups that have children, or standalone categories (no parent, no children)
+    return groups.map((g) => ({ group: g, children: childMap.get(g.id) || [] }));
+  }, [categories]);
 
   const [form, setForm] = useState<ExpenseFormData>({
     category_id: "",
@@ -92,15 +107,24 @@ export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
           <DialogTitle>{expense ? "Editar Despesa" : "Nova Despesa"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Category */}
+          {/* Category — grouped select */}
           <div className="space-y-1.5">
             <Label>Categoria *</Label>
             <Select value={form.category_id} onValueChange={(v) => setForm({ ...form, category_id: v })}>
               <SelectTrigger><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
               <SelectContent>
-                {categories?.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
+                {grouped.map(({ group, children }) =>
+                  children.length > 0 ? (
+                    <SelectGroup key={group.id}>
+                      <SelectLabel className="text-xs font-semibold text-muted-foreground">{group.name}</SelectLabel>
+                      {children.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ) : (
+                    <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>

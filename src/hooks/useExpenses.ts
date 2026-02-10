@@ -28,6 +28,7 @@ export interface ExpenseCategory {
   color: string;
   is_active: boolean;
   sort_order: number;
+  parent_id: string | null;
 }
 
 export interface Expense {
@@ -58,7 +59,21 @@ export interface ExpenseFormData {
   notes?: string;
 }
 
-/* ── Categories ── */
+/* ── Categories (all, including inactive for management) ── */
+
+export function useAllExpenseCategories() {
+  return useQuery({
+    queryKey: ["expense_categories", "all"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("expense_categories")
+        .select("*")
+        .order("sort_order");
+      if (error) throw error;
+      return data as ExpenseCategory[];
+    },
+  });
+}
 
 export function useExpenseCategories() {
   return useQuery({
@@ -72,6 +87,42 @@ export function useExpenseCategories() {
       if (error) throw error;
       return data as ExpenseCategory[];
     },
+  });
+}
+
+export function useCreateExpenseCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { name: string; slug: string; color?: string; parent_id?: string | null; sort_order?: number }) => {
+      const { error } = await supabase.from("expense_categories").insert({
+        name: data.name,
+        slug: data.slug,
+        color: data.color ?? "gray",
+        parent_id: data.parent_id ?? null,
+        sort_order: data.sort_order ?? 0,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expense_categories"] });
+      toast.success("Categoria criada!");
+    },
+    onError: () => toast.error("Erro ao criar categoria."),
+  });
+}
+
+export function useUpdateExpenseCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<{ name: string; slug: string; color: string; is_active: boolean; sort_order: number; parent_id: string | null }> }) => {
+      const { error } = await supabase.from("expense_categories").update(data).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expense_categories"] });
+      toast.success("Categoria atualizada!");
+    },
+    onError: () => toast.error("Erro ao atualizar categoria."),
   });
 }
 
