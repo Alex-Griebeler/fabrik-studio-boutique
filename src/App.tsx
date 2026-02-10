@@ -10,6 +10,7 @@ import { AppLayout } from "@/components/layouts/AppLayout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Students from "@/pages/Students";
+import StudentProfile from "@/pages/StudentProfile";
 import Leads from "@/pages/Leads";
 import Finance from "@/pages/Finance";
 import Schedule from "@/pages/Schedule";
@@ -44,6 +45,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AppLayout><Students /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/students/:id"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout><StudentProfile /></AppLayout>
                   </ProtectedRoute>
                 }
               />

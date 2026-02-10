@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Search, Users, Pencil } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Search, Users, Pencil, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
 };
 
 export default function Students() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StudentStatusFilter>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -108,7 +110,7 @@ export default function Students() {
               {students.map((student) => {
                 const sc = statusConfig[student.status] ?? statusConfig.active;
                 return (
-                  <TableRow key={student.id} className="group">
+                  <TableRow key={student.id} className="group cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/students/${student.id}`)}>
                     <TableCell className="font-medium">{student.full_name}</TableCell>
                     <TableCell className="hidden md:table-cell text-muted-foreground text-sm">{student.email || "—"}</TableCell>
                     <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">{student.phone || "—"}</TableCell>
@@ -119,9 +121,11 @@ export default function Students() {
                       <Badge variant={sc.variant}>{sc.label}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleEdit(student)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); handleEdit(student); }}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
