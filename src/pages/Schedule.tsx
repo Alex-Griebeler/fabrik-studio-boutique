@@ -10,6 +10,7 @@ import { WeeklyCalendar } from "@/components/schedule/WeeklyCalendar";
 import { DailyList } from "@/components/schedule/DailyList";
 import { SessionFormDialog } from "@/components/schedule/SessionFormDialog";
 import { ModalitiesManager } from "@/components/schedule/ModalitiesManager";
+import { TemplateManager } from "@/components/schedule/TemplateManager";
 
 export default function Schedule() {
   const [view, setView] = useState<"week" | "day">("week");
@@ -47,15 +48,18 @@ export default function Schedule() {
             <Sheet>
               <SheetTrigger asChild>
                 <Button size="sm" variant="outline">
-                  <Settings2 className="h-4 w-4 mr-1" /> Modalidades
+                  <Settings2 className="h-4 w-4 mr-1" /> Configurar
                 </Button>
               </SheetTrigger>
-              <SheetContent>
+              <SheetContent className="overflow-y-auto">
                 <SheetHeader>
-                  <SheetTitle>Gerenciar Modalidades</SheetTitle>
+                  <SheetTitle>Configurações da Agenda</SheetTitle>
                 </SheetHeader>
-                <div className="mt-4">
-                  <ModalitiesManager />
+                <div className="mt-4 space-y-6">
+                  <TemplateManager />
+                  <div className="border-t pt-4">
+                    <ModalitiesManager />
+                  </div>
                 </div>
               </SheetContent>
             </Sheet>
