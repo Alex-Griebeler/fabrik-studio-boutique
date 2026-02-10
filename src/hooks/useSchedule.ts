@@ -334,6 +334,49 @@ export function useUpdateSessionStatus() {
   });
 }
 
+export function useDeleteSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      // Delete bookings first, then session
+      await supabase.from("class_bookings").delete().eq("session_id", id);
+      const { error } = await supabase.from("class_sessions").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
+      toast.success("Aula excluída!");
+    },
+    onError: () => toast.error("Erro ao excluir aula."),
+  });
+}
+
+export function useDeleteWeekSessions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ startDate, endDate }: { startDate: string; endDate: string }) => {
+      // Get session IDs for the week
+      const { data: sessions } = await supabase
+        .from("class_sessions")
+        .select("id")
+        .gte("session_date", startDate)
+        .lte("session_date", endDate);
+      if (!sessions?.length) throw new Error("Nenhuma aula para excluir nesta semana.");
+      const ids = sessions.map((s) => s.id);
+      // Delete bookings then sessions
+      await supabase.from("class_bookings").delete().in("session_id", ids);
+      const { error } = await supabase.from("class_sessions").delete().in("id", ids);
+      if (error) throw error;
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
+      toast.success(`${count} aula(s) excluída(s)!`);
+    },
+    onError: (e: any) => toast.error(e?.message || "Erro ao excluir aulas."),
+  });
+}
+
 // --- Bookings ---
 export function useCreateBooking() {
   const qc = useQueryClient();

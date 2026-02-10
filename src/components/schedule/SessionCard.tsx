@@ -1,14 +1,25 @@
-import { Users, Clock, User, ChevronDown, ChevronUp, Plus, X, UserCheck, UserX } from "lucide-react";
+import { Users, Clock, User, ChevronDown, ChevronUp, Plus, X, UserCheck, UserX, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   ClassSession,
   useModalities,
   getModalityColor,
   useCreateBooking,
   useUpdateBookingStatus,
+  useDeleteSession,
   BookingStatus,
 } from "@/hooks/useSchedule";
 import { useStudents } from "@/hooks/useStudents";
@@ -23,6 +34,7 @@ export function SessionCard({ session, compact }: SessionCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [addingStudent, setAddingStudent] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const { data: modalities } = useModalities();
   const mod = modalities?.find((m) => m.slug === session.modality);
@@ -35,6 +47,7 @@ export function SessionCard({ session, compact }: SessionCardProps) {
   const { data: students } = useStudents("", "active");
   const createBooking = useCreateBooking();
   const updateBookingStatus = useUpdateBookingStatus();
+  const deleteSession = useDeleteSession();
 
   const bookedStudentIds = new Set(
     session.bookings?.filter((b) => b.status !== "cancelled").map((b) => b.student_id)
@@ -88,9 +101,14 @@ export function SessionCard({ session, compact }: SessionCardProps) {
             {confirmedBookings.length}/{session.capacity}
           </Badge>
           {!compact && (
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpanded(!expanded)}>
-              {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </Button>
+            <>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowDeleteConfirm(true)} title="Excluir aula">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpanded(!expanded)}>
+                {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -166,6 +184,27 @@ export function SessionCard({ session, compact }: SessionCardProps) {
           )}
         </div>
       )}
+
+      {/* Delete confirmation */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir aula?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A aula de {mod?.name ?? session.modality} às {session.start_time.slice(0, 5)} será removida permanentemente, incluindo todos os agendamentos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteSession.mutate(session.id)}
+              className="bg-destructive text-destructive-foreground"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
