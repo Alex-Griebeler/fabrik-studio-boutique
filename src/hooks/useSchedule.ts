@@ -204,6 +204,31 @@ export function useDeleteTemplate() {
   });
 }
 
+export function useUpdateTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...data }: {
+      id: string;
+      modality?: string;
+      day_of_week?: number;
+      start_time?: string;
+      duration_minutes?: number;
+      capacity?: number;
+      instructor_id?: string | null;
+      location?: string | null;
+      is_active?: boolean;
+    }) => {
+      const { error } = await supabase.from("class_templates").update(data).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_templates"] });
+      toast.success("Grade atualizada!");
+    },
+    onError: () => toast.error("Erro ao atualizar grade."),
+  });
+}
+
 export function useGenerateWeekSessions() {
   const qc = useQueryClient();
   return useMutation({
@@ -318,6 +343,30 @@ export function useCreateSession() {
       toast.success("Aula criada!");
     },
     onError: () => toast.error("Erro ao criar aula."),
+  });
+}
+
+export function useUpdateSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...data }: {
+      id: string;
+      start_time?: string;
+      duration_minutes?: number;
+      modality?: string;
+      capacity?: number;
+      instructor_id?: string | null;
+      notes?: string | null;
+      session_date?: string;
+    }) => {
+      const { error } = await supabase.from("class_sessions").update(data).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
+      toast.success("Aula atualizada!");
+    },
+    onError: () => toast.error("Erro ao atualizar aula."),
   });
 }
 

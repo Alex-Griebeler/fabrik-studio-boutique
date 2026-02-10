@@ -1,4 +1,4 @@
-import { Users, Clock, User, ChevronDown, ChevronUp, Plus, X, UserCheck, UserX, Trash2 } from "lucide-react";
+import { Users, Clock, User, ChevronDown, ChevronUp, Plus, X, UserCheck, UserX, Trash2, Pencil } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
 } from "@/hooks/useSchedule";
 import { useStudents } from "@/hooks/useStudents";
 import { cn } from "@/lib/utils";
+import { SessionFormDialog } from "./SessionFormDialog";
 
 interface SessionCardProps {
   session: ClassSession;
@@ -35,6 +36,7 @@ export function SessionCard({ session, compact }: SessionCardProps) {
   const [addingStudent, setAddingStudent] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
 
   const { data: modalities } = useModalities();
   const mod = modalities?.find((m) => m.slug === session.modality);
@@ -102,6 +104,9 @@ export function SessionCard({ session, compact }: SessionCardProps) {
           </Badge>
           {!compact && (
             <>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowEdit(true)} title="Editar aula">
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
               <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowDeleteConfirm(true)} title="Excluir aula">
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -184,6 +189,13 @@ export function SessionCard({ session, compact }: SessionCardProps) {
           )}
         </div>
       )}
+
+      {/* Edit dialog */}
+      <SessionFormDialog
+        open={showEdit}
+        onOpenChange={setShowEdit}
+        editSession={session}
+      />
 
       {/* Delete confirmation */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
