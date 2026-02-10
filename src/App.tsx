@@ -18,6 +18,7 @@ import Reports from "@/pages/Reports";
 import Expenses from "@/pages/Expenses";
 import SettingsPage from "@/pages/SettingsPage";
 import Plans from "@/pages/Plans";
+import Instructors from "@/pages/Instructors";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -86,6 +87,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AppLayout><Expenses /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/instructors"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout><Instructors /></AppLayout>
                   </ProtectedRoute>
                 }
               />

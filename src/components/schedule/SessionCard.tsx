@@ -1,4 +1,4 @@
-import { Users, Clock, User } from "lucide-react";
+import { Users, Clock, User, CheckCircle2 } from "lucide-react";
 import {
   ClassSession,
   useModalities,
@@ -16,7 +16,9 @@ export function SessionCard({ session, compact }: SessionCardProps) {
   const { data: modalities } = useModalities();
   const mod = modalities?.find((m) => m.slug === session.modality);
 
-  const confirmedBookings = session.bookings?.filter((b) => b.status === "confirmed") ?? [];
+  const confirmedBookings = session.bookings?.filter((b) => b.status === "confirmed" || b.status === "no_show") ?? [];
+  const noShowCount = session.bookings?.filter((b) => b.status === "no_show").length ?? 0;
+  const presentCount = confirmedBookings.length - noShowCount;
   const isFull = confirmedBookings.length >= session.capacity;
 
   const time = session.start_time.slice(0, 5);

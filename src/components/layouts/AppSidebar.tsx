@@ -9,6 +9,7 @@ import {
   Settings,
   LogOut,
   Package,
+  GraduationCap,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -43,6 +44,7 @@ const financeItems = [
 
 const operationalItems = [
   { title: "Agenda", url: "/schedule", icon: CalendarDays },
+  { title: "Instrutores", url: "/instructors", icon: GraduationCap },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
 ];
 

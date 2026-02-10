@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, Clock, User, Plus, X, UserCheck, UserX, Trash2, Pencil } from "lucide-react";
+import { Users, Clock, User, Plus, X, UserCheck, UserX, Trash2, Pencil, CheckCircle2, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -52,8 +52,14 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
   const { data: modalities } = useModalities();
   const mod = modalities?.find((m) => m.slug === session.modality);
 
-  const confirmedBookings = session.bookings?.filter((b) => b.status === "confirmed") ?? [];
+  const confirmedBookings = session.bookings?.filter((b) => b.status === "confirmed" || b.status === "no_show") ?? [];
+  const checkedInBookings = confirmedBookings.filter((b) => b.status === "confirmed");
+  const noShowBookings = confirmedBookings.filter((b) => b.status === "no_show");
   const waitlistBookings = session.bookings?.filter((b) => b.status === "waitlist") ?? [];
+  
+  // Determine if session is in the past (for check-in mode)
+  const sessionDateTime = new Date(`${session.session_date}T${session.start_time}`);
+  const isPast = sessionDateTime <= new Date();
   const spotsLeft = session.capacity - confirmedBookings.length;
   const isFull = spotsLeft <= 0;
 
@@ -163,20 +169,53 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
               )}
             </div>
 
-            {/* Confirmed */}
+            {/* Confirmed / Check-in */}
             {confirmedBookings.length > 0 && (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Confirmados</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 text-muted-foreground">
+                  {isPast ? "Presença" : "Confirmados"}
+                </p>
                 <div className="space-y-1">
                   {confirmedBookings.map((b) => (
                     <div key={b.id} className="flex items-center justify-between text-xs">
                       <span className="flex items-center gap-1.5">
-                        <UserCheck className="h-3 w-3 text-success" /> {b.student?.full_name ?? "—"}
+                        {b.status === "no_show" ? (
+                          <XCircle className="h-3 w-3 text-destructive" />
+                        ) : (
+                          <UserCheck className="h-3 w-3 text-success" />
+                        )}
+                        <span className={b.status === "no_show" ? "line-through text-muted-foreground" : ""}>
+                          {b.student?.full_name ?? "—"}
+                        </span>
                       </span>
-                      <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 hover:opacity-100"
-                        onClick={() => updateBookingStatus.mutate({ id: b.id, status: "cancelled" })}>
-                        <X className="h-3 w-3" />
-                      </Button>
+                      <div className="flex gap-0.5">
+                        {isPast && b.status === "confirmed" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-destructive/60 hover:text-destructive"
+                            title="Marcar falta"
+                            onClick={() => updateBookingStatus.mutate({ id: b.id, status: "no_show" })}
+                          >
+                            <XCircle className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {isPast && b.status === "no_show" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-success/60 hover:text-success"
+                            title="Reverter para presente"
+                            onClick={() => updateBookingStatus.mutate({ id: b.id, status: "confirmed" })}
+                          >
+                            <CheckCircle2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 hover:opacity-100"
+                          onClick={() => updateBookingStatus.mutate({ id: b.id, status: "cancelled" })}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
