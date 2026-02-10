@@ -10,6 +10,7 @@ import {
   LogOut,
   Package,
   GraduationCap,
+  Landmark,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -40,6 +41,7 @@ const managementItems = [
 const financeItems = [
   { title: "Financeiro", url: "/finance", icon: DollarSign },
   { title: "Despesas", url: "/expenses", icon: Receipt },
+  { title: "Conciliação", url: "/bank-reconciliation", icon: Landmark },
 ];
 
 const operationalItems = [
