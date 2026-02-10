@@ -1,11 +1,11 @@
 import { useMemo, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ClassSession } from "@/hooks/useSchedule";
+import { Session } from "@/hooks/useSchedule";
 import { SessionCard } from "./SessionCard";
 
 interface Props {
-  sessions: ClassSession[];
+  sessions: Session[];
   selectedDate: Date;
   modalityFilter: string;
 }
@@ -51,7 +51,7 @@ export function DailyList({ sessions, selectedDate, modalityFilter }: Props) {
     return (
       <div className="text-center py-16">
         <p className="text-sm text-muted-foreground/60">
-          Nenhuma aula em {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}
+          Nenhuma sessão em {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}
         </p>
       </div>
     );
@@ -63,52 +63,37 @@ export function DailyList({ sessions, selectedDate, modalityFilter }: Props) {
         <p className="text-sm font-display font-semibold capitalize">
           {format(selectedDate, "EEEE, dd 'de' MMMM", { locale: ptBR })}
           <span className="ml-2 text-xs font-normal text-muted-foreground">
-            ({filtered.length} aula{filtered.length !== 1 ? "s" : ""})
+            ({filtered.length} sessão{filtered.length !== 1 ? "es" : ""})
           </span>
         </p>
       </div>
 
       <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
         <div className="grid relative" style={{ gridTemplateColumns: "56px 1fr", height: totalHeight }}>
-          {/* Time labels */}
           <div className="relative border-r">
             {HOURS.map((hour) => (
-              <div
-                key={hour}
-                className="absolute right-3 text-[10px] text-muted-foreground font-medium -translate-y-1/2"
-                style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
-              >
+              <div key={hour} className="absolute right-3 text-[10px] text-muted-foreground font-medium -translate-y-1/2"
+                style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}>
                 {`${String(hour).padStart(2, "0")}:00`}
               </div>
             ))}
           </div>
 
-          {/* Events column */}
           <div className="relative">
             {HOURS.map((hour) => (
-              <div
-                key={hour}
-                className="absolute left-0 right-0 border-t border-border/50"
-                style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
-              />
+              <div key={hour} className="absolute left-0 right-0 border-t border-border/50"
+                style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }} />
             ))}
             {HOURS.map((hour) => (
-              <div
-                key={`${hour}-half`}
-                className="absolute left-0 right-0 border-t border-border/20 border-dashed"
-                style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
-              />
+              <div key={`${hour}-half`} className="absolute left-0 right-0 border-t border-border/20 border-dashed"
+                style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + HOUR_HEIGHT / 2 }} />
             ))}
-
             {filtered.map((session) => {
               const top = getTimePosition(session.start_time);
               const height = Math.max(getEventHeight(session.duration_minutes), 32);
               return (
-                <div
-                  key={session.id}
-                  className="absolute left-1 z-10"
-                  style={{ top, height, width: "min(100% - 8px, 480px)" }}
-                >
+                <div key={session.id} className="absolute left-1 z-10"
+                  style={{ top, height, width: "min(100% - 8px, 480px)" }}>
                   <SessionCard session={session} />
                 </div>
               );

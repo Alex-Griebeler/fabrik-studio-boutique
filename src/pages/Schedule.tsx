@@ -24,7 +24,6 @@ export default function Schedule() {
   const startStr = format(weekStart, "yyyy-MM-dd");
   const endStr = format(weekEnd, "yyyy-MM-dd");
 
-  // Auto-generate sessions from templates
   useAutoGenerateSessions(startStr, endStr);
 
   const { data: sessions, isLoading } = useClassSessions(startStr, endStr);
@@ -43,7 +42,7 @@ export default function Schedule() {
     <div>
       <PageHeader
         title="Agenda"
-        description="Grade horária e aulas"
+        description="Grade horária e sessões"
         actions={
           <div className="flex gap-2">
             <Sheet>
@@ -65,7 +64,7 @@ export default function Schedule() {
               </SheetContent>
             </Sheet>
             <Button size="sm" onClick={() => setShowNewSession(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Nova Aula
+              <Plus className="h-4 w-4 mr-1" /> Nova Sessão
             </Button>
           </div>
         }
@@ -86,44 +85,19 @@ export default function Schedule() {
 
         <div className="flex items-center gap-2 sm:ml-auto">
           <div className="flex items-center gap-1 flex-wrap">
-            <Button
-              variant={modalityFilter === "all" ? "default" : "outline"}
-              size="sm"
-              className="h-7 text-xs px-2"
-              onClick={() => setModalityFilter("all")}
-            >
-              Todas
-            </Button>
+            <Button variant={modalityFilter === "all" ? "default" : "outline"} size="sm" className="h-7 text-xs px-2"
+              onClick={() => setModalityFilter("all")}>Todas</Button>
             {modalities?.map((m) => (
-              <Button
-                key={m.id}
-                variant={modalityFilter === m.slug ? "default" : "outline"}
-                size="sm"
-                className="h-7 text-xs px-2"
-                onClick={() => setModalityFilter(m.slug)}
-              >
-                {m.name}
-              </Button>
+              <Button key={m.id} variant={modalityFilter === m.slug ? "default" : "outline"} size="sm" className="h-7 text-xs px-2"
+                onClick={() => setModalityFilter(m.slug)}>{m.name}</Button>
             ))}
           </div>
 
           <div className="flex border rounded-md">
-            <Button
-              variant={view === "week" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-8 w-8 rounded-r-none"
-              onClick={() => setView("week")}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={view === "day" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-8 w-8 rounded-l-none"
-              onClick={() => setView("day")}
-            >
-              <List className="h-4 w-4" />
-            </Button>
+            <Button variant={view === "week" ? "secondary" : "ghost"} size="icon" className="h-8 w-8 rounded-r-none"
+              onClick={() => setView("week")}><LayoutGrid className="h-4 w-4" /></Button>
+            <Button variant={view === "day" ? "secondary" : "ghost"} size="icon" className="h-8 w-8 rounded-l-none"
+              onClick={() => setView("day")}><List className="h-4 w-4" /></Button>
           </div>
         </div>
       </div>
