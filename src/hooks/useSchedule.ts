@@ -189,6 +189,21 @@ export function useCreateTemplate() {
   });
 }
 
+export function useDeleteTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("class_templates").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_templates"] });
+      toast.success("Grade removida!");
+    },
+    onError: () => toast.error("Erro ao remover grade."),
+  });
+}
+
 export function useGenerateWeekSessions() {
   const qc = useQueryClient();
   return useMutation({
