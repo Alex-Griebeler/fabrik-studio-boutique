@@ -20,6 +20,7 @@ import {
 import {
   useClassTemplates,
   useCreateTemplate,
+  useUpdateTemplate,
   useDeleteTemplate,
   useActiveModalities,
   useInstructors,
@@ -43,9 +44,11 @@ export function TemplateManager() {
   const { data: modalities } = useActiveModalities();
   const { data: instructors } = useInstructors();
   const createTemplate = useCreateTemplate();
+  const updateTemplate = useUpdateTemplate();
   const deleteTemplate = useDeleteTemplate();
 
   const [formOpen, setFormOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<ClassTemplate | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClassTemplate | null>(null);
 
   // Form state
@@ -58,6 +61,7 @@ export function TemplateManager() {
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
 
   const openNew = () => {
+    setEditingTemplate(null);
     setModality("");
     setStartTime("07:00");
     setDuration("60");
@@ -68,6 +72,18 @@ export function TemplateManager() {
     setFormOpen(true);
   };
 
+  const openEdit = (t: ClassTemplate) => {
+    setEditingTemplate(t);
+    setModality(t.modality);
+    setStartTime(t.start_time.slice(0, 5));
+    setDuration(String(t.duration_minutes));
+    setCapacity(String(t.capacity));
+    setInstructorId(t.instructor_id || "");
+    setLocation(t.location || "");
+    setSelectedDays([t.day_of_week]);
+    setFormOpen(true);
+  };
+
   const toggleDay = (day: number) => {
     setSelectedDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()
@@ -75,23 +91,40 @@ export function TemplateManager() {
   };
 
   const handleSave = () => {
-    if (!modality || selectedDays.length === 0) return;
+    if (!modality) return;
 
-    // Create one template per selected day
-    const promises = selectedDays.map((day) =>
-      createTemplate.mutateAsync({
-        modality,
-        day_of_week: day,
-        start_time: startTime,
-        duration_minutes: parseInt(duration),
-        capacity: parseInt(capacity),
-        instructor_id: instructorId || null,
-        location: location || null,
-        is_active: true,
-      })
-    );
-
-    Promise.all(promises).then(() => setFormOpen(false));
+    if (editingTemplate) {
+      // Update single template
+      updateTemplate.mutate(
+        {
+          id: editingTemplate.id,
+          modality,
+          day_of_week: selectedDays[0],
+          start_time: startTime,
+          duration_minutes: parseInt(duration),
+          capacity: parseInt(capacity),
+          instructor_id: instructorId || null,
+          location: location || null,
+        },
+        { onSuccess: () => setFormOpen(false) }
+      );
+    } else {
+      if (selectedDays.length === 0) return;
+      // Create one template per selected day
+      const promises = selectedDays.map((day) =>
+        createTemplate.mutateAsync({
+          modality,
+          day_of_week: day,
+          start_time: startTime,
+          duration_minutes: parseInt(duration),
+          capacity: parseInt(capacity),
+          instructor_id: instructorId || null,
+          location: location || null,
+          is_active: true,
+        })
+      );
+      Promise.all(promises).then(() => setFormOpen(false));
+    }
   };
 
   const handleDelete = () => {
@@ -168,16 +201,26 @@ export function TemplateManager() {
                   ))}
                   <div className="ml-auto flex gap-0.5">
                     {items.map((t) => (
-                      <Button
-                        key={t.id}
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => setDeleteTarget(t)}
-                        title={`Excluir ${DAYS.find((d) => d.value === t.day_of_week)?.label}`}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      <div key={t.id} className="flex gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => openEdit(t)}
+                          title={`Editar ${DAYS.find((d) => d.value === t.day_of_week)?.label}`}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => setDeleteTarget(t)}
+                          title={`Excluir ${DAYS.find((d) => d.value === t.day_of_week)?.label}`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -191,7 +234,7 @@ export function TemplateManager() {
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nova Grade Fixa</DialogTitle>
+            <DialogTitle>{editingTemplate ? "Editar Grade" : "Nova Grade Fixa"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -263,9 +306,12 @@ export function TemplateManager() {
               <Button variant="outline" onClick={() => setFormOpen(false)}>Cancelar</Button>
               <Button
                 onClick={handleSave}
-                disabled={!modality || selectedDays.length === 0 || createTemplate.isPending}
+                disabled={!modality || selectedDays.length === 0 || createTemplate.isPending || updateTemplate.isPending}
               >
-                {createTemplate.isPending ? "Criando..." : `Criar em ${selectedDays.length} dia(s)`}
+                {editingTemplate
+                  ? (updateTemplate.isPending ? "Salvando..." : "Salvar")
+                  : (createTemplate.isPending ? "Criando..." : `Criar em ${selectedDays.length} dia(s)`)
+                }
               </Button>
             </div>
           </div>
