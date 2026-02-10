@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useCreateSession, MODALITY_LABELS, ClassModality, useInstructors } from "@/hooks/useSchedule";
+import { useCreateSession, useActiveModalities, useInstructors } from "@/hooks/useSchedule";
 
 interface Props {
   open: boolean;
@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function SessionFormDialog({ open, onOpenChange, defaultDate }: Props) {
-  const [modality, setModality] = useState<ClassModality>("btb");
+  const [modality, setModality] = useState("");
   const [date, setDate] = useState(defaultDate || new Date().toISOString().slice(0, 10));
   const [startTime, setStartTime] = useState("07:00");
   const [duration, setDuration] = useState("60");
@@ -23,10 +23,12 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate }: Props) {
   const [notes, setNotes] = useState("");
 
   const createSession = useCreateSession();
+  const { data: modalities } = useActiveModalities();
   const { data: instructors } = useInstructors();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!modality) return;
     createSession.mutate(
       {
         session_date: date,
@@ -51,11 +53,11 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Modalidade</Label>
-              <Select value={modality} onValueChange={(v) => setModality(v as ClassModality)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select value={modality} onValueChange={setModality}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
-                  {(Object.entries(MODALITY_LABELS) as [ClassModality, string][]).map(([k, v]) => (
-                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  {modalities?.map((m) => (
+                    <SelectItem key={m.id} value={m.slug}>{m.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -96,7 +98,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate }: Props) {
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button type="submit" disabled={createSession.isPending}>Criar Aula</Button>
+            <Button type="submit" disabled={createSession.isPending || !modality}>Criar Aula</Button>
           </div>
         </form>
       </DialogContent>

@@ -1,19 +1,20 @@
 import { useState, useMemo } from "react";
 import { format, addDays, subDays, startOfWeek, endOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Settings2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useClassSessions, ClassModality, MODALITY_LABELS } from "@/hooks/useSchedule";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { useClassSessions, useActiveModalities } from "@/hooks/useSchedule";
 import { WeeklyCalendar } from "@/components/schedule/WeeklyCalendar";
 import { DailyList } from "@/components/schedule/DailyList";
 import { SessionFormDialog } from "@/components/schedule/SessionFormDialog";
+import { ModalitiesManager } from "@/components/schedule/ModalitiesManager";
 
 export default function Schedule() {
   const [view, setView] = useState<"week" | "day">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [modalityFilter, setModalityFilter] = useState<ClassModality | "all">("all");
+  const [modalityFilter, setModalityFilter] = useState("all");
   const [showNewSession, setShowNewSession] = useState(false);
 
   const weekStart = useMemo(() => startOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
@@ -23,6 +24,8 @@ export default function Schedule() {
     format(weekStart, "yyyy-MM-dd"),
     format(weekEnd, "yyyy-MM-dd")
   );
+
+  const { data: modalities } = useActiveModalities();
 
   const goToday = () => setCurrentDate(new Date());
   const goPrev = () => setCurrentDate((d) => (view === "week" ? subDays(d, 7) : subDays(d, 1)));
@@ -39,15 +42,31 @@ export default function Schedule() {
         title="Agenda"
         description="Grade horária e aulas"
         actions={
-          <Button size="sm" onClick={() => setShowNewSession(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Nova Aula
-          </Button>
+          <div className="flex gap-2">
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <Settings2 className="h-4 w-4 mr-1" /> Modalidades
+                </Button>
+              </SheetTrigger>
+              <SheetContent>
+                <SheetHeader>
+                  <SheetTitle>Gerenciar Modalidades</SheetTitle>
+                </SheetHeader>
+                <div className="mt-4">
+                  <ModalitiesManager />
+                </div>
+              </SheetContent>
+            </Sheet>
+            <Button size="sm" onClick={() => setShowNewSession(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Nova Aula
+            </Button>
+          </div>
         }
       />
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
-        {/* Navigation */}
         <div className="flex items-center gap-1.5">
           <Button variant="outline" size="sm" onClick={goToday}>Hoje</Button>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goPrev}>
@@ -60,7 +79,6 @@ export default function Schedule() {
         </div>
 
         <div className="flex items-center gap-2 sm:ml-auto">
-          {/* Modality filter */}
           <div className="flex items-center gap-1 flex-wrap">
             <Button
               variant={modalityFilter === "all" ? "default" : "outline"}
@@ -70,20 +88,19 @@ export default function Schedule() {
             >
               Todas
             </Button>
-            {(Object.entries(MODALITY_LABELS) as [ClassModality, string][]).map(([key, label]) => (
+            {modalities?.map((m) => (
               <Button
-                key={key}
-                variant={modalityFilter === key ? "default" : "outline"}
+                key={m.id}
+                variant={modalityFilter === m.slug ? "default" : "outline"}
                 size="sm"
                 className="h-7 text-xs px-2"
-                onClick={() => setModalityFilter(key)}
+                onClick={() => setModalityFilter(m.slug)}
               >
-                {label}
+                {m.name}
               </Button>
             ))}
           </div>
 
-          {/* View toggle */}
           <div className="flex border rounded-md">
             <Button
               variant={view === "week" ? "secondary" : "ghost"}
