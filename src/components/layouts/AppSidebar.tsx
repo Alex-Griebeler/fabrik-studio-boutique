@@ -7,6 +7,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  Package,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -31,6 +32,7 @@ const mainItems = [
 const managementItems = [
   { title: "Alunos", url: "/students", icon: Users },
   { title: "Leads", url: "/leads", icon: UserPlus },
+  { title: "Planos", url: "/plans", icon: Package },
 ];
 
 const financeItems = [
