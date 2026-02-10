@@ -96,6 +96,7 @@ export type Database = {
           duration_minutes: number
           id: string
           instructor_id: string | null
+          is_exception: boolean
           modality: string
           notes: string | null
           session_date: string
@@ -110,6 +111,7 @@ export type Database = {
           duration_minutes?: number
           id?: string
           instructor_id?: string | null
+          is_exception?: boolean
           modality: string
           notes?: string | null
           session_date: string
@@ -124,6 +126,7 @@ export type Database = {
           duration_minutes?: number
           id?: string
           instructor_id?: string | null
+          is_exception?: boolean
           modality?: string
           notes?: string | null
           session_date?: string
@@ -160,6 +163,8 @@ export type Database = {
           is_active: boolean
           location: string | null
           modality: string
+          recurrence_end: string | null
+          recurrence_start: string
           start_time: string
           updated_at: string
         }
@@ -173,6 +178,8 @@ export type Database = {
           is_active?: boolean
           location?: string | null
           modality: string
+          recurrence_end?: string | null
+          recurrence_start?: string
           start_time: string
           updated_at?: string
         }
@@ -186,6 +193,8 @@ export type Database = {
           is_active?: boolean
           location?: string | null
           modality?: string
+          recurrence_end?: string | null
+          recurrence_start?: string
           start_time?: string
           updated_at?: string
         }

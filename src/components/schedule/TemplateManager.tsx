@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Clock } from "lucide-react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { Plus, Pencil, Trash2, Clock, CalendarRange } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Toggle } from "@/components/ui/toggle";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,6 +62,9 @@ export function TemplateManager() {
   const [instructorId, setInstructorId] = useState("");
   const [location, setLocation] = useState("");
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [recurrenceStart, setRecurrenceStart] = useState(new Date().toISOString().slice(0, 10));
+  const [hasEndDate, setHasEndDate] = useState(false);
+  const [recurrenceEnd, setRecurrenceEnd] = useState("");
 
   const openNew = () => {
     setEditingTemplate(null);
@@ -69,6 +75,9 @@ export function TemplateManager() {
     setInstructorId("");
     setLocation("");
     setSelectedDays([]);
+    setRecurrenceStart(new Date().toISOString().slice(0, 10));
+    setHasEndDate(false);
+    setRecurrenceEnd("");
     setFormOpen(true);
   };
 
@@ -81,6 +90,9 @@ export function TemplateManager() {
     setInstructorId(t.instructor_id || "");
     setLocation(t.location || "");
     setSelectedDays([t.day_of_week]);
+    setRecurrenceStart(t.recurrence_start);
+    setHasEndDate(!!t.recurrence_end);
+    setRecurrenceEnd(t.recurrence_end || "");
     setFormOpen(true);
   };
 
@@ -94,7 +106,6 @@ export function TemplateManager() {
     if (!modality) return;
 
     if (editingTemplate) {
-      // Update single template
       updateTemplate.mutate(
         {
           id: editingTemplate.id,
@@ -105,12 +116,13 @@ export function TemplateManager() {
           capacity: parseInt(capacity),
           instructor_id: instructorId || null,
           location: location || null,
+          recurrence_start: recurrenceStart,
+          recurrence_end: hasEndDate ? recurrenceEnd : null,
         },
         { onSuccess: () => setFormOpen(false) }
       );
     } else {
       if (selectedDays.length === 0) return;
-      // Create one template per selected day
       const promises = selectedDays.map((day) =>
         createTemplate.mutateAsync({
           modality,
@@ -121,6 +133,8 @@ export function TemplateManager() {
           instructor_id: instructorId || null,
           location: location || null,
           is_active: true,
+          recurrence_start: recurrenceStart,
+          recurrence_end: hasEndDate ? recurrenceEnd : null,
         })
       );
       Promise.all(promises).then(() => setFormOpen(false));
@@ -145,6 +159,15 @@ export function TemplateManager() {
     return acc;
   }, {} as Record<string, { name: string; color: string }>);
 
+  const formatRecurrence = (t: ClassTemplate) => {
+    const start = format(new Date(t.recurrence_start + "T00:00:00"), "dd/MM/yy");
+    if (t.recurrence_end) {
+      const end = format(new Date(t.recurrence_end + "T00:00:00"), "dd/MM/yy");
+      return `${start} → ${end}`;
+    }
+    return `A partir de ${start}`;
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -165,10 +188,7 @@ export function TemplateManager() {
             const mod = modalityMap?.[first.modality];
             const days = items.map((i) => i.day_of_week).sort();
             return (
-              <div
-                key={key}
-                className="rounded-lg border px-3 py-2.5 space-y-1.5"
-              >
+              <div key={key} className="rounded-lg border px-3 py-2.5 space-y-1.5">
                 <div className="flex items-center gap-2">
                   <Badge
                     className={cn("text-xs", getModalityColor(mod?.color || "primary"))}
@@ -185,6 +205,10 @@ export function TemplateManager() {
                       · {first.instructor.full_name}
                     </span>
                   )}
+                </div>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <CalendarRange className="h-3 w-3" />
+                  <span>{formatRecurrence(first)}</span>
                 </div>
                 <div className="flex items-center gap-1 flex-wrap">
                   {DAYS.map((d) => (
@@ -230,7 +254,7 @@ export function TemplateManager() {
         </div>
       )}
 
-      {/* Create Template Dialog */}
+      {/* Template Form Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -302,6 +326,34 @@ export function TemplateManager() {
               <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Ex: Sala 1" />
             </div>
 
+            {/* Recurrence dates */}
+            <div className="space-y-3 border-t pt-3">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Periodicidade</Label>
+              <div>
+                <Label>Data de início</Label>
+                <Input type="date" value={recurrenceStart} onChange={(e) => setRecurrenceStart(e.target.value)} required />
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={hasEndDate} onCheckedChange={setHasEndDate} />
+                <Label className="text-sm">Definir data de término</Label>
+              </div>
+              {hasEndDate && (
+                <div>
+                  <Label>Data de término</Label>
+                  <Input
+                    type="date"
+                    value={recurrenceEnd}
+                    onChange={(e) => setRecurrenceEnd(e.target.value)}
+                    min={recurrenceStart}
+                    required
+                  />
+                </div>
+              )}
+              {!hasEndDate && (
+                <p className="text-xs text-muted-foreground">As aulas serão geradas indefinidamente.</p>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setFormOpen(false)}>Cancelar</Button>
               <Button
@@ -326,7 +378,7 @@ export function TemplateManager() {
             <AlertDialogDescription>
               A grade de "{modalityMap?.[deleteTarget?.modality ?? ""]?.name ?? deleteTarget?.modality}" 
               ({DAYS.find((d) => d.value === deleteTarget?.day_of_week)?.label}) 
-              às {deleteTarget?.start_time?.slice(0, 5)} será removida.
+              às {deleteTarget?.start_time?.slice(0, 5)} será removida, incluindo todas as aulas futuras geradas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

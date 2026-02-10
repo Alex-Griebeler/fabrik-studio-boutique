@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -24,6 +25,8 @@ export interface ClassTemplate {
   instructor_id: string | null;
   location: string | null;
   is_active: boolean;
+  recurrence_start: string;
+  recurrence_end: string | null;
   created_at: string;
   instructor?: { id: string; full_name: string } | null;
 }
@@ -39,6 +42,7 @@ export interface ClassSession {
   instructor_id: string | null;
   status: SessionStatus;
   notes: string | null;
+  is_exception: boolean;
   created_at: string;
   instructor?: { id: string; full_name: string } | null;
   bookings?: ClassBooking[];
@@ -178,11 +182,14 @@ export function useCreateTemplate() {
         instructor_id: data.instructor_id || null,
         location: data.location || null,
         is_active: data.is_active,
+        recurrence_start: data.recurrence_start,
+        recurrence_end: data.recurrence_end || null,
       });
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["class_templates"] });
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
       toast.success("Modelo de aula criado!");
     },
     onError: () => toast.error("Erro ao criar modelo."),
@@ -198,6 +205,7 @@ export function useDeleteTemplate() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["class_templates"] });
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
       toast.success("Grade removida!");
     },
     onError: () => toast.error("Erro ao remover grade."),
@@ -217,78 +225,95 @@ export function useUpdateTemplate() {
       instructor_id?: string | null;
       location?: string | null;
       is_active?: boolean;
+      recurrence_start?: string;
+      recurrence_end?: string | null;
     }) => {
       const { error } = await supabase.from("class_templates").update(data).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["class_templates"] });
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
       toast.success("Grade atualizada!");
     },
     onError: () => toast.error("Erro ao atualizar grade."),
   });
 }
 
-export function useGenerateWeekSessions() {
+// --- Auto-generate sessions from templates ---
+export function useAutoGenerateSessions(startDate: string, endDate: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ weekStart }: { weekStart: string }) => {
-      // 1. Fetch active templates
-      const { data: templates, error: tErr } = await supabase
-        .from("class_templates")
-        .select("*")
-        .eq("is_active", true);
-      if (tErr) throw tErr;
-      if (!templates?.length) throw new Error("Nenhum modelo ativo encontrado.");
+  const { data: templates } = useClassTemplates();
 
-      // 2. Compute dates for the week (weekStart is Sunday, day_of_week 0=Sun)
-      const start = new Date(weekStart + "T00:00:00");
-      const sessionsToInsert = templates.map((t) => {
-        const date = new Date(start);
-        date.setDate(date.getDate() + t.day_of_week);
-        return {
-          template_id: t.id,
-          session_date: date.toISOString().split("T")[0],
-          start_time: t.start_time,
-          duration_minutes: t.duration_minutes,
-          modality: t.modality,
-          capacity: t.capacity,
-          instructor_id: t.instructor_id || null,
-        };
-      });
+  useEffect(() => {
+    if (!templates?.length) return;
 
-      // 3. Check existing sessions for the week to avoid duplicates
-      const weekEnd = new Date(start);
-      weekEnd.setDate(weekEnd.getDate() + 6);
+    const generate = async () => {
+      // 1. Get existing sessions in the date range
       const { data: existing } = await supabase
         .from("class_sessions")
         .select("template_id, session_date")
-        .gte("session_date", weekStart)
-        .lte("session_date", weekEnd.toISOString().split("T")[0])
+        .gte("session_date", startDate)
+        .lte("session_date", endDate)
         .not("template_id", "is", null);
 
       const existingSet = new Set(
         (existing ?? []).map((e) => `${e.template_id}_${e.session_date}`)
       );
 
-      const newSessions = sessionsToInsert.filter(
-        (s) => !existingSet.has(`${s.template_id}_${s.session_date}`)
-      );
+      // 2. Calculate which sessions need to be created
+      const sessionsToInsert: Array<{
+        template_id: string;
+        session_date: string;
+        start_time: string;
+        duration_minutes: number;
+        modality: string;
+        capacity: number;
+        instructor_id: string | null;
+      }> = [];
 
-      if (!newSessions.length) throw new Error("Todas as aulas desta semana já foram geradas.");
+      const start = new Date(startDate + "T00:00:00");
+      const end = new Date(endDate + "T00:00:00");
 
-      const { error } = await supabase.from("class_sessions").insert(newSessions);
-      if (error) throw error;
-      return newSessions.length;
-    },
-    onSuccess: (count) => {
-      qc.invalidateQueries({ queryKey: ["class_sessions"] });
-      toast.success(`${count} aula(s) gerada(s) com sucesso!`);
-    },
-    onError: (e: any) => {
-      toast.error(e?.message || "Erro ao gerar aulas.");
-    },
-  });
+      for (const t of templates) {
+        // Check each day in the range
+        const current = new Date(start);
+        while (current <= end) {
+          const dayOfWeek = current.getDay();
+          const dateStr = current.toISOString().split("T")[0];
+
+          if (dayOfWeek === t.day_of_week) {
+            // Check recurrence bounds
+            const inRecurrence =
+              dateStr >= t.recurrence_start &&
+              (t.recurrence_end === null || dateStr <= t.recurrence_end);
+
+            if (inRecurrence && !existingSet.has(`${t.id}_${dateStr}`)) {
+              sessionsToInsert.push({
+                template_id: t.id,
+                session_date: dateStr,
+                start_time: t.start_time,
+                duration_minutes: t.duration_minutes,
+                modality: t.modality,
+                capacity: t.capacity,
+                instructor_id: t.instructor_id || null,
+              });
+            }
+          }
+          current.setDate(current.getDate() + 1);
+        }
+      }
+
+      if (sessionsToInsert.length > 0) {
+        const { error } = await supabase.from("class_sessions").insert(sessionsToInsert);
+        if (!error) {
+          qc.invalidateQueries({ queryKey: ["class_sessions", startDate, endDate] });
+        }
+      }
+    };
+
+    generate();
+  }, [templates, startDate, endDate, qc]);
 }
 
 // --- Sessions ---
@@ -305,6 +330,7 @@ export function useClassSessions(startDate: string, endDate: string) {
         `)
         .gte("session_date", startDate)
         .lte("session_date", endDate)
+        .neq("status", "cancelled")
         .order("session_date")
         .order("start_time");
       if (error) throw error;
@@ -358,6 +384,7 @@ export function useUpdateSession() {
       instructor_id?: string | null;
       notes?: string | null;
       session_date?: string;
+      is_exception?: boolean;
     }) => {
       const { error } = await supabase.from("class_sessions").update(data).eq("id", id);
       if (error) throw error;
@@ -387,7 +414,6 @@ export function useDeleteSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // Delete bookings first, then session
       await supabase.from("class_bookings").delete().eq("session_id", id);
       const { error } = await supabase.from("class_sessions").delete().eq("id", id);
       if (error) throw error;
@@ -400,29 +426,206 @@ export function useDeleteSession() {
   });
 }
 
-export function useDeleteWeekSessions() {
+// Delete a single recurring occurrence (cancel it so it won't regenerate)
+export function useCancelSingleOccurrence() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ startDate, endDate }: { startDate: string; endDate: string }) => {
-      // Get session IDs for the week
+    mutationFn: async (id: string) => {
+      await supabase.from("class_bookings").delete().eq("session_id", id);
+      const { error } = await supabase
+        .from("class_sessions")
+        .update({ status: "cancelled" as SessionStatus, is_exception: true })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
+      toast.success("Ocorrência removida!");
+    },
+    onError: () => toast.error("Erro ao remover ocorrência."),
+  });
+}
+
+// Delete this and following: truncate template recurrence_end
+export function useDeleteThisAndFollowing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ session }: { session: ClassSession }) => {
+      if (!session.template_id) throw new Error("Sessão sem template");
+
+      // Set template recurrence_end to the day before this session
+      const sessionDate = new Date(session.session_date + "T00:00:00");
+      sessionDate.setDate(sessionDate.getDate() - 1);
+      const newEnd = sessionDate.toISOString().split("T")[0];
+
+      const { error: tErr } = await supabase
+        .from("class_templates")
+        .update({ recurrence_end: newEnd })
+        .eq("id", session.template_id);
+      if (tErr) throw tErr;
+
+      // Delete all sessions from this date forward for this template
       const { data: sessions } = await supabase
         .from("class_sessions")
         .select("id")
-        .gte("session_date", startDate)
-        .lte("session_date", endDate);
-      if (!sessions?.length) throw new Error("Nenhuma aula para excluir nesta semana.");
-      const ids = sessions.map((s) => s.id);
-      // Delete bookings then sessions
-      await supabase.from("class_bookings").delete().in("session_id", ids);
-      const { error } = await supabase.from("class_sessions").delete().in("id", ids);
-      if (error) throw error;
-      return ids.length;
+        .eq("template_id", session.template_id)
+        .gte("session_date", session.session_date);
+
+      if (sessions?.length) {
+        const ids = sessions.map((s) => s.id);
+        await supabase.from("class_bookings").delete().in("session_id", ids);
+        await supabase.from("class_sessions").delete().in("id", ids);
+      }
     },
-    onSuccess: (count) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["class_sessions"] });
-      toast.success(`${count} aula(s) excluída(s)!`);
+      qc.invalidateQueries({ queryKey: ["class_templates"] });
+      toast.success("Eventos seguintes removidos!");
     },
-    onError: (e: any) => toast.error(e?.message || "Erro ao excluir aulas."),
+    onError: () => toast.error("Erro ao remover eventos."),
+  });
+}
+
+// Delete all occurrences: delete template + all its sessions
+export function useDeleteAllOccurrences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (templateId: string) => {
+      // Delete all sessions for this template
+      const { data: sessions } = await supabase
+        .from("class_sessions")
+        .select("id")
+        .eq("template_id", templateId);
+
+      if (sessions?.length) {
+        const ids = sessions.map((s) => s.id);
+        await supabase.from("class_bookings").delete().in("session_id", ids);
+        await supabase.from("class_sessions").delete().in("id", ids);
+      }
+
+      // Delete template
+      const { error } = await supabase.from("class_templates").delete().eq("id", templateId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
+      qc.invalidateQueries({ queryKey: ["class_templates"] });
+      toast.success("Evento recorrente removido!");
+    },
+    onError: () => toast.error("Erro ao remover evento recorrente."),
+  });
+}
+
+// Update this and following: split template
+export function useUpdateThisAndFollowing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ session, updates }: {
+      session: ClassSession;
+      updates: {
+        start_time?: string;
+        duration_minutes?: number;
+        modality?: string;
+        capacity?: number;
+        instructor_id?: string | null;
+      };
+    }) => {
+      if (!session.template_id) throw new Error("Sessão sem template");
+
+      // Truncate old template
+      const sessionDate = new Date(session.session_date + "T00:00:00");
+      sessionDate.setDate(sessionDate.getDate() - 1);
+      const oldEnd = sessionDate.toISOString().split("T")[0];
+
+      // Get old template data
+      const { data: oldTemplate } = await supabase
+        .from("class_templates")
+        .select("*")
+        .eq("id", session.template_id)
+        .single();
+      if (!oldTemplate) throw new Error("Template não encontrado");
+
+      // Update old template end date
+      await supabase
+        .from("class_templates")
+        .update({ recurrence_end: oldEnd })
+        .eq("id", session.template_id);
+
+      // Create new template with updates
+      const { error: createErr } = await supabase.from("class_templates").insert({
+        modality: updates.modality || oldTemplate.modality,
+        day_of_week: oldTemplate.day_of_week,
+        start_time: updates.start_time || oldTemplate.start_time,
+        duration_minutes: updates.duration_minutes || oldTemplate.duration_minutes,
+        capacity: updates.capacity || oldTemplate.capacity,
+        instructor_id: updates.instructor_id !== undefined ? updates.instructor_id : oldTemplate.instructor_id,
+        location: oldTemplate.location,
+        is_active: true,
+        recurrence_start: session.session_date,
+        recurrence_end: oldTemplate.recurrence_end,
+      });
+      if (createErr) throw createErr;
+
+      // Delete future sessions (they'll be auto-regenerated with new settings)
+      const { data: futureSessions } = await supabase
+        .from("class_sessions")
+        .select("id")
+        .eq("template_id", session.template_id)
+        .gte("session_date", session.session_date)
+        .eq("is_exception", false);
+
+      if (futureSessions?.length) {
+        const ids = futureSessions.map((s) => s.id);
+        await supabase.from("class_bookings").delete().in("session_id", ids);
+        await supabase.from("class_sessions").delete().in("id", ids);
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
+      qc.invalidateQueries({ queryKey: ["class_templates"] });
+      toast.success("Eventos atualizados!");
+    },
+    onError: () => toast.error("Erro ao atualizar eventos."),
+  });
+}
+
+// Update all occurrences of a template
+export function useUpdateAllOccurrences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ templateId, updates }: {
+      templateId: string;
+      updates: {
+        start_time?: string;
+        duration_minutes?: number;
+        modality?: string;
+        capacity?: number;
+        instructor_id?: string | null;
+      };
+    }) => {
+      // Update template
+      const { error: tErr } = await supabase
+        .from("class_templates")
+        .update(updates)
+        .eq("id", templateId);
+      if (tErr) throw tErr;
+
+      // Update all non-exception future sessions
+      const today = new Date().toISOString().split("T")[0];
+      const { error: sErr } = await supabase
+        .from("class_sessions")
+        .update(updates)
+        .eq("template_id", templateId)
+        .eq("is_exception", false)
+        .gte("session_date", today);
+      if (sErr) throw sErr;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
+      qc.invalidateQueries({ queryKey: ["class_templates"] });
+      toast.success("Todos os eventos atualizados!");
+    },
+    onError: () => toast.error("Erro ao atualizar eventos."),
   });
 }
 
