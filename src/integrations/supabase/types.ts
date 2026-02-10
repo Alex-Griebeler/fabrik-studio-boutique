@@ -372,6 +372,50 @@ export type Database = {
           },
         ]
       }
+      interactions: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          description: string
+          id: string
+          scheduled_at: string | null
+          student_id: string
+          type: Database["public"]["Enums"]["interaction_type"]
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description: string
+          id?: string
+          scheduled_at?: string | null
+          student_id: string
+          type: Database["public"]["Enums"]["interaction_type"]
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          id?: string
+          scheduled_at?: string | null
+          student_id?: string
+          type?: Database["public"]["Enums"]["interaction_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interactions_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoices: {
         Row: {
           amount_cents: number
@@ -527,6 +571,7 @@ export type Database = {
           id: string
           is_active: boolean
           lead_source: string | null
+          lead_stage: string | null
           medical_conditions: string | null
           notes: string | null
           phone: string | null
@@ -549,6 +594,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           lead_source?: string | null
+          lead_stage?: string | null
           medical_conditions?: string | null
           notes?: string | null
           phone?: string | null
@@ -571,6 +617,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           lead_source?: string | null
+          lead_stage?: string | null
           medical_conditions?: string | null
           notes?: string | null
           phone?: string | null
@@ -640,6 +687,14 @@ export type Database = {
       booking_status: "confirmed" | "cancelled" | "waitlist" | "no_show"
       contract_status: "active" | "suspended" | "cancelled" | "expired"
       expense_status: "pending" | "paid" | "cancelled"
+      interaction_type:
+        | "phone_call"
+        | "whatsapp"
+        | "email"
+        | "visit"
+        | "trial_class"
+        | "follow_up"
+        | "note"
       invoice_status: "pending" | "paid" | "overdue" | "cancelled"
       payment_method:
         | "pix"
@@ -800,6 +855,15 @@ export const Constants = {
       booking_status: ["confirmed", "cancelled", "waitlist", "no_show"],
       contract_status: ["active", "suspended", "cancelled", "expired"],
       expense_status: ["pending", "paid", "cancelled"],
+      interaction_type: [
+        "phone_call",
+        "whatsapp",
+        "email",
+        "visit",
+        "trial_class",
+        "follow_up",
+        "note",
+      ],
       invoice_status: ["pending", "paid", "overdue", "cancelled"],
       payment_method: [
         "pix",
