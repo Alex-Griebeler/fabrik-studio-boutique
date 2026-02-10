@@ -15,6 +15,7 @@ import Finance from "@/pages/Finance";
 import Schedule from "@/pages/Schedule";
 import Reports from "@/pages/Reports";
 import SettingsPage from "@/pages/SettingsPage";
+import Plans from "@/pages/Plans";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AppLayout><Students /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/plans"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout><Plans /></AppLayout>
                   </ProtectedRoute>
                 }
               />
