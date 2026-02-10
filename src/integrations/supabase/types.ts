@@ -16,36 +16,60 @@ export type Database = {
     Tables: {
       contracts: {
         Row: {
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           created_at: string
+          discount_cents: number | null
           end_date: string | null
           id: string
+          monthly_value_cents: number | null
           notes: string | null
+          payment_day: number | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
           plan_id: string
           start_date: string
           status: Database["public"]["Enums"]["contract_status"]
           student_id: string
+          total_value_cents: number | null
           updated_at: string
         }
         Insert: {
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           created_at?: string
+          discount_cents?: number | null
           end_date?: string | null
           id?: string
+          monthly_value_cents?: number | null
           notes?: string | null
+          payment_day?: number | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
           plan_id: string
           start_date: string
           status?: Database["public"]["Enums"]["contract_status"]
           student_id: string
+          total_value_cents?: number | null
           updated_at?: string
         }
         Update: {
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           created_at?: string
+          discount_cents?: number | null
           end_date?: string | null
           id?: string
+          monthly_value_cents?: number | null
           notes?: string | null
+          payment_day?: number | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
           plan_id?: string
           start_date?: string
           status?: Database["public"]["Enums"]["contract_status"]
           student_id?: string
+          total_value_cents?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -73,8 +97,13 @@ export type Database = {
           due_date: string
           id: string
           notes: string | null
+          paid_amount_cents: number | null
           payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_proof_url: string | null
+          reference_month: string | null
           status: Database["public"]["Enums"]["invoice_status"]
+          student_id: string | null
           updated_at: string
         }
         Insert: {
@@ -84,8 +113,13 @@ export type Database = {
           due_date: string
           id?: string
           notes?: string | null
+          paid_amount_cents?: number | null
           payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_proof_url?: string | null
+          reference_month?: string | null
           status?: Database["public"]["Enums"]["invoice_status"]
+          student_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -95,8 +129,13 @@ export type Database = {
           due_date?: string
           id?: string
           notes?: string | null
+          paid_amount_cents?: number | null
           payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_proof_url?: string | null
+          reference_month?: string | null
           status?: Database["public"]["Enums"]["invoice_status"]
+          student_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -105,6 +144,13 @@ export type Database = {
             columns: ["contract_id"]
             isOneToOne: false
             referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
             referencedColumns: ["id"]
           },
         ]
@@ -186,6 +232,7 @@ export type Database = {
       }
       students: {
         Row: {
+          address: Json | null
           cpf: string | null
           created_at: string
           date_of_birth: string | null
@@ -193,14 +240,21 @@ export type Database = {
           emergency_contact_name: string | null
           emergency_contact_phone: string | null
           full_name: string
+          gender: string | null
           id: string
           is_active: boolean
+          lead_source: string | null
+          medical_conditions: string | null
           notes: string | null
           phone: string | null
           profile_id: string | null
+          profile_photo_url: string | null
+          referred_by: string | null
+          status: Database["public"]["Enums"]["student_status"]
           updated_at: string
         }
         Insert: {
+          address?: Json | null
           cpf?: string | null
           created_at?: string
           date_of_birth?: string | null
@@ -208,14 +262,21 @@ export type Database = {
           emergency_contact_name?: string | null
           emergency_contact_phone?: string | null
           full_name: string
+          gender?: string | null
           id?: string
           is_active?: boolean
+          lead_source?: string | null
+          medical_conditions?: string | null
           notes?: string | null
           phone?: string | null
           profile_id?: string | null
+          profile_photo_url?: string | null
+          referred_by?: string | null
+          status?: Database["public"]["Enums"]["student_status"]
           updated_at?: string
         }
         Update: {
+          address?: Json | null
           cpf?: string | null
           created_at?: string
           date_of_birth?: string | null
@@ -223,11 +284,17 @@ export type Database = {
           emergency_contact_name?: string | null
           emergency_contact_phone?: string | null
           full_name?: string
+          gender?: string | null
           id?: string
           is_active?: boolean
+          lead_source?: string | null
+          medical_conditions?: string | null
           notes?: string | null
           phone?: string | null
           profile_id?: string | null
+          profile_photo_url?: string | null
+          referred_by?: string | null
+          status?: Database["public"]["Enums"]["student_status"]
           updated_at?: string
         }
         Relationships: [
@@ -236,6 +303,13 @@ export type Database = {
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "students_referred_by_fkey"
+            columns: ["referred_by"]
+            isOneToOne: false
+            referencedRelation: "students"
             referencedColumns: ["id"]
           },
         ]
@@ -279,9 +353,16 @@ export type Database = {
       is_own_student: { Args: { _student_id: string }; Returns: boolean }
     }
     Enums: {
-      app_role: "admin" | "instructor" | "student"
+      app_role: "admin" | "instructor" | "student" | "manager" | "reception"
       contract_status: "active" | "suspended" | "cancelled" | "expired"
       invoice_status: "pending" | "paid" | "overdue" | "cancelled"
+      payment_method:
+        | "pix"
+        | "credit_card"
+        | "debit_card"
+        | "boleto"
+        | "cash"
+        | "transfer"
       plan_category:
         | "grupos_adultos"
         | "renovacao_grupos_adultos"
@@ -301,6 +382,7 @@ export type Database = {
         | "mensal"
         | "avulso"
         | "unico"
+      student_status: "lead" | "active" | "inactive" | "suspended"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -428,9 +510,17 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "instructor", "student"],
+      app_role: ["admin", "instructor", "student", "manager", "reception"],
       contract_status: ["active", "suspended", "cancelled", "expired"],
       invoice_status: ["pending", "paid", "overdue", "cancelled"],
+      payment_method: [
+        "pix",
+        "credit_card",
+        "debit_card",
+        "boleto",
+        "cash",
+        "transfer",
+      ],
       plan_category: [
         "grupos_adultos",
         "renovacao_grupos_adultos",
@@ -452,6 +542,7 @@ export const Constants = {
         "avulso",
         "unico",
       ],
+      student_status: ["lead", "active", "inactive", "suspended"],
     },
   },
 } as const
