@@ -1,11 +1,11 @@
 import { useState, useMemo } from "react";
 import { format, addDays, subDays, startOfWeek, endOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Settings2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Settings2, Wand2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { useClassSessions, useActiveModalities } from "@/hooks/useSchedule";
+import { useClassSessions, useActiveModalities, useGenerateWeekSessions } from "@/hooks/useSchedule";
 import { WeeklyCalendar } from "@/components/schedule/WeeklyCalendar";
 import { DailyList } from "@/components/schedule/DailyList";
 import { SessionFormDialog } from "@/components/schedule/SessionFormDialog";
@@ -16,6 +16,7 @@ export default function Schedule() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [modalityFilter, setModalityFilter] = useState("all");
   const [showNewSession, setShowNewSession] = useState(false);
+  const generateWeek = useGenerateWeekSessions();
 
   const weekStart = useMemo(() => startOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
   const weekEnd = useMemo(() => endOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
@@ -58,6 +59,15 @@ export default function Schedule() {
                 </div>
               </SheetContent>
             </Sheet>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => generateWeek.mutate({ weekStart: format(weekStart, "yyyy-MM-dd") })}
+              disabled={generateWeek.isPending}
+            >
+              <Wand2 className="h-4 w-4 mr-1" />
+              {generateWeek.isPending ? "Gerando..." : "Gerar Semana"}
+            </Button>
             <Button size="sm" onClick={() => setShowNewSession(true)}>
               <Plus className="h-4 w-4 mr-1" /> Nova Aula
             </Button>

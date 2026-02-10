@@ -189,6 +189,68 @@ export function useCreateTemplate() {
   });
 }
 
+export function useGenerateWeekSessions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ weekStart }: { weekStart: string }) => {
+      // 1. Fetch active templates
+      const { data: templates, error: tErr } = await supabase
+        .from("class_templates")
+        .select("*")
+        .eq("is_active", true);
+      if (tErr) throw tErr;
+      if (!templates?.length) throw new Error("Nenhum modelo ativo encontrado.");
+
+      // 2. Compute dates for the week (weekStart is Sunday, day_of_week 0=Sun)
+      const start = new Date(weekStart + "T00:00:00");
+      const sessionsToInsert = templates.map((t) => {
+        const date = new Date(start);
+        date.setDate(date.getDate() + t.day_of_week);
+        return {
+          template_id: t.id,
+          session_date: date.toISOString().split("T")[0],
+          start_time: t.start_time,
+          duration_minutes: t.duration_minutes,
+          modality: t.modality,
+          capacity: t.capacity,
+          instructor_id: t.instructor_id || null,
+        };
+      });
+
+      // 3. Check existing sessions for the week to avoid duplicates
+      const weekEnd = new Date(start);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      const { data: existing } = await supabase
+        .from("class_sessions")
+        .select("template_id, session_date")
+        .gte("session_date", weekStart)
+        .lte("session_date", weekEnd.toISOString().split("T")[0])
+        .not("template_id", "is", null);
+
+      const existingSet = new Set(
+        (existing ?? []).map((e) => `${e.template_id}_${e.session_date}`)
+      );
+
+      const newSessions = sessionsToInsert.filter(
+        (s) => !existingSet.has(`${s.template_id}_${s.session_date}`)
+      );
+
+      if (!newSessions.length) throw new Error("Todas as aulas desta semana já foram geradas.");
+
+      const { error } = await supabase.from("class_sessions").insert(newSessions);
+      if (error) throw error;
+      return newSessions.length;
+    },
+    onSuccess: (count) => {
+      qc.invalidateQueries({ queryKey: ["class_sessions"] });
+      toast.success(`${count} aula(s) gerada(s) com sucesso!`);
+    },
+    onError: (e: any) => {
+      toast.error(e?.message || "Erro ao gerar aulas.");
+    },
+  });
+}
+
 // --- Sessions ---
 export function useClassSessions(startDate: string, endDate: string) {
   return useQuery({
