@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Receipt, TrendingDown, AlertTriangle, CheckCircle } from "lucide-react";
+import { Plus, Search, Receipt, TrendingDown, AlertTriangle, CheckCircle, Settings2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ExpenseCategoryManager } from "@/components/finance/ExpenseCategoryManager";
 import { KPICard } from "@/components/shared/KPICard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ export default function Expenses() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
+  const [showCategories, setShowCategories] = useState(false);
 
   const { data: allExpenses } = useExpenses("all");
   const { data: expenses, isLoading } = useExpenses(statusFilter);
@@ -91,10 +93,21 @@ export default function Expenses() {
             </SelectContent>
           </Select>
         </div>
-        <Button size="sm" onClick={() => { setEditing(null); setDialogOpen(true); }}>
-          <Plus className="h-4 w-4 mr-1" /> Nova Despesa
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowCategories(!showCategories)}>
+            <Settings2 className="h-4 w-4 mr-1" /> Categorias
+          </Button>
+          <Button size="sm" onClick={() => { setEditing(null); setDialogOpen(true); }}>
+            <Plus className="h-4 w-4 mr-1" /> Nova Despesa
+          </Button>
+        </div>
       </div>
+
+      {showCategories && (
+        <div className="mb-6">
+          <ExpenseCategoryManager />
+        </div>
+      )}
 
       <div className="rounded-lg border bg-card">
         <Table>
