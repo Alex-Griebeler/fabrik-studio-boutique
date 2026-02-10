@@ -13,6 +13,7 @@ import Students from "@/pages/Students";
 import StudentProfile from "@/pages/StudentProfile";
 import Leads from "@/pages/Leads";
 import Finance from "@/pages/Finance";
+import BankReconciliation from "@/pages/BankReconciliation";
 import Schedule from "@/pages/Schedule";
 import Reports from "@/pages/Reports";
 import Expenses from "@/pages/Expenses";
@@ -79,6 +80,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AppLayout><Finance /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/bank-reconciliation"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout><BankReconciliation /></AppLayout>
                   </ProtectedRoute>
                 }
               />

@@ -14,6 +14,148 @@ export type Database = {
   }
   public: {
     Tables: {
+      bank_imports: {
+        Row: {
+          account_id: string | null
+          bank_id: string | null
+          created_at: string
+          error_message: string | null
+          file_name: string
+          file_type: string
+          file_url: string | null
+          id: string
+          imported_by: string | null
+          period_end: string | null
+          period_start: string | null
+          status: string
+          total_credits_cents: number | null
+          total_debits_cents: number | null
+          total_transactions: number | null
+          updated_at: string
+        }
+        Insert: {
+          account_id?: string | null
+          bank_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_name: string
+          file_type: string
+          file_url?: string | null
+          id?: string
+          imported_by?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          status?: string
+          total_credits_cents?: number | null
+          total_debits_cents?: number | null
+          total_transactions?: number | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string | null
+          bank_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_name?: string
+          file_type?: string
+          file_url?: string | null
+          id?: string
+          imported_by?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          status?: string
+          total_credits_cents?: number | null
+          total_debits_cents?: number | null
+          total_transactions?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      bank_transactions: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          fit_id: string
+          id: string
+          import_id: string
+          is_balance_entry: boolean | null
+          match_confidence: string | null
+          match_status: string
+          matched_at: string | null
+          matched_by: string | null
+          matched_expense_id: string | null
+          matched_invoice_id: string | null
+          memo: string
+          parsed_document: string | null
+          parsed_name: string | null
+          parsed_type: string | null
+          posted_date: string
+          transaction_type: string
+        }
+        Insert: {
+          amount_cents: number
+          created_at?: string
+          fit_id: string
+          id?: string
+          import_id: string
+          is_balance_entry?: boolean | null
+          match_confidence?: string | null
+          match_status?: string
+          matched_at?: string | null
+          matched_by?: string | null
+          matched_expense_id?: string | null
+          matched_invoice_id?: string | null
+          memo: string
+          parsed_document?: string | null
+          parsed_name?: string | null
+          parsed_type?: string | null
+          posted_date: string
+          transaction_type: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          fit_id?: string
+          id?: string
+          import_id?: string
+          is_balance_entry?: boolean | null
+          match_confidence?: string | null
+          match_status?: string
+          matched_at?: string | null
+          matched_by?: string | null
+          matched_expense_id?: string | null
+          matched_invoice_id?: string | null
+          memo?: string
+          parsed_document?: string | null
+          parsed_name?: string | null
+          parsed_type?: string | null
+          posted_date?: string
+          transaction_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_transactions_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "bank_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_transactions_matched_expense_id_fkey"
+            columns: ["matched_expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_transactions_matched_invoice_id_fkey"
+            columns: ["matched_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       class_bookings: {
         Row: {
           booked_at: string
