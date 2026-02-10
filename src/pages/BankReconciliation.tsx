@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useCallback } from "react";
 import {
   Upload, FileText, ArrowDownCircle, ArrowUpCircle, CheckCircle2, AlertCircle,
-  Loader2, Wand2, Check, X, EyeOff, Zap, CheckSquare,
+  Loader2, Wand2, Check, X, EyeOff, Zap, CheckSquare, Search,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { KPICard } from "@/components/shared/KPICard";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -73,6 +74,8 @@ export default function BankReconciliation() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedImport, setSelectedImport] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>("all");
+  const [filterParsedType, setFilterParsedType] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
 
@@ -121,14 +124,31 @@ export default function BankReconciliation() {
     return map;
   }, [matchSuggestions]);
 
+  // Collect unique parsed_types for filter dropdown
+  const parsedTypes = useMemo(() => {
+    if (!transactions) return [];
+    const types = new Set<string>();
+    transactions.forEach((t) => { if (t.parsed_type) types.add(t.parsed_type); });
+    return Array.from(types).sort();
+  }, [transactions]);
+
   const filteredTx = useMemo(() => {
     if (!transactions) return [];
     let result = transactions;
     if (filterType === "credit") result = result.filter((t) => t.transaction_type === "credit");
     else if (filterType === "debit") result = result.filter((t) => t.transaction_type === "debit");
     else if (filterType !== "all") result = result.filter((t) => t.match_status === filterType);
+    if (filterParsedType !== "all") result = result.filter((t) => t.parsed_type === filterParsedType);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter((t) =>
+        (t.memo ?? "").toLowerCase().includes(q) ||
+        (t.parsed_name ?? "").toLowerCase().includes(q) ||
+        (t.parsed_document ?? "").toLowerCase().includes(q)
+      );
+    }
     return result;
-  }, [transactions, filterType]);
+  }, [transactions, filterType, filterParsedType, searchQuery]);
 
   const kpis = useMemo(() => {
     if (!transactions) return { credits: 0, debits: 0, unmatched: 0, matched: 0, total: 0 };
@@ -308,9 +328,18 @@ export default function BankReconciliation() {
         </div>
       )}
 
-      {/* Filter */}
+      {/* Filters */}
       {activeImport && (
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="relative w-[260px]">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar descrição, nome ou documento..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
           <Select value={filterType} onValueChange={setFilterType}>
             <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -323,6 +352,22 @@ export default function BankReconciliation() {
               <SelectItem value="ignored">Ignorados</SelectItem>
             </SelectContent>
           </Select>
+          {parsedTypes.length > 0 && (
+            <Select value={filterParsedType} onValueChange={setFilterParsedType}>
+              <SelectTrigger className="w-[200px]"><SelectValue placeholder="Tipo de transação" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os tipos</SelectItem>
+                {parsedTypes.map((pt) => (
+                  <SelectItem key={pt} value={pt}>
+                    {typeLabels[pt] ?? pt}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <span className="text-sm text-muted-foreground ml-auto">
+            {filteredTx.length} de {transactions?.length ?? 0} transações
+          </span>
         </div>
       )}
 
