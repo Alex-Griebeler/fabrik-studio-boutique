@@ -20,11 +20,18 @@ import {
   useCreateBooking,
   useUpdateBookingStatus,
   useDeleteSession,
+  useUpdateSession,
+  useCancelSingleOccurrence,
+  useDeleteThisAndFollowing,
+  useDeleteAllOccurrences,
+  useUpdateThisAndFollowing,
+  useUpdateAllOccurrences,
   BookingStatus,
 } from "@/hooks/useSchedule";
 import { useStudents } from "@/hooks/useStudents";
 import { cn } from "@/lib/utils";
 import { SessionFormDialog } from "./SessionFormDialog";
+import { RecurringActionDialog, RecurringAction } from "./RecurringActionDialog";
 
 interface SessionCardProps {
   session: ClassSession;
@@ -36,7 +43,10 @@ export function SessionCard({ session, compact }: SessionCardProps) {
   const [addingStudent, setAddingStudent] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showRecurringDelete, setShowRecurringDelete] = useState(false);
+  const [showRecurringEdit, setShowRecurringEdit] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [pendingEditAction, setPendingEditAction] = useState<RecurringAction | null>(null);
 
   const { data: modalities } = useModalities();
   const mod = modalities?.find((m) => m.slug === session.modality);
@@ -50,6 +60,11 @@ export function SessionCard({ session, compact }: SessionCardProps) {
   const createBooking = useCreateBooking();
   const updateBookingStatus = useUpdateBookingStatus();
   const deleteSession = useDeleteSession();
+  const cancelSingle = useCancelSingleOccurrence();
+  const deleteFollowing = useDeleteThisAndFollowing();
+  const deleteAll = useDeleteAllOccurrences();
+
+  const isRecurring = !!session.template_id;
 
   const bookedStudentIds = new Set(
     session.bookings?.filter((b) => b.status !== "cancelled").map((b) => b.student_id)
@@ -63,6 +78,39 @@ export function SessionCard({ session, compact }: SessionCardProps) {
       { session_id: session.id, student_id: selectedStudentId, status },
       { onSuccess: () => { setSelectedStudentId(""); setAddingStudent(false); } }
     );
+  };
+
+  const handleDeleteClick = () => {
+    if (isRecurring) {
+      setShowRecurringDelete(true);
+    } else {
+      setShowDeleteConfirm(true);
+    }
+  };
+
+  const handleRecurringDelete = (action: RecurringAction) => {
+    setShowRecurringDelete(false);
+    if (action === "this") {
+      cancelSingle.mutate(session.id);
+    } else if (action === "this_and_following") {
+      deleteFollowing.mutate({ session });
+    } else if (action === "all" && session.template_id) {
+      deleteAll.mutate(session.template_id);
+    }
+  };
+
+  const handleEditClick = () => {
+    if (isRecurring) {
+      setShowRecurringEdit(true);
+    } else {
+      setShowEdit(true);
+    }
+  };
+
+  const handleRecurringEdit = (action: RecurringAction) => {
+    setShowRecurringEdit(false);
+    setPendingEditAction(action);
+    setShowEdit(true);
   };
 
   const time = session.start_time.slice(0, 5);
@@ -104,10 +152,10 @@ export function SessionCard({ session, compact }: SessionCardProps) {
           </Badge>
           {!compact && (
             <>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowEdit(true)} title="Editar aula">
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleEditClick} title="Editar aula">
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowDeleteConfirm(true)} title="Excluir aula">
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleDeleteClick} title="Excluir aula">
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
               <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpanded(!expanded)}>
@@ -193,11 +241,36 @@ export function SessionCard({ session, compact }: SessionCardProps) {
       {/* Edit dialog */}
       <SessionFormDialog
         open={showEdit}
-        onOpenChange={setShowEdit}
+        onOpenChange={(open) => {
+          setShowEdit(open);
+          if (!open) setPendingEditAction(null);
+        }}
         editSession={session}
+        recurringAction={pendingEditAction}
       />
 
-      {/* Delete confirmation */}
+      {/* Recurring edit choice */}
+      <RecurringActionDialog
+        open={showRecurringEdit}
+        onOpenChange={setShowRecurringEdit}
+        title="Editar evento recorrente"
+        description="Este evento faz parte de uma série recorrente."
+        onSelect={handleRecurringEdit}
+        variant="edit"
+      />
+
+      {/* Recurring delete choice */}
+      <RecurringActionDialog
+        open={showRecurringDelete}
+        onOpenChange={setShowRecurringDelete}
+        title="Excluir evento recorrente"
+        description="Este evento faz parte de uma série recorrente."
+        onSelect={handleRecurringDelete}
+        variant="delete"
+        isPending={cancelSingle.isPending || deleteFollowing.isPending || deleteAll.isPending}
+      />
+
+      {/* Non-recurring delete confirmation */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>

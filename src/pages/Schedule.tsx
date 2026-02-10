@@ -1,21 +1,11 @@
 import { useState, useMemo } from "react";
 import { format, addDays, subDays, startOfWeek, endOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Settings2, Wand2, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Settings2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useClassSessions, useActiveModalities, useGenerateWeekSessions, useDeleteWeekSessions } from "@/hooks/useSchedule";
+import { useClassSessions, useActiveModalities, useAutoGenerateSessions } from "@/hooks/useSchedule";
 import { WeeklyCalendar } from "@/components/schedule/WeeklyCalendar";
 import { DailyList } from "@/components/schedule/DailyList";
 import { SessionFormDialog } from "@/components/schedule/SessionFormDialog";
@@ -27,18 +17,17 @@ export default function Schedule() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [modalityFilter, setModalityFilter] = useState("all");
   const [showNewSession, setShowNewSession] = useState(false);
-  const [showDeleteWeek, setShowDeleteWeek] = useState(false);
-  const generateWeek = useGenerateWeekSessions();
-  const deleteWeek = useDeleteWeekSessions();
 
   const weekStart = useMemo(() => startOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
   const weekEnd = useMemo(() => endOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
 
-  const { data: sessions, isLoading } = useClassSessions(
-    format(weekStart, "yyyy-MM-dd"),
-    format(weekEnd, "yyyy-MM-dd")
-  );
+  const startStr = format(weekStart, "yyyy-MM-dd");
+  const endStr = format(weekEnd, "yyyy-MM-dd");
 
+  // Auto-generate sessions from templates
+  useAutoGenerateSessions(startStr, endStr);
+
+  const { data: sessions, isLoading } = useClassSessions(startStr, endStr);
   const { data: modalities } = useActiveModalities();
 
   const goToday = () => setCurrentDate(new Date());
@@ -75,24 +64,6 @@ export default function Schedule() {
                 </div>
               </SheetContent>
             </Sheet>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => generateWeek.mutate({ weekStart: format(weekStart, "yyyy-MM-dd") })}
-              disabled={generateWeek.isPending}
-            >
-              <Wand2 className="h-4 w-4 mr-1" />
-              {generateWeek.isPending ? "Gerando..." : "Gerar Semana"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowDeleteWeek(true)}
-              disabled={deleteWeek.isPending || !sessions?.length}
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Limpar Semana
-            </Button>
             <Button size="sm" onClick={() => setShowNewSession(true)}>
               <Plus className="h-4 w-4 mr-1" /> Nova Aula
             </Button>
@@ -174,30 +145,6 @@ export default function Schedule() {
         onOpenChange={setShowNewSession}
         defaultDate={format(currentDate, "yyyy-MM-dd")}
       />
-
-      {/* Delete Week Confirmation */}
-      <AlertDialog open={showDeleteWeek} onOpenChange={setShowDeleteWeek}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Limpar semana?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Todas as {sessions?.length ?? 0} aula(s) desta semana serão excluídas permanentemente, incluindo agendamentos de alunos.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deleteWeek.mutate({
-                startDate: format(weekStart, "yyyy-MM-dd"),
-                endDate: format(weekEnd, "yyyy-MM-dd"),
-              }, { onSuccess: () => setShowDeleteWeek(false) })}
-              className="bg-destructive text-destructive-foreground"
-            >
-              Excluir Tudo
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

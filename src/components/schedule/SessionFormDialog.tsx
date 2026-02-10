@@ -5,16 +5,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useCreateSession, useUpdateSession, useActiveModalities, useInstructors, ClassSession } from "@/hooks/useSchedule";
+import {
+  useCreateSession,
+  useUpdateSession,
+  useUpdateThisAndFollowing,
+  useUpdateAllOccurrences,
+  useActiveModalities,
+  useInstructors,
+  ClassSession,
+} from "@/hooks/useSchedule";
+import { RecurringAction } from "./RecurringActionDialog";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate?: string;
   editSession?: ClassSession | null;
+  recurringAction?: RecurringAction | null;
 }
 
-export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession }: Props) {
+export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession, recurringAction }: Props) {
   const [modality, setModality] = useState("");
   const [date, setDate] = useState(defaultDate || new Date().toISOString().slice(0, 10));
   const [startTime, setStartTime] = useState("07:00");
@@ -25,6 +35,8 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
 
   const createSession = useCreateSession();
   const updateSession = useUpdateSession();
+  const updateFollowing = useUpdateThisAndFollowing();
+  const updateAll = useUpdateAllOccurrences();
   const { data: modalities } = useActiveModalities();
   const { data: instructors } = useInstructors();
 
@@ -53,43 +65,84 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!modality) return;
+
+    const sessionData = {
+      session_date: date,
+      start_time: startTime,
+      duration_minutes: parseInt(duration),
+      modality,
+      capacity: parseInt(capacity),
+      instructor_id: instructorId || null,
+      notes: notes || null,
+    };
+
     if (isEditing) {
-      updateSession.mutate(
-        {
-          id: editSession.id,
-          session_date: date,
-          start_time: startTime,
-          duration_minutes: parseInt(duration),
-          modality,
-          capacity: parseInt(capacity),
-          instructor_id: instructorId || null,
-          notes: notes || null,
-        },
-        { onSuccess: () => onOpenChange(false) }
-      );
+      const action = recurringAction || "this";
+
+      if (action === "this") {
+        // Edit only this session, mark as exception if recurring
+        updateSession.mutate(
+          {
+            id: editSession.id,
+            ...sessionData,
+            is_exception: !!editSession.template_id,
+          },
+          { onSuccess: () => onOpenChange(false) }
+        );
+      } else if (action === "this_and_following" && editSession.template_id) {
+        updateFollowing.mutate(
+          {
+            session: editSession,
+            updates: {
+              start_time: startTime,
+              duration_minutes: parseInt(duration),
+              modality,
+              capacity: parseInt(capacity),
+              instructor_id: instructorId || null,
+            },
+          },
+          { onSuccess: () => onOpenChange(false) }
+        );
+      } else if (action === "all" && editSession.template_id) {
+        updateAll.mutate(
+          {
+            templateId: editSession.template_id,
+            updates: {
+              start_time: startTime,
+              duration_minutes: parseInt(duration),
+              modality,
+              capacity: parseInt(capacity),
+              instructor_id: instructorId || null,
+            },
+          },
+          { onSuccess: () => onOpenChange(false) }
+        );
+      }
     } else {
-      createSession.mutate(
-        {
-          session_date: date,
-          start_time: startTime,
-          duration_minutes: parseInt(duration),
-          modality,
-          capacity: parseInt(capacity),
-          instructor_id: instructorId || null,
-          notes: notes || null,
-        },
-        { onSuccess: () => onOpenChange(false) }
-      );
+      createSession.mutate(sessionData, {
+        onSuccess: () => onOpenChange(false),
+      });
     }
   };
 
-  const isPending = isEditing ? updateSession.isPending : createSession.isPending;
+  const isPending =
+    createSession.isPending ||
+    updateSession.isPending ||
+    updateFollowing.isPending ||
+    updateAll.isPending;
+
+  const getTitle = () => {
+    if (!isEditing) return "Nova Aula";
+    if (recurringAction === "this_and_following") return "Editar este e os seguintes";
+    if (recurringAction === "all") return "Editar todos os eventos";
+    return "Editar Aula";
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Editar Aula" : "Nova Aula"}</DialogTitle>
+          <DialogTitle>{getTitle()}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -106,7 +159,13 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
             </div>
             <div>
               <Label>Data</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                required
+                disabled={recurringAction === "this_and_following" || recurringAction === "all"}
+              />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -141,7 +200,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
             <Button type="submit" disabled={isPending || !modality}>
-              {isEditing ? "Salvar" : "Criar Aula"}
+              {isPending ? "Salvando..." : isEditing ? "Salvar" : "Criar Aula"}
             </Button>
           </div>
         </form>
