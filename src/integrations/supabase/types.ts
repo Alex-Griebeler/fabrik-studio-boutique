@@ -14,6 +14,158 @@ export type Database = {
   }
   public: {
     Tables: {
+      class_bookings: {
+        Row: {
+          booked_at: string
+          cancelled_at: string | null
+          id: string
+          session_id: string
+          status: Database["public"]["Enums"]["booking_status"]
+          student_id: string
+        }
+        Insert: {
+          booked_at?: string
+          cancelled_at?: string | null
+          id?: string
+          session_id: string
+          status?: Database["public"]["Enums"]["booking_status"]
+          student_id: string
+        }
+        Update: {
+          booked_at?: string
+          cancelled_at?: string | null
+          id?: string
+          session_id?: string
+          status?: Database["public"]["Enums"]["booking_status"]
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_bookings_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "class_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_bookings_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      class_sessions: {
+        Row: {
+          capacity: number
+          created_at: string
+          duration_minutes: number
+          id: string
+          instructor_id: string | null
+          modality: Database["public"]["Enums"]["class_modality"]
+          notes: string | null
+          session_date: string
+          start_time: string
+          status: Database["public"]["Enums"]["session_status"]
+          template_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          capacity?: number
+          created_at?: string
+          duration_minutes?: number
+          id?: string
+          instructor_id?: string | null
+          modality: Database["public"]["Enums"]["class_modality"]
+          notes?: string | null
+          session_date: string
+          start_time: string
+          status?: Database["public"]["Enums"]["session_status"]
+          template_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          capacity?: number
+          created_at?: string
+          duration_minutes?: number
+          id?: string
+          instructor_id?: string | null
+          modality?: Database["public"]["Enums"]["class_modality"]
+          notes?: string | null
+          session_date?: string
+          start_time?: string
+          status?: Database["public"]["Enums"]["session_status"]
+          template_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_sessions_instructor_id_fkey"
+            columns: ["instructor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_sessions_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "class_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      class_templates: {
+        Row: {
+          capacity: number
+          created_at: string
+          day_of_week: number
+          duration_minutes: number
+          id: string
+          instructor_id: string | null
+          is_active: boolean
+          location: string | null
+          modality: Database["public"]["Enums"]["class_modality"]
+          start_time: string
+          updated_at: string
+        }
+        Insert: {
+          capacity?: number
+          created_at?: string
+          day_of_week: number
+          duration_minutes?: number
+          id?: string
+          instructor_id?: string | null
+          is_active?: boolean
+          location?: string | null
+          modality: Database["public"]["Enums"]["class_modality"]
+          start_time: string
+          updated_at?: string
+        }
+        Update: {
+          capacity?: number
+          created_at?: string
+          day_of_week?: number
+          duration_minutes?: number
+          id?: string
+          instructor_id?: string | null
+          is_active?: boolean
+          location?: string | null
+          modality?: Database["public"]["Enums"]["class_modality"]
+          start_time?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_templates_instructor_id_fkey"
+            columns: ["instructor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contracts: {
         Row: {
           cancellation_reason: string | null
@@ -354,6 +506,8 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "instructor" | "student" | "manager" | "reception"
+      booking_status: "confirmed" | "cancelled" | "waitlist" | "no_show"
+      class_modality: "btb" | "hiit" | "personal" | "pilates" | "recovery"
       contract_status: "active" | "suspended" | "cancelled" | "expired"
       invoice_status: "pending" | "paid" | "overdue" | "cancelled"
       payment_method:
@@ -382,6 +536,7 @@ export type Database = {
         | "mensal"
         | "avulso"
         | "unico"
+      session_status: "scheduled" | "cancelled" | "completed"
       student_status: "lead" | "active" | "inactive" | "suspended"
     }
     CompositeTypes: {
@@ -511,6 +666,8 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "instructor", "student", "manager", "reception"],
+      booking_status: ["confirmed", "cancelled", "waitlist", "no_show"],
+      class_modality: ["btb", "hiit", "personal", "pilates", "recovery"],
       contract_status: ["active", "suspended", "cancelled", "expired"],
       invoice_status: ["pending", "paid", "overdue", "cancelled"],
       payment_method: [
@@ -542,6 +699,7 @@ export const Constants = {
         "avulso",
         "unico",
       ],
+      session_status: ["scheduled", "cancelled", "completed"],
       student_status: ["lead", "active", "inactive", "suspended"],
     },
   },
