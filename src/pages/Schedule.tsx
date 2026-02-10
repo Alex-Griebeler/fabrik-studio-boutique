@@ -1,15 +1,127 @@
-import { CalendarDays } from "lucide-react";
+import { useState, useMemo } from "react";
+import { format, addDays, subDays, startOfWeek, endOfWeek } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useClassSessions, ClassModality, MODALITY_LABELS } from "@/hooks/useSchedule";
+import { WeeklyCalendar } from "@/components/schedule/WeeklyCalendar";
+import { DailyList } from "@/components/schedule/DailyList";
+import { SessionFormDialog } from "@/components/schedule/SessionFormDialog";
 
 export default function Schedule() {
+  const [view, setView] = useState<"week" | "day">("week");
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [modalityFilter, setModalityFilter] = useState<ClassModality | "all">("all");
+  const [showNewSession, setShowNewSession] = useState(false);
+
+  const weekStart = useMemo(() => startOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
+  const weekEnd = useMemo(() => endOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
+
+  const { data: sessions, isLoading } = useClassSessions(
+    format(weekStart, "yyyy-MM-dd"),
+    format(weekEnd, "yyyy-MM-dd")
+  );
+
+  const goToday = () => setCurrentDate(new Date());
+  const goPrev = () => setCurrentDate((d) => (view === "week" ? subDays(d, 7) : subDays(d, 1)));
+  const goNext = () => setCurrentDate((d) => (view === "week" ? addDays(d, 7) : addDays(d, 1)));
+
+  const headerLabel =
+    view === "week"
+      ? `${format(weekStart, "dd MMM", { locale: ptBR })} – ${format(weekEnd, "dd MMM yyyy", { locale: ptBR })}`
+      : format(currentDate, "EEEE, dd 'de' MMMM yyyy", { locale: ptBR });
+
   return (
     <div>
-      <PageHeader title="Agenda" description="Grade horária e aulas" />
-      <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
-        <CalendarDays className="h-12 w-12 mb-4 opacity-30" />
-        <p className="text-sm font-medium">Módulo de agenda</p>
-        <p className="text-xs text-muted-foreground/70 mt-1">Grade horária, aulas e check-in</p>
+      <PageHeader
+        title="Agenda"
+        description="Grade horária e aulas"
+        actions={
+          <Button size="sm" onClick={() => setShowNewSession(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Nova Aula
+          </Button>
+        }
+      />
+
+      {/* Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+        {/* Navigation */}
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={goToday}>Hoje</Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goPrev}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goNext}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <span className="text-sm font-medium capitalize ml-1">{headerLabel}</span>
+        </div>
+
+        <div className="flex items-center gap-2 sm:ml-auto">
+          {/* Modality filter */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <Button
+              variant={modalityFilter === "all" ? "default" : "outline"}
+              size="sm"
+              className="h-7 text-xs px-2"
+              onClick={() => setModalityFilter("all")}
+            >
+              Todas
+            </Button>
+            {(Object.entries(MODALITY_LABELS) as [ClassModality, string][]).map(([key, label]) => (
+              <Button
+                key={key}
+                variant={modalityFilter === key ? "default" : "outline"}
+                size="sm"
+                className="h-7 text-xs px-2"
+                onClick={() => setModalityFilter(key)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+
+          {/* View toggle */}
+          <div className="flex border rounded-md">
+            <Button
+              variant={view === "week" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8 rounded-r-none"
+              onClick={() => setView("week")}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={view === "day" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8 rounded-l-none"
+              onClick={() => setView("day")}
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
       </div>
+
+      {/* Content */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-24 text-muted-foreground">
+          <CalendarDays className="h-8 w-8 animate-pulse mr-2" />
+          <span className="text-sm">Carregando agenda...</span>
+        </div>
+      ) : view === "week" ? (
+        <WeeklyCalendar sessions={sessions ?? []} weekStart={weekStart} modalityFilter={modalityFilter} />
+      ) : (
+        <DailyList sessions={sessions ?? []} selectedDate={currentDate} modalityFilter={modalityFilter} />
+      )}
+
+      <SessionFormDialog
+        open={showNewSession}
+        onOpenChange={setShowNewSession}
+        defaultDate={format(currentDate, "yyyy-MM-dd")}
+      />
     </div>
   );
 }
