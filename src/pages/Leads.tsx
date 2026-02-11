@@ -51,7 +51,7 @@ export default function Leads() {
     const trial = leads.filter((l) => l.status === "trial_scheduled").length;
     const converted = leads.filter((l) => l.status === "converted").length;
     const rate = total > 0 ? Math.round((converted / total) * 100) : 0;
-    return { total, qualified, trial, conversion: `${rate}%` };
+    return { total, qualified, trial, conversion: `${rate}%` } as const;
   }, [leads]);
 
   const handleSelectLead = (lead: Lead) => {
