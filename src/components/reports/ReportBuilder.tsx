@@ -121,7 +121,6 @@ export function ReportBuilder() {
   };
 
   const handleExport = () => {
-    console.log("Exporting report:", config);
     alert(`Relatório será exportado em ${config.format.toUpperCase()}`);
   };
 

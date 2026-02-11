@@ -64,7 +64,6 @@ export function TemplateSelector({ lead, onSend }: TemplateSelectorProps) {
       setMessage("");
       setSelectedTemplate("");
     } catch (err: any) {
-      console.error("WhatsApp send error:", err);
       toast.error(err.message || "Erro ao enviar mensagem.");
     } finally {
       setSending(false);
