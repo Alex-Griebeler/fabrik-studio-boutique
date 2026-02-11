@@ -95,7 +95,8 @@ export function useTrainerSessionStats(trainerId: string | undefined) {
         .select("id")
         .eq("trainer_id", trainerId!)
         .gte("session_date", today)
-        .eq("status", "scheduled");
+        .eq("status", "scheduled")
+        .limit(500);
 
       const { data: past, error: e2 } = await supabase
         .from("sessions")
@@ -103,7 +104,8 @@ export function useTrainerSessionStats(trainerId: string | undefined) {
         .eq("trainer_id", trainerId!)
         .gte("session_date", weekAgo)
         .lt("session_date", today)
-        .eq("status", "completed");
+        .eq("status", "completed")
+        .limit(500);
 
       if (e1) throw e1;
       if (e2) throw e2;

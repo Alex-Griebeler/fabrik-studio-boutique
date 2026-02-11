@@ -64,7 +64,8 @@ export function useBankImports() {
       const { data, error } = await supabase
         .from("bank_imports")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(100);
       if (error) throw error;
       return data as BankImport[];
     },
@@ -80,7 +81,8 @@ export function useBankTransactions(importId: string | null) {
         .from("bank_transactions")
         .select("*")
         .eq("import_id", importId!)
-        .order("posted_date", { ascending: false });
+        .order("posted_date", { ascending: false })
+        .limit(5000);
       if (error) throw error;
       return data as BankTransaction[];
     },

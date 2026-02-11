@@ -20,7 +20,8 @@ export function useInstructorProfiles() {
       const { data: roles, error: rErr } = await supabase
         .from("user_roles")
         .select("user_id")
-        .eq("role", "instructor");
+        .eq("role", "instructor")
+        .limit(500);
       if (rErr) throw rErr;
 
       if (!roles?.length) return [];
@@ -31,7 +32,8 @@ export function useInstructorProfiles() {
         .from("profiles")
         .select("*")
         .in("auth_user_id", instructorUserIds)
-        .order("full_name");
+        .order("full_name")
+        .limit(500);
       if (pErr) throw pErr;
 
       return profiles as unknown as Instructor[];
@@ -46,7 +48,8 @@ export function useAllProfiles() {
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
-        .order("full_name");
+        .order("full_name")
+        .limit(500);
       if (error) throw error;
       return data as unknown as Instructor[];
     },
@@ -68,7 +71,7 @@ export function useAddInstructorRole() {
       qc.invalidateQueries({ queryKey: ["instructors"] });
       toast.success("Instrutor adicionado!");
     },
-    onError: (e: any) => {
+    onError: (e: Error) => {
       if (e?.message?.includes("duplicate")) toast.error("Usuário já é instrutor.");
       else toast.error("Erro ao adicionar instrutor.");
     },
@@ -126,7 +129,8 @@ export function useInstructorSessionStats(profileId: string | undefined) {
         .select("id")
         .eq("instructor_id", profileId!)
         .gte("session_date", today)
-        .neq("status", "cancelled");
+        .neq("status", "cancelled")
+        .limit(500);
 
       const { data: past, error: e2 } = await supabase
         .from("class_sessions")
@@ -134,7 +138,8 @@ export function useInstructorSessionStats(profileId: string | undefined) {
         .eq("instructor_id", profileId!)
         .gte("session_date", weekAgo)
         .lt("session_date", today)
-        .neq("status", "cancelled");
+        .neq("status", "cancelled")
+        .limit(500);
 
       if (e1) throw e1;
       if (e2) throw e2;

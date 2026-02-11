@@ -51,7 +51,8 @@ export function useConversionAnalytics(range: DateRange) {
         .from("leads")
         .select("id, status, source, trial_date, created_at, converted_to_student_id")
         .gte("created_at", from + "T00:00:00")
-        .lte("created_at", to + "T23:59:59");
+        .lte("created_at", to + "T23:59:59")
+        .limit(5000);
       if (error) throw error;
 
       const all = leads ?? [];
@@ -69,7 +70,8 @@ export function useConversionAnalytics(range: DateRange) {
         const { data: students } = await supabase
           .from("students")
           .select("id, created_at")
-          .in("id", studentIds);
+          .in("id", studentIds)
+          .limit(1000);
         const studentMap = new Map((students ?? []).map((s) => [s.id, s.created_at]));
         let totalDays = 0;
         let count = 0;
@@ -114,7 +116,8 @@ export function useOperationsAnalytics(range: DateRange) {
         .from("sessions")
         .select("id, session_date, start_time, status, capacity")
         .gte("session_date", from)
-        .lte("session_date", to);
+        .lte("session_date", to)
+        .limit(5000);
       if (error) throw error;
 
       const all = sessions ?? [];
@@ -174,7 +177,8 @@ export function useFinancialAnalytics(range: DateRange) {
         .select("paid_amount_cents, payment_date")
         .eq("status", "paid")
         .gte("payment_date", format(from, "yyyy-MM-dd"))
-        .lte("payment_date", format(to, "yyyy-MM-dd"));
+        .lte("payment_date", format(to, "yyyy-MM-dd"))
+        .limit(5000);
 
       // group by month
       const monthlyMap = new Map<string, number>();
@@ -194,7 +198,8 @@ export function useFinancialAnalytics(range: DateRange) {
       const { data: contracts } = await supabase
         .from("contracts")
         .select("monthly_value_cents")
-        .eq("status", "active");
+        .eq("status", "active")
+        .limit(5000);
       const mrr = (contracts ?? []).reduce((sum, c) => sum + (c.monthly_value_cents ?? 0), 0);
 
       // Churn: cancelled contracts this month vs total active start of month
@@ -239,11 +244,13 @@ export function useFinancialAnalytics(range: DateRange) {
         .from("expenses")
         .select("amount_cents, category_id")
         .gte("due_date", format(from, "yyyy-MM-dd"))
-        .lte("due_date", format(to, "yyyy-MM-dd"));
+        .lte("due_date", format(to, "yyyy-MM-dd"))
+        .limit(5000);
 
       const { data: categories } = await supabase
         .from("expense_categories")
-        .select("id, name, color");
+        .select("id, name, color")
+        .limit(500);
 
       const catMap = new Map((categories ?? []).map((c) => [c.id, { name: c.name, color: c.color }]));
       const expByCat = new Map<string, number>();

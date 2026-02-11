@@ -10,7 +10,8 @@ export function useModalities() {
       const { data, error } = await supabase
         .from("class_modalities")
         .select("*")
-        .order("sort_order");
+        .order("sort_order")
+        .limit(100);
       if (error) throw error;
       return data as unknown as ClassModality[];
     },
@@ -38,7 +39,7 @@ export function useCreateModality() {
       qc.invalidateQueries({ queryKey: ["class_modalities"] });
       toast.success("Modalidade criada!");
     },
-    onError: (e: any) => {
+    onError: (e: Error) => {
       if (e?.message?.includes("duplicate")) toast.error("Slug já existe.");
       else toast.error("Erro ao criar modalidade.");
     },

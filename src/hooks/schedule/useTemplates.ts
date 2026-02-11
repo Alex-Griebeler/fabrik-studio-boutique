@@ -12,7 +12,8 @@ export function useClassTemplates() {
         .select("*, instructor:profiles!class_templates_instructor_id_fkey(id, full_name)")
         .eq("is_active", true)
         .order("day_of_week")
-        .order("start_time");
+        .order("start_time")
+        .limit(500);
       if (error) throw error;
       return data as unknown as ClassTemplate[];
     },
@@ -97,7 +98,8 @@ export function useInstructors() {
       const { data, error } = await supabase
         .from("profiles")
         .select("id, full_name")
-        .order("full_name");
+        .order("full_name")
+        .limit(500);
       if (error) throw error;
       return data;
     },

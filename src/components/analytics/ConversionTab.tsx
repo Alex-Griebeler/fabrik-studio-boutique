@@ -6,7 +6,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell, ResponsiveContainer, FunnelChart } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from "recharts";
 import { Users, UserCheck, Clock, UserX } from "lucide-react";
 import type { ConversionFunnel } from "@/hooks/useAnalytics";
 

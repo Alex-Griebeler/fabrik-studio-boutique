@@ -1,11 +1,9 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, TrendingUp, Brain, RefreshCw } from "lucide-react";
+import { AlertTriangle, TrendingUp, Brain } from "lucide-react";
 
 interface ChurnRiskStudent {
   id: string;
@@ -32,7 +30,8 @@ function useChurnRisk() {
       const { data: students } = await supabase
         .from("students")
         .select("id, full_name, status")
-        .eq("status", "active");
+        .eq("status", "active")
+        .limit(2000);
 
       if (!students || students.length === 0) return [];
 
@@ -46,13 +45,15 @@ function useChurnRisk() {
         .from("sessions")
         .select("student_id, session_date, status")
         .in("student_id", studentIds)
-        .gte("session_date", sixtyDaysAgo.toISOString().split("T")[0]);
+        .gte("session_date", sixtyDaysAgo.toISOString().split("T")[0])
+        .limit(10000);
 
       // Get overdue invoices
       const { data: overdueInvoices } = await supabase
         .from("invoices")
         .select("student_id")
-        .eq("status", "overdue");
+        .eq("status", "overdue")
+        .limit(5000);
 
       const overdueSet = new Set((overdueInvoices ?? []).map((i) => i.student_id));
 

@@ -22,7 +22,8 @@ export function usePayrollCycles() {
       const { data, error } = await supabase
         .from("payroll_cycles")
         .select("*")
-        .order("competencia", { ascending: false });
+        .order("competencia", { ascending: false })
+        .limit(100);
       if (error) throw error;
       return data as PayrollCycle[];
     },

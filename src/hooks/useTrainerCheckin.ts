@@ -20,7 +20,8 @@ export function useTrainerTodaySessions() {
         .eq("trainer_id", trainer!.id)
         .eq("session_date", today)
         .in("status", ["scheduled", "completed"])
-        .order("start_time", { ascending: true });
+        .order("start_time", { ascending: true })
+        .limit(50);
 
       if (error) throw error;
       return data;
