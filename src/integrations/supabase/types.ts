@@ -532,6 +532,7 @@ export type Database = {
           created_by: string | null
           description: string
           id: string
+          lead_id: string | null
           scheduled_at: string | null
           student_id: string
           type: Database["public"]["Enums"]["interaction_type"]
@@ -543,6 +544,7 @@ export type Database = {
           created_by?: string | null
           description: string
           id?: string
+          lead_id?: string | null
           scheduled_at?: string | null
           student_id: string
           type: Database["public"]["Enums"]["interaction_type"]
@@ -554,12 +556,20 @@ export type Database = {
           created_by?: string | null
           description?: string
           id?: string
+          lead_id?: string | null
           scheduled_at?: string | null
           student_id?: string
           type?: Database["public"]["Enums"]["interaction_type"]
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "interactions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "interactions_student_id_fkey"
             columns: ["student_id"]
@@ -629,6 +639,80 @@ export type Database = {
           {
             foreignKeyName: "invoices_student_id_fkey"
             columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          converted_to_student_id: string | null
+          created_at: string
+          email: string | null
+          id: string
+          lost_reason: string | null
+          name: string
+          notes: string | null
+          phone: string | null
+          qualification_details: Json
+          qualification_score: number
+          referred_by: string | null
+          source: string | null
+          status: string
+          tags: string[]
+          trial_date: string | null
+          trial_time: string | null
+          trial_type: string | null
+          updated_at: string
+          utm_params: Json | null
+        }
+        Insert: {
+          converted_to_student_id?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          lost_reason?: string | null
+          name: string
+          notes?: string | null
+          phone?: string | null
+          qualification_details?: Json
+          qualification_score?: number
+          referred_by?: string | null
+          source?: string | null
+          status?: string
+          tags?: string[]
+          trial_date?: string | null
+          trial_time?: string | null
+          trial_type?: string | null
+          updated_at?: string
+          utm_params?: Json | null
+        }
+        Update: {
+          converted_to_student_id?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          lost_reason?: string | null
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          qualification_details?: Json
+          qualification_score?: number
+          referred_by?: string | null
+          source?: string | null
+          status?: string
+          tags?: string[]
+          trial_date?: string | null
+          trial_time?: string | null
+          trial_type?: string | null
+          updated_at?: string
+          utm_params?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_converted_to_student_id_fkey"
+            columns: ["converted_to_student_id"]
             isOneToOne: false
             referencedRelation: "students"
             referencedColumns: ["id"]
@@ -1326,6 +1410,68 @@ export type Database = {
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trial_quotas: {
+        Row: {
+          date: string
+          max_trials: number
+          occupied_hours: Json
+          trials_booked: number
+        }
+        Insert: {
+          date: string
+          max_trials?: number
+          occupied_hours?: Json
+          trials_booked?: number
+        }
+        Update: {
+          date?: string
+          max_trials?: number
+          occupied_hours?: Json
+          trials_booked?: number
+        }
+        Relationships: []
+      }
+      trial_waitlist: {
+        Row: {
+          created_at: string
+          id: string
+          lead_id: string
+          position: number
+          preferred_dates: string[] | null
+          preferred_times: string[] | null
+          session_type_preference: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lead_id: string
+          position?: number
+          preferred_dates?: string[] | null
+          preferred_times?: string[] | null
+          session_type_preference?: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lead_id?: string
+          position?: number
+          preferred_dates?: string[] | null
+          preferred_times?: string[] | null
+          session_type_preference?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trial_waitlist_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
             referencedColumns: ["id"]
           },
         ]

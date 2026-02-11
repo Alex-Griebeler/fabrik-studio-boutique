@@ -1,16 +1,17 @@
 import { useState, useMemo } from "react";
-import { Plus, UserPlus, List, Columns3 } from "lucide-react";
+import { Plus, UserPlus, List, Columns3, Star, CalendarCheck, Search } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { KPICard } from "@/components/shared/KPICard";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLeads, useConvertLeadToStudent, type LeadStage } from "@/hooks/useLeads";
-import { useCreateStudent, useUpdateStudent, type Student, type StudentFormData } from "@/hooks/useStudents";
-import { StudentFormDialog } from "@/components/students/StudentFormDialog";
+import { useLeads, useConvertLead, useUpdateLeadStatus, type Lead, type LeadStatus } from "@/hooks/useLeads";
+import { LeadFormDialog } from "@/components/leads/LeadFormDialog";
 import { LeadKanban } from "@/components/leads/LeadKanban";
+import { LeadTable } from "@/components/leads/LeadTable";
 import { LeadDetailDialog } from "@/components/leads/LeadDetailDialog";
 import { InteractionFormDialog } from "@/components/leads/InteractionFormDialog";
+import { TrialScheduler } from "@/components/leads/TrialScheduler";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,39 +22,38 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 export default function Leads() {
-  const { data: leads, isLoading } = useLeads();
-  const createStudent = useCreateStudent();
-  const convertLead = useConvertLeadToStudent();
+  const [search, setSearch] = useState("");
+  const { data: leads, isLoading } = useLeads({ search });
+  const convertLead = useConvertLead();
+  const updateStatus = useUpdateLeadStatus();
 
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [formOpen, setFormOpen] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<(Student & { lead_stage: LeadStage }) | null>(null);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [interactionOpen, setInteractionOpen] = useState(false);
   const [interactionLeadId, setInteractionLeadId] = useState("");
   const [convertDialog, setConvertDialog] = useState<string | null>(null);
+  const [trialOpen, setTrialOpen] = useState(false);
+  const [trialLeadId, setTrialLeadId] = useState("");
+  const [lostDialog, setLostDialog] = useState<string | null>(null);
+  const [lostReason, setLostReason] = useState("");
 
   const kpis = useMemo(() => {
-    if (!leads) return { total: 0, new: 0, contacted: 0, trial: 0, negotiation: 0 };
-    return {
-      total: leads.length,
-      new: leads.filter((l) => !l.lead_stage || l.lead_stage === "new").length,
-      contacted: leads.filter((l) => l.lead_stage === "contacted").length,
-      trial: leads.filter((l) => l.lead_stage === "trial").length,
-      negotiation: leads.filter((l) => l.lead_stage === "negotiation").length,
-    };
+    if (!leads) return { total: 0, qualified: 0, trial: 0, conversion: "0%" };
+    const total = leads.length;
+    const qualified = leads.filter((l) => l.qualification_score >= 50).length;
+    const trial = leads.filter((l) => l.status === "trial_scheduled").length;
+    const converted = leads.filter((l) => l.status === "converted").length;
+    const rate = total > 0 ? Math.round((converted / total) * 100) : 0;
+    return { total, qualified, trial, conversion: `${rate}%` };
   }, [leads]);
 
-  const handleCreateLead = (data: StudentFormData) => {
-    createStudent.mutate(
-      { ...data, status: "lead" },
-      { onSuccess: () => setFormOpen(false) }
-    );
-  };
-
-  const handleSelectLead = (lead: Student & { lead_stage: LeadStage }) => {
+  const handleSelectLead = (lead: Lead) => {
     setSelectedLead(lead);
     setDetailOpen(true);
   };
@@ -63,10 +63,24 @@ export default function Leads() {
     setInteractionOpen(true);
   };
 
+  const handleScheduleTrial = (leadId: string) => {
+    setTrialLeadId(leadId);
+    setTrialOpen(true);
+  };
+
   const handleConvert = () => {
     if (convertDialog) {
       convertLead.mutate(convertDialog);
       setConvertDialog(null);
+      setDetailOpen(false);
+    }
+  };
+
+  const handleMarkLost = () => {
+    if (lostDialog && lostReason.trim()) {
+      updateStatus.mutate({ id: lostDialog, status: "lost", lost_reason: lostReason });
+      setLostDialog(null);
+      setLostReason("");
       setDetailOpen(false);
     }
   };
@@ -85,25 +99,26 @@ export default function Leads() {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <KPICard title="Total de Leads" value={String(kpis.total)} icon={UserPlus} />
-        <KPICard title="Novos" value={String(kpis.new)} icon={Plus} />
-        <KPICard title="Em Negociação" value={String(kpis.negotiation)} icon={Columns3} />
-        <KPICard title="Aula Experimental" value={String(kpis.trial)} icon={List} />
+        <KPICard title="Qualificados" value={String(kpis.qualified)} icon={Star} />
+        <KPICard title="Trials Agendados" value={String(kpis.trial)} icon={CalendarCheck} />
+        <KPICard title="Taxa de Conversão" value={kpis.conversion} icon={Columns3} />
       </div>
 
-      {/* View toggle */}
+      {/* Search + View toggle */}
       <div className="flex items-center gap-2 mb-4">
-        <Button
-          size="sm"
-          variant={view === "kanban" ? "default" : "outline"}
-          onClick={() => setView("kanban")}
-        >
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar leads..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Button size="sm" variant={view === "kanban" ? "default" : "outline"} onClick={() => setView("kanban")}>
           <Columns3 className="h-4 w-4 mr-1" /> Kanban
         </Button>
-        <Button
-          size="sm"
-          variant={view === "list" ? "default" : "outline"}
-          onClick={() => setView("list")}
-        >
+        <Button size="sm" variant={view === "list" ? "default" : "outline"} onClick={() => setView("list")}>
           <List className="h-4 w-4 mr-1" /> Lista
         </Button>
       </div>
@@ -117,69 +132,50 @@ export default function Leads() {
           onNewInteraction={handleNewInteraction}
         />
       ) : (
-        // Simple list view fallback
-        <div className="rounded-lg border bg-card divide-y divide-border">
-          {!leads?.length ? (
-            <div className="text-center text-muted-foreground py-12">
-              <UserPlus className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Nenhum lead cadastrado</p>
-            </div>
-          ) : (
-            leads.map((lead) => (
-              <div
-                key={lead.id}
-                className="flex items-center justify-between p-4 hover:bg-muted/50 cursor-pointer transition-colors"
-                onClick={() => handleSelectLead(lead)}
-              >
-                <div>
-                  <p className="font-medium text-sm">{lead.full_name}</p>
-                  <p className="text-xs text-muted-foreground">{lead.phone || lead.email || "—"}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {lead.lead_source && (
-                    <span className="text-xs text-muted-foreground">{lead.lead_source}</span>
-                  )}
-                  <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); handleNewInteraction(lead.id); }}>
-                    Interação
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        <LeadTable
+          leads={leads ?? []}
+          onSelectLead={handleSelectLead}
+          onNewInteraction={handleNewInteraction}
+          onScheduleTrial={handleScheduleTrial}
+          onConvert={(id) => setConvertDialog(id)}
+          onMarkLost={(id) => setLostDialog(id)}
+        />
       )}
 
       {/* Dialogs */}
-      <StudentFormDialog
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        onSubmit={handleCreateLead}
-        isSubmitting={createStudent.isPending}
-      />
+      <LeadFormDialog open={formOpen} onOpenChange={setFormOpen} />
 
       <LeadDetailDialog
         open={detailOpen}
         onOpenChange={setDetailOpen}
         lead={selectedLead}
         onNewInteraction={() => {
-          if (selectedLead) {
-            setInteractionLeadId(selectedLead.id);
-            setInteractionOpen(true);
-          }
+          if (selectedLead) handleNewInteraction(selectedLead.id);
         }}
         onConvert={() => {
-          if (selectedLead) {
-            setConvertDialog(selectedLead.id);
-          }
+          if (selectedLead) setConvertDialog(selectedLead.id);
+        }}
+        onScheduleTrial={() => {
+          if (selectedLead) handleScheduleTrial(selectedLead.id);
+        }}
+        onMarkLost={() => {
+          if (selectedLead) setLostDialog(selectedLead.id);
         }}
       />
 
       <InteractionFormDialog
         open={interactionOpen}
         onOpenChange={setInteractionOpen}
-        studentId={interactionLeadId}
+        leadId={interactionLeadId}
       />
 
+      <TrialScheduler
+        open={trialOpen}
+        onOpenChange={setTrialOpen}
+        leadId={trialLeadId}
+      />
+
+      {/* Convert confirmation */}
       <AlertDialog open={!!convertDialog} onOpenChange={() => setConvertDialog(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -191,6 +187,31 @@ export default function Leads() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleConvert}>Converter</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Lost dialog */}
+      <AlertDialog open={!!lostDialog} onOpenChange={() => { setLostDialog(null); setLostReason(""); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar Lead como Perdido</AlertDialogTitle>
+            <AlertDialogDescription>Informe o motivo da perda deste lead.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Label>Motivo *</Label>
+            <Textarea
+              value={lostReason}
+              onChange={(e) => setLostReason(e.target.value)}
+              placeholder="Ex: sem interesse, concorrência, preço..."
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleMarkLost} disabled={!lostReason.trim()}>
+              Confirmar
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
