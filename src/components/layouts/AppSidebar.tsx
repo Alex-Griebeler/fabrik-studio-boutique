@@ -58,6 +58,7 @@ const operationalItems = [
   { title: "Agenda", url: "/schedule", icon: CalendarDays },
   { title: "Instrutores", url: "/instructors", icon: GraduationCap },
   { title: "Trainer App", url: "/trainer-app", icon: Smartphone },
+  { title: "Student App", url: "/student-app", icon: Users },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
 ];
