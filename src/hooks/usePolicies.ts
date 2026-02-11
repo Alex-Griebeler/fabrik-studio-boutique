@@ -7,7 +7,7 @@ export function usePolicies() {
   return useQuery({
     queryKey: ["policies"],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("policies")
         .select("*")
         .order("key");
@@ -38,7 +38,7 @@ export function useUpdatePolicy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ key, value }: { key: string; value: any }) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("policies")
         .update({ value: JSON.stringify(value) })
         .eq("key", key);

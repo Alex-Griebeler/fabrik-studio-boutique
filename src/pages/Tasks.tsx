@@ -56,14 +56,14 @@ export default function Tasks() {
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="text-base">Lista de Tarefas</CardTitle>
           <div className="flex gap-2">
-            <Select value={filters.status ?? "all"} onValueChange={v => setFilters(f => ({ ...f, status: v as any }))}>
+            <Select value={filters.status ?? "all"} onValueChange={v => setFilters(f => ({ ...f, status: v as TaskStatus | "all" }))}>
               <SelectTrigger className="w-[130px] h-8 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 {Object.entries(taskStatusLabels).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={filters.prioridade ?? "all"} onValueChange={v => setFilters(f => ({ ...f, prioridade: v as any }))}>
+            <Select value={filters.prioridade ?? "all"} onValueChange={v => setFilters(f => ({ ...f, prioridade: v as TaskPriority | "all" }))}>
               <SelectTrigger className="w-[120px] h-8 text-xs"><SelectValue placeholder="Prioridade" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas</SelectItem>
@@ -104,8 +104,8 @@ export default function Tasks() {
                             </span>
                           </>
                         )}
-                        {(t.leads as any)?.name && <><span>•</span><span>{(t.leads as any).name}</span></>}
-                        {(t.profiles as any)?.full_name && <><span>•</span><span>{(t.profiles as any).full_name}</span></>}
+                        {(t.leads as { name?: string } | null)?.name && <><span>•</span><span>{(t.leads as { name: string }).name}</span></>}
+                        {(t.profiles as { full_name?: string } | null)?.full_name && <><span>•</span><span>{(t.profiles as { full_name: string }).full_name}</span></>}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-3">

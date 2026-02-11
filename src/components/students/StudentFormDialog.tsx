@@ -110,7 +110,7 @@ export function StudentFormDialog({ open, onOpenChange, student, onSubmit, isSub
 
   useEffect(() => {
     if (student) {
-      const addr = (student.address as any) ?? {};
+      const addr = (student.address as Record<string, string> | null) ?? {};
       form.reset({
         full_name: student.full_name,
         email: student.email ?? "",

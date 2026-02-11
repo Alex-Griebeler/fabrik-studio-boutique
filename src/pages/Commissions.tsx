@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DollarSign, CheckCircle, Clock, Plus } from "lucide-react";
-import { useCommissions, useCommissionSummary, useUpdateCommissionStatus } from "@/hooks/useCommissions";
+import { useCommissions, useCommissionSummary, useUpdateCommissionStatus, type Commission } from "@/hooks/useCommissions";
 import { CommissionFormDialog } from "@/components/commissions/CommissionFormDialog";
 import { SalesTargetManager } from "@/components/commissions/SalesTargetManager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -85,7 +85,7 @@ export default function Commissions() {
                   {commissions.map((c) => (
                     <div key={c.id} className="flex items-center justify-between rounded-lg border px-4 py-3">
                       <div className="space-y-0.5">
-                        <p className="text-sm font-medium">{(c.profiles as any)?.full_name ?? "—"}</p>
+                        <p className="text-sm font-medium">{(c.profiles as { full_name?: string } | undefined)?.full_name ?? "—"}</p>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{tipoLabels[c.tipo]}</span>
                           <span>•</span>
@@ -96,7 +96,7 @@ export default function Commissions() {
                         <p className="text-sm font-semibold">{formatCurrency(c.valor_comissao_cents)}</p>
                         <Select
                           value={c.status}
-                          onValueChange={(v) => updateStatus.mutate({ id: c.id, status: v as any, data_pagamento: v === "paga" ? format(new Date(), "yyyy-MM-dd") : undefined })}
+                          onValueChange={(v) => updateStatus.mutate({ id: c.id, status: v as Commission["status"], data_pagamento: v === "paga" ? format(new Date(), "yyyy-MM-dd") : undefined })}
                         >
                           <SelectTrigger className="w-[120px] h-7 text-xs">
                             <SelectValue />

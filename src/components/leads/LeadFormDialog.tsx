@@ -83,7 +83,7 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const { temperature, consultant_id, ...rest } = form;
-    createLead.mutate({ ...rest, temperature: temperature || undefined, consultant_id: consultant_id || undefined } as any, {
+    createLead.mutate(rest, {
       onSuccess: () => {
         onOpenChange(false);
         setForm({ name: "", email: "", phone: "", source: "", notes: "", tags: [], qualification_details: {}, temperature: "", consultant_id: "" });
