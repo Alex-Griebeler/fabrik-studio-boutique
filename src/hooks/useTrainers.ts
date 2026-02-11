@@ -37,10 +37,10 @@ export function useTrainer(id: string | undefined) {
 }
 
 export function useCreateTrainer() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: Partial<Trainer>) => {
-      const { error } = await supabase.from("trainers").insert(data as any);
+   const qc = useQueryClient();
+   return useMutation({
+     mutationFn: async (data: Partial<Trainer>) => {
+       const { error } = await supabase.from("trainers").insert([data] as never);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -52,10 +52,10 @@ export function useCreateTrainer() {
 }
 
 export function useUpdateTrainer() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, ...data }: { id: string } & Partial<Trainer>) => {
-      const { error } = await supabase.from("trainers").update(data as any).eq("id", id);
+   const qc = useQueryClient();
+   return useMutation({
+     mutationFn: async ({ id, ...data }: { id: string } & Partial<Trainer>) => {
+       const { error } = await supabase.from("trainers").update(data).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {

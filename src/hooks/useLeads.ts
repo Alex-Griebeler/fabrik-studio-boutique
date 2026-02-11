@@ -159,18 +159,18 @@ export function useCreateLead() {
       const details = data.qualification_details ?? {};
       const { score } = calculateLeadScore(details);
 
-      const { error } = await supabase.from("leads").insert({
+      const { error } = await supabase.from("leads").insert([{
         name: data.name,
         email: data.email || null,
         phone: data.phone || null,
         source: data.source || null,
         notes: data.notes || null,
         tags: data.tags ?? [],
-        qualification_details: details as any,
+        qualification_details: details as never,
         qualification_score: score,
-        temperature: (data as any).temperature || null,
-        consultant_id: (data as any).consultant_id || null,
-      } as any);
+        temperature: null,
+        consultant_id: null,
+      }]);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -182,10 +182,10 @@ export function useCreateLead() {
 }
 
 export function useUpdateLead() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<LeadFormData> & { lost_reason?: string } }) => {
-      const updates: Record<string, any> = {};
+   const qc = useQueryClient();
+   return useMutation({
+     mutationFn: async ({ id, data }: { id: string; data: Partial<LeadFormData> & { lost_reason?: string } }) => {
+       const updates: Record<string, string | number | QualificationDetails | string[] | null> = {};
       if (data.name !== undefined) updates.name = data.name;
       if (data.email !== undefined) updates.email = data.email || null;
       if (data.phone !== undefined) updates.phone = data.phone || null;
@@ -210,10 +210,10 @@ export function useUpdateLead() {
 }
 
 export function useUpdateLeadStatus() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, status, lost_reason }: { id: string; status: LeadStatus; lost_reason?: string }) => {
-      const updates: Record<string, any> = { status };
+   const qc = useQueryClient();
+   return useMutation({
+     mutationFn: async ({ id, status, lost_reason }: { id: string; status: LeadStatus; lost_reason?: string }) => {
+       const updates: Record<string, LeadStatus | string> = { status };
       if (lost_reason) updates.lost_reason = lost_reason;
 
       const { error } = await supabase.from("leads").update(updates).eq("id", id);
