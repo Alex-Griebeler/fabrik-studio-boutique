@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useInteractions,
   interactionTypeLabels,
@@ -12,6 +14,7 @@ import {
   type Lead,
   type LeadStatus,
 } from "@/hooks/useLeads";
+import { TemplateSelector } from "./TemplateSelector";
 import { calculateLeadScore, gradeColors } from "@/lib/leadScoring";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -29,6 +32,7 @@ interface Props {
 
 export function LeadDetailDialog({ open, onOpenChange, lead, onNewInteraction, onConvert, onScheduleTrial, onMarkLost }: Props) {
   const { data: interactions, isLoading } = useInteractions(lead?.id ?? "");
+  const [messageTab, setMessageTab] = useState("templates");
 
   if (!lead) return null;
 
@@ -91,26 +95,41 @@ export function LeadDetailDialog({ open, onOpenChange, lead, onNewInteraction, o
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-          <Button size="sm" variant="outline" onClick={onNewInteraction}>
-            <MessageSquare className="h-4 w-4 mr-1" /> Nova Interação
-          </Button>
-          {status !== "converted" && status !== "trial_scheduled" && onScheduleTrial && (
-            <Button size="sm" variant="outline" onClick={onScheduleTrial}>
-              <CalendarCheck className="h-4 w-4 mr-1" /> Agendar Trial
-            </Button>
-          )}
-          {status !== "converted" && status !== "lost" && (
-            <Button size="sm" onClick={onConvert}>
-              <UserCheck className="h-4 w-4 mr-1" /> Converter
-            </Button>
-          )}
-          {status !== "converted" && status !== "lost" && onMarkLost && (
-            <Button size="sm" variant="destructive" onClick={onMarkLost}>
-              <XCircle className="h-4 w-4 mr-1" /> Perdido
-            </Button>
-          )}
+        {/* Templates + Actions */}
+        <div className="pt-2 border-t border-border">
+          <Tabs defaultValue="actions" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="actions">Ações</TabsTrigger>
+              <TabsTrigger value="templates">Mensagens</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="actions" className="mt-4">
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={onNewInteraction}>
+                  <MessageSquare className="h-4 w-4 mr-1" /> Nova Interação
+                </Button>
+                {status !== "converted" && status !== "trial_scheduled" && onScheduleTrial && (
+                  <Button size="sm" variant="outline" onClick={onScheduleTrial}>
+                    <CalendarCheck className="h-4 w-4 mr-1" /> Agendar Trial
+                  </Button>
+                )}
+                {status !== "converted" && status !== "lost" && (
+                  <Button size="sm" onClick={onConvert}>
+                    <UserCheck className="h-4 w-4 mr-1" /> Converter
+                  </Button>
+                )}
+                {status !== "converted" && status !== "lost" && onMarkLost && (
+                  <Button size="sm" variant="destructive" onClick={onMarkLost}>
+                    <XCircle className="h-4 w-4 mr-1" /> Perdido
+                  </Button>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="templates" className="mt-4">
+              <TemplateSelector lead={lead} />
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Interactions timeline */}
