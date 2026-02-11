@@ -7,7 +7,7 @@ export function useTrainers(activeOnly = false) {
   return useQuery({
     queryKey: ["trainers", activeOnly],
     queryFn: async () => {
-      let query = (supabase as any)
+      let query = supabase
         .from("trainers")
         .select("*")
         .order("full_name");
@@ -24,10 +24,10 @@ export function useTrainer(id: string | undefined) {
     queryKey: ["trainers", id],
     enabled: !!id,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("trainers")
         .select("*")
-        .eq("id", id)
+        .eq("id", id!)
         .single();
       if (error) throw error;
       return data as Trainer;
@@ -39,7 +39,7 @@ export function useCreateTrainer() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: Partial<Trainer>) => {
-      const { error } = await (supabase as any).from("trainers").insert(data);
+      const { error } = await supabase.from("trainers").insert(data as any);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -54,7 +54,7 @@ export function useUpdateTrainer() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, ...data }: { id: string } & Partial<Trainer>) => {
-      const { error } = await (supabase as any).from("trainers").update(data).eq("id", id);
+      const { error } = await supabase.from("trainers").update(data as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -69,7 +69,7 @@ export function useDeleteTrainer() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any).from("trainers").delete().eq("id", id);
+      const { error } = await supabase.from("trainers").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -80,7 +80,7 @@ export function useDeleteTrainer() {
   });
 }
 
-// Trainer session stats using new sessions table
+// Trainer session stats
 export function useTrainerSessionStats(trainerId: string | undefined) {
   return useQuery({
     queryKey: ["trainer_session_stats", trainerId],
@@ -89,14 +89,14 @@ export function useTrainerSessionStats(trainerId: string | undefined) {
       const today = new Date().toISOString().split("T")[0];
       const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0];
 
-      const { data: upcoming, error: e1 } = await (supabase as any)
+      const { data: upcoming, error: e1 } = await supabase
         .from("sessions")
         .select("id")
         .eq("trainer_id", trainerId!)
         .gte("session_date", today)
         .eq("status", "scheduled");
 
-      const { data: past, error: e2 } = await (supabase as any)
+      const { data: past, error: e2 } = await supabase
         .from("sessions")
         .select("id")
         .eq("trainer_id", trainerId!)

@@ -16,8 +16,7 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
     if (!templates?.length) return;
 
     const generate = async () => {
-      // Check existing sessions generated from templates
-      const { data: existing } = await (supabase as any)
+      const { data: existing } = await supabase
         .from("sessions")
         .select("template_id, session_date")
         .gte("session_date", startDate)
@@ -25,10 +24,19 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
         .not("template_id", "is", null);
 
       const existingSet = new Set(
-        (existing ?? []).map((e: any) => `${e.template_id}_${e.session_date}`)
+        (existing ?? []).map((e) => `${e.template_id}_${e.session_date}`)
       );
 
-      const sessionsToInsert: any[] = [];
+      const sessionsToInsert: Array<{
+        template_id: string;
+        session_type: "group";
+        session_date: string;
+        start_time: string;
+        end_time: string;
+        duration_minutes: number;
+        modality: string;
+        capacity: number;
+      }> = [];
       const start = new Date(startDate + "T00:00:00");
       const end = new Date(endDate + "T00:00:00");
 
@@ -67,7 +75,7 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
       }
 
       if (sessionsToInsert.length > 0) {
-        const { error } = await (supabase as any).from("sessions").insert(sessionsToInsert);
+        const { error } = await supabase.from("sessions").insert(sessionsToInsert);
         if (!error) {
           qc.invalidateQueries({ queryKey: ["sessions", startDate, endDate] });
         }
@@ -85,7 +93,7 @@ export function useClassSessions(startDate: string, endDate: string) {
   return useQuery({
     queryKey: ["sessions", startDate, endDate],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("sessions")
         .select(`
           *,
@@ -100,7 +108,7 @@ export function useClassSessions(startDate: string, endDate: string) {
         .order("session_date")
         .order("start_time");
       if (error) throw error;
-      return data as Session[];
+      return data as unknown as Session[];
     },
   });
 }
@@ -129,7 +137,6 @@ export function useCreateSession() {
       payment_amount_cents?: number;
       notes?: string | null;
     }) => {
-      // Calculate end_time if not provided
       let endTime = data.end_time;
       if (!endTime) {
         const endMinutes =
@@ -139,8 +146,8 @@ export function useCreateSession() {
         endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
       }
 
-      const { error } = await (supabase as any).from("sessions").insert({
-        session_type: data.session_type || "group",
+      const { error } = await supabase.from("sessions").insert({
+        session_type: (data.session_type || "group") as "group" | "personal",
         template_id: data.template_id || null,
         session_date: data.session_date,
         start_time: data.start_time,
@@ -173,8 +180,8 @@ export function useCreateSession() {
 export function useUpdateSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...data }: { id: string; [key: string]: any }) => {
-      const { error } = await (supabase as any).from("sessions").update(data).eq("id", id);
+    mutationFn: async ({ id, ...data }: { id: string; [key: string]: unknown }) => {
+      const { error } = await supabase.from("sessions").update(data as Record<string, unknown>).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -192,11 +199,11 @@ export function useUpdateSessionStatus() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, status }: { id: string; status: FullSessionStatus }) => {
-      const update: any = { status };
+      const update: Record<string, unknown> = { status };
       if (status === "cancelled_on_time" || status === "cancelled_late") {
         update.cancelled_at = new Date().toISOString();
       }
-      const { error } = await (supabase as any).from("sessions").update(update).eq("id", id);
+      const { error } = await supabase.from("sessions").update(update).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -225,7 +232,7 @@ export function useCancelSession() {
       const withinCutoff = hoursUntil >= cutoffHours;
       const newStatus: FullSessionStatus = withinCutoff ? "cancelled_on_time" : "cancelled_late";
 
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("sessions")
         .update({
           status: newStatus,
@@ -238,7 +245,7 @@ export function useCancelSession() {
 
       // Create makeup credit if cancelled on time and it's personal
       if (withinCutoff && session.session_type === "personal" && session.student_id) {
-        await (supabase as any).from("makeup_credits").insert({
+        await supabase.from("makeup_credits").insert({
           student_id: session.student_id,
           contract_id: session.contract_id,
           original_session_id: session.id,
@@ -268,7 +275,7 @@ export function useTrainerCheckin() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (sessionId: string) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("sessions")
         .update({
           trainer_checkin_at: new Date().toISOString(),
@@ -288,7 +295,7 @@ export function useStudentCheckin() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (sessionId: string) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("sessions")
         .update({
           student_checkin_at: new Date().toISOString(),
@@ -311,7 +318,7 @@ export function useCompleteSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (sessionId: string) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("sessions")
         .update({ status: "completed" })
         .eq("id", sessionId);
@@ -331,9 +338,8 @@ export function useDeleteSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // Delete related bookings first
       await supabase.from("class_bookings").delete().eq("session_id", id);
-      const { error } = await (supabase as any).from("sessions").delete().eq("id", id);
+      const { error } = await supabase.from("sessions").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -345,14 +351,14 @@ export function useDeleteSession() {
 }
 
 // =========================================
-// Recurring operations (still use class_templates)
+// Recurring operations
 // =========================================
 export function useCancelSingleOccurrence() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
       await supabase.from("class_bookings").delete().eq("session_id", id);
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("sessions")
         .update({ status: "cancelled_on_time", is_exception: true, cancelled_at: new Date().toISOString() })
         .eq("id", id);
@@ -381,16 +387,16 @@ export function useDeleteThisAndFollowing() {
         .update({ recurrence_end: newEnd })
         .eq("id", session.template_id);
 
-      const { data: sessions } = await (supabase as any)
+      const { data: sessions } = await supabase
         .from("sessions")
         .select("id")
         .eq("template_id", session.template_id)
         .gte("session_date", session.session_date);
 
       if (sessions?.length) {
-        const ids = sessions.map((s: any) => s.id);
+        const ids = sessions.map((s) => s.id);
         await supabase.from("class_bookings").delete().in("session_id", ids);
-        await (supabase as any).from("sessions").delete().in("id", ids);
+        await supabase.from("sessions").delete().in("id", ids);
       }
     },
     onSuccess: () => {
@@ -406,15 +412,15 @@ export function useDeleteAllOccurrences() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (templateId: string) => {
-      const { data: sessions } = await (supabase as any)
+      const { data: sessions } = await supabase
         .from("sessions")
         .select("id")
         .eq("template_id", templateId);
 
       if (sessions?.length) {
-        const ids = sessions.map((s: any) => s.id);
+        const ids = sessions.map((s) => s.id);
         await supabase.from("class_bookings").delete().in("session_id", ids);
-        await (supabase as any).from("sessions").delete().in("id", ids);
+        await supabase.from("sessions").delete().in("id", ids);
       }
 
       const { error } = await supabase.from("class_templates").delete().eq("id", templateId);
@@ -473,7 +479,7 @@ export function useUpdateThisAndFollowing() {
         recurrence_end: oldTemplate.recurrence_end,
       });
 
-      const { data: futureSessions } = await (supabase as any)
+      const { data: futureSessions } = await supabase
         .from("sessions")
         .select("id")
         .eq("template_id", session.template_id)
@@ -481,9 +487,9 @@ export function useUpdateThisAndFollowing() {
         .eq("is_exception", false);
 
       if (futureSessions?.length) {
-        const ids = futureSessions.map((s: any) => s.id);
+        const ids = futureSessions.map((s) => s.id);
         await supabase.from("class_bookings").delete().in("session_id", ids);
-        await (supabase as any).from("sessions").delete().in("id", ids);
+        await supabase.from("sessions").delete().in("id", ids);
       }
     },
     onSuccess: () => {
@@ -513,8 +519,7 @@ export function useUpdateAllOccurrences() {
         .update(updates)
         .eq("id", templateId);
 
-      // Also update end_time in sessions if start_time or duration changed
-      const sessionUpdates: any = { ...updates };
+      const sessionUpdates: Record<string, unknown> = { ...updates };
       if (updates.start_time && updates.duration_minutes) {
         const endMinutes =
           parseInt(updates.start_time.slice(0, 2)) * 60 +
@@ -524,7 +529,7 @@ export function useUpdateAllOccurrences() {
       }
 
       const today = new Date().toISOString().split("T")[0];
-      await (supabase as any)
+      await supabase
         .from("sessions")
         .update(sessionUpdates)
         .eq("template_id", templateId)
@@ -558,7 +563,7 @@ export function useCreateBooking() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Aluno agendado!");
     },
-    onError: (e: any) => {
+    onError: (e: Error) => {
       if (e?.message?.includes("duplicate")) {
         toast.error("Aluno já está agendado nesta sessão.");
       } else {
@@ -572,7 +577,7 @@ export function useUpdateBookingStatus() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, status }: { id: string; status: BookingStatus }) => {
-      const update: any = { status };
+      const update: Record<string, unknown> = { status };
       if (status === "cancelled") update.cancelled_at = new Date().toISOString();
       const { error } = await supabase.from("class_bookings").update(update).eq("id", id);
       if (error) throw error;
