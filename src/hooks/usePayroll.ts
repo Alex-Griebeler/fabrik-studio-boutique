@@ -116,6 +116,37 @@ export function usePayrollSummary(filters: {
         t.unpaid_count++;
       }
       t.sessions.push(s);
+
+      // Include assistant payments if present
+      if (s.assistant_trainer_id && s.assistant_payment_amount_cents) {
+        const assAmt = s.assistant_payment_amount_cents;
+        if (!map.has(s.assistant_trainer_id)) {
+          map.set(s.assistant_trainer_id, {
+            trainer_id: s.assistant_trainer_id,
+            trainer_name: s.assistant_trainer_name || "Assistente",
+            total_sessions: 0,
+            total_hours: 0,
+            total_amount_cents: 0,
+            paid_amount_cents: 0,
+            unpaid_amount_cents: 0,
+            paid_count: 0,
+            unpaid_count: 0,
+            sessions: [],
+          });
+        }
+        const ass = map.get(s.assistant_trainer_id)!;
+        ass.total_sessions++;
+        ass.total_hours += s.payment_hours ?? 0;
+        ass.total_amount_cents += assAmt;
+        if (s.is_paid) {
+          ass.paid_amount_cents += assAmt;
+          ass.paid_count++;
+        } else {
+          ass.unpaid_amount_cents += assAmt;
+          ass.unpaid_count++;
+        }
+        ass.sessions.push(s);
+      }
     }
 
     summaries.push(...Array.from(map.values()).sort((a, b) => a.trainer_name.localeCompare(b.trainer_name)));

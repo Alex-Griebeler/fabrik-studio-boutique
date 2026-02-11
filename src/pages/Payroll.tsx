@@ -13,16 +13,41 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { KPICard } from "@/components/shared/KPICard";
-import { DollarSign, Clock, Users, ChevronDown, CheckCircle2, Banknote } from "lucide-react";
+import { PayrollCyclesTab } from "@/components/payroll/PayrollCyclesTab";
+import { PayrollDisputesTab } from "@/components/payroll/PayrollDisputesTab";
+import { DollarSign, Clock, Users, ChevronDown, CheckCircle2, Banknote, Download } from "lucide-react";
 
 function centsToReal(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function exportToCSV(summaries: TrainerPayrollSummary[], month: string) {
+  const rows = [["Treinador", "Sessões", "Horas", "Valor Total", "Valor Pago", "A Pagar"]];
+  
+  summaries.forEach((summary) => {
+    rows.push([
+      summary.trainer_name,
+      String(summary.total_sessions),
+      String(summary.total_hours.toFixed(1)),
+      centsToReal(summary.total_amount_cents),
+      centsToReal(summary.paid_amount_cents),
+      centsToReal(summary.unpaid_amount_cents),
+    ]);
+  });
+
+  const csv = rows.map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `payroll-${month}.csv`;
+  link.click();
 }
 
 export default function Payroll() {
@@ -107,184 +132,213 @@ export default function Payroll() {
         description="Controle de pagamentos dos treinadores por período"
       />
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-end gap-4 mt-6 mb-6">
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Período</Label>
-          <Select value={month} onValueChange={setMonth}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {monthOptions.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
+      <Tabs defaultValue="sessions" className="mt-6">
+        <TabsList className="grid w-full max-w-md grid-cols-3">
+          <TabsTrigger value="sessions">Sessões</TabsTrigger>
+          <TabsTrigger value="cycles">Ciclos</TabsTrigger>
+          <TabsTrigger value="disputes">Disputas</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="sessions" className="space-y-6">
+          {/* Filters */}
+          <div className="flex flex-wrap items-end gap-4 mb-6">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Período</Label>
+              <Select value={month} onValueChange={setMonth}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {monthOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Treinador</Label>
+              <Select value={trainerId || "all"} onValueChange={(v) => setTrainerId(v === "all" ? "" : v)}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {trainers
+                    ?.filter((t) => t.is_active)
+                    .map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.full_name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2 pb-0.5">
+              <Switch id="only-unpaid" checked={onlyUnpaid} onCheckedChange={setOnlyUnpaid} />
+              <Label htmlFor="only-unpaid" className="text-sm">
+                Apenas não pagas
+              </Label>
+            </div>
+
+            {selectedIds.size > 0 && (
+              <Button onClick={handleMarkPaid} disabled={markPaid.isPending} className="ml-auto">
+                <Banknote className="h-4 w-4 mr-2" />
+                Marcar {selectedIds.size} como paga{selectedIds.size > 1 ? "s" : ""}
+              </Button>
+            )}
+
+            {summaries && summaries.length > 0 && (
+              <Button 
+                variant="outline" 
+                onClick={() => exportToCSV(summaries, month)}
+                className="gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Exportar CSV
+              </Button>
+            )}
+          </div>
+
+          {/* KPIs */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <KPICard title="Sessões" value={String(totals.sessions)} icon={Clock} />
+            <KPICard title="Horas" value={totals.hours.toFixed(1)} icon={Users} />
+            <KPICard title="Total" value={centsToReal(totals.total)} icon={DollarSign} />
+            <KPICard title="A pagar" value={centsToReal(totals.unpaid)} icon={Banknote} />
+          </div>
+
+          {/* Trainer summaries */}
+          {isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-24 rounded-lg" />
               ))}
-            </SelectContent>
-          </Select>
-        </div>
+            </div>
+          ) : !summaries?.length ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <CheckCircle2 className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm">Nenhuma sessão encontrada para este período</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {summaries.map((summary) => (
+                <Collapsible key={summary.trainer_id}>
+                  <Card>
+                    <CollapsibleTrigger asChild>
+                      <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform [[data-state=open]>&]:rotate-180" />
+                            <CardTitle className="text-base">{summary.trainer_name}</CardTitle>
+                            <Badge variant="secondary" className="text-xs">
+                              {summary.total_sessions} sessões
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm">
+                            {summary.unpaid_count > 0 && (
+                              <span className="text-destructive font-medium">
+                                {centsToReal(summary.unpaid_amount_cents)} a pagar
+                              </span>
+                            )}
+                            <span className="font-semibold">{centsToReal(summary.total_amount_cents)}</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                selectAllUnpaid(summary);
+                              }}
+                              disabled={summary.unpaid_count === 0}
+                            >
+                              Selecionar pendentes
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                    </CollapsibleTrigger>
 
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Treinador</Label>
-          <Select value={trainerId || "all"} onValueChange={(v) => setTrainerId(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Todos" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {trainers
-                ?.filter((t) => t.is_active)
-                .map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.full_name}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </div>
+                    <CollapsibleContent>
+                      <CardContent className="pt-0">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-10"></TableHead>
+                              <TableHead>Data</TableHead>
+                              <TableHead>Horário</TableHead>
+                              <TableHead>Modalidade</TableHead>
+                              <TableHead>Tipo</TableHead>
+                              <TableHead>Aluno</TableHead>
+                              <TableHead>Horas</TableHead>
+                              <TableHead className="text-right">Valor</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {summary.sessions.map((s) => (
+                              <TableRow key={s.id} className={s.is_paid ? "opacity-60" : ""}>
+                                <TableCell>
+                                  {!s.is_paid && (
+                                    <Checkbox
+                                      checked={selectedIds.has(s.id)}
+                                      onCheckedChange={() => toggleSession(s.id)}
+                                    />
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-sm">
+                                  {format(new Date(s.session_date + "T12:00:00"), "dd/MM")}
+                                </TableCell>
+                                <TableCell className="text-sm">
+                                  {s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}
+                                </TableCell>
+                                <TableCell className="text-sm">{s.modality}</TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className="text-xs capitalize">
+                                    {s.session_type}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-sm">{s.student_name ?? "—"}</TableCell>
+                                <TableCell className="text-sm">{(s.payment_hours ?? 0).toFixed(1)}h</TableCell>
+                                <TableCell className="text-right text-sm font-medium">
+                                  {centsToReal(s.payment_amount_cents ?? 0)}
+                                </TableCell>
+                                <TableCell>
+                                  {s.is_paid ? (
+                                    <Badge className="bg-success/20 text-success border-success/30 text-xs">
+                                      Pago
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="destructive" className="text-xs">
+                                      Pendente
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Card>
+                </Collapsible>
+              ))}
+            </div>
+          )}
+        </TabsContent>
 
-        <div className="flex items-center gap-2 pb-0.5">
-          <Switch id="only-unpaid" checked={onlyUnpaid} onCheckedChange={setOnlyUnpaid} />
-          <Label htmlFor="only-unpaid" className="text-sm">
-            Apenas não pagas
-          </Label>
-        </div>
+        <TabsContent value="cycles" className="py-6">
+          <PayrollCyclesTab />
+        </TabsContent>
 
-        {selectedIds.size > 0 && (
-          <Button onClick={handleMarkPaid} disabled={markPaid.isPending} className="ml-auto">
-            <Banknote className="h-4 w-4 mr-2" />
-            Marcar {selectedIds.size} como paga{selectedIds.size > 1 ? "s" : ""}
-          </Button>
-        )}
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <KPICard title="Sessões" value={String(totals.sessions)} icon={Clock} />
-        <KPICard title="Horas" value={totals.hours.toFixed(1)} icon={Users} />
-        <KPICard title="Total" value={centsToReal(totals.total)} icon={DollarSign} />
-        <KPICard title="A pagar" value={centsToReal(totals.unpaid)} icon={Banknote} />
-      </div>
-
-      {/* Trainer summaries */}
-      {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
-          ))}
-        </div>
-      ) : !summaries?.length ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <CheckCircle2 className="h-10 w-10 mb-3 opacity-30" />
-            <p className="text-sm">Nenhuma sessão encontrada para este período</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {summaries.map((summary) => (
-            <Collapsible key={summary.trainer_id}>
-              <Card>
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform [[data-state=open]>&]:rotate-180" />
-                        <CardTitle className="text-base">{summary.trainer_name}</CardTitle>
-                        <Badge variant="secondary" className="text-xs">
-                          {summary.total_sessions} sessões
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm">
-                        {summary.unpaid_count > 0 && (
-                          <span className="text-destructive font-medium">
-                            {centsToReal(summary.unpaid_amount_cents)} a pagar
-                          </span>
-                        )}
-                        <span className="font-semibold">{centsToReal(summary.total_amount_cents)}</span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            selectAllUnpaid(summary);
-                          }}
-                          disabled={summary.unpaid_count === 0}
-                        >
-                          Selecionar pendentes
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                </CollapsibleTrigger>
-
-                <CollapsibleContent>
-                  <CardContent className="pt-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-10"></TableHead>
-                          <TableHead>Data</TableHead>
-                          <TableHead>Horário</TableHead>
-                          <TableHead>Modalidade</TableHead>
-                          <TableHead>Tipo</TableHead>
-                          <TableHead>Aluno</TableHead>
-                          <TableHead>Horas</TableHead>
-                          <TableHead className="text-right">Valor</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {summary.sessions.map((s) => (
-                          <TableRow key={s.id} className={s.is_paid ? "opacity-60" : ""}>
-                            <TableCell>
-                              {!s.is_paid && (
-                                <Checkbox
-                                  checked={selectedIds.has(s.id)}
-                                  onCheckedChange={() => toggleSession(s.id)}
-                                />
-                              )}
-                            </TableCell>
-                            <TableCell className="text-sm">
-                              {format(new Date(s.session_date + "T12:00:00"), "dd/MM")}
-                            </TableCell>
-                            <TableCell className="text-sm">
-                              {s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}
-                            </TableCell>
-                            <TableCell className="text-sm">{s.modality}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="text-xs capitalize">
-                                {s.session_type}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-sm">{s.student_name ?? "—"}</TableCell>
-                            <TableCell className="text-sm">{(s.payment_hours ?? 0).toFixed(1)}h</TableCell>
-                            <TableCell className="text-right text-sm font-medium">
-                              {centsToReal(s.payment_amount_cents ?? 0)}
-                            </TableCell>
-                            <TableCell>
-                              {s.is_paid ? (
-                                <Badge className="bg-success/20 text-success border-success/30 text-xs">
-                                  Pago
-                                </Badge>
-                              ) : (
-                                <Badge variant="destructive" className="text-xs">
-                                  Pendente
-                                </Badge>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
-          ))}
-        </div>
-      )}
+        <TabsContent value="disputes" className="py-6">
+          <PayrollDisputesTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
