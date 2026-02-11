@@ -1116,6 +1116,109 @@ export type Database = {
           },
         ]
       }
+      payroll_cycles: {
+        Row: {
+          closed_at: string | null
+          closed_by: string | null
+          competencia: string
+          created_at: string
+          created_by: string
+          end_date: string
+          id: string
+          start_date: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          closed_at?: string | null
+          closed_by?: string | null
+          competencia: string
+          created_at?: string
+          created_by: string
+          end_date: string
+          id?: string
+          start_date: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          closed_at?: string | null
+          closed_by?: string | null
+          competencia?: string
+          created_at?: string
+          created_by?: string
+          end_date?: string
+          id?: string
+          start_date?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      payroll_disputes: {
+        Row: {
+          created_at: string
+          dispute_detail: string | null
+          dispute_reason: string
+          id: string
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          session_id: string
+          status: string
+          trainer_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dispute_detail?: string | null
+          dispute_reason: string
+          id?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          session_id: string
+          status?: string
+          trainer_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dispute_detail?: string | null
+          dispute_reason?: string
+          id?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          session_id?: string
+          status?: string
+          trainer_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_disputes_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "payable_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_disputes_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_disputes_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plans: {
         Row: {
           category: Database["public"]["Enums"]["plan_category"]
