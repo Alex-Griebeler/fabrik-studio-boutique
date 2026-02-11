@@ -25,6 +25,7 @@ import Analytics from "@/pages/Analytics";
 import Commissions from "@/pages/Commissions";
 import Tasks from "@/pages/Tasks";
 import TrainerPayroll from "@/pages/TrainerPayroll";
+import TrainerApp from "@/pages/TrainerApp";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -173,6 +174,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AppLayout><TrainerPayroll /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/trainer-app"
+                element={
+                  <ProtectedRoute>
+                    <TrainerApp />
                   </ProtectedRoute>
                 }
               />
