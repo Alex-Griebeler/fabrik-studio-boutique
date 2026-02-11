@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KPICard } from "@/components/shared/KPICard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,6 +9,7 @@ import {
 } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import { CalendarDays, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import { OperationsFilter, type OperationsFilters } from "./OperationsFilter";
 import type { OperationsMetrics } from "@/hooks/useAnalytics";
 
 const STATUS_COLORS = [
@@ -25,6 +27,7 @@ interface Props {
 }
 
 export function OperationsTab({ data, isLoading }: Props) {
+  const [filters, setFilters] = useState<OperationsFilters>({});
   if (isLoading) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -65,6 +68,8 @@ export function OperationsTab({ data, isLoading }: Props) {
 
   return (
     <div className="space-y-6">
+      <OperationsFilter filters={filters} onFiltersChange={setFilters} />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KPICard title="Total Sessões" value={String(data.totalSessions)} icon={CalendarDays} />
         <KPICard

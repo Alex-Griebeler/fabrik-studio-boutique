@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useExpenses } from "@/hooks/useExpenses";
 import { formatCents } from "@/hooks/usePlans";
+import { ReportBuilder } from "@/components/reports/ReportBuilder";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -120,14 +121,17 @@ export default function Reports() {
         title="Relatórios"
         description="Fluxo de caixa, DRE e análises financeiras"
         actions={
-          <Select value={range} onValueChange={setRange}>
-            <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="3">Últimos 3 meses</SelectItem>
-              <SelectItem value="6">Últimos 6 meses</SelectItem>
-              <SelectItem value="12">Últimos 12 meses</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <ReportBuilder />
+            <Select value={range} onValueChange={setRange}>
+              <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="3">Últimos 3 meses</SelectItem>
+                <SelectItem value="6">Últimos 6 meses</SelectItem>
+                <SelectItem value="12">Últimos 12 meses</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         }
       />
 
