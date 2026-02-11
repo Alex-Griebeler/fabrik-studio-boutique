@@ -102,7 +102,7 @@ export function SalesTargetManager() {
               {targets.map(t => (
                 <div key={t.id} className="flex items-center justify-between rounded-lg border px-4 py-3">
                   <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{(t.profiles as any)?.full_name ?? "—"}</p>
+                    <p className="text-sm font-medium">{(t.profiles as { full_name?: string } | null)?.full_name ?? "—"}</p>
                     <p className="text-xs text-muted-foreground">{format(new Date(t.competencia), "MMMM/yyyy", { locale: ptBR })}</p>
                   </div>
                   <div className="flex items-center gap-4 text-xs">

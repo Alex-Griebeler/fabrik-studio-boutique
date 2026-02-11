@@ -57,7 +57,7 @@ export function TaskFormDialog({ open, onOpenChange, defaultLeadId }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Tipo</Label>
-              <Select value={form.tipo} onValueChange={v => setForm(f => ({ ...f, tipo: v as any }))}>
+              <Select value={form.tipo} onValueChange={v => setForm(f => ({ ...f, tipo: v as TaskFormData["tipo"] }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(taskTypeLabels).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
@@ -66,7 +66,7 @@ export function TaskFormDialog({ open, onOpenChange, defaultLeadId }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label>Prioridade</Label>
-              <Select value={form.prioridade} onValueChange={v => setForm(f => ({ ...f, prioridade: v as any }))}>
+              <Select value={form.prioridade} onValueChange={v => setForm(f => ({ ...f, prioridade: v as TaskFormData["prioridade"] }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(taskPriorityLabels).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}

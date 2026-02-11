@@ -45,7 +45,7 @@ export function CommissionFormDialog({ open, onOpenChange }: Props) {
 
   const handleProfileChange = (id: string) => {
     const p = profiles?.find(pr => pr.id === id);
-    const pct = (p as any)?.commission_rate_pct ?? 10;
+    const pct = (p as { commission_rate_pct?: number } | undefined)?.commission_rate_pct ?? 10;
     setForm(f => ({
       ...f,
       profile_id: id,
@@ -86,7 +86,7 @@ export function CommissionFormDialog({ open, onOpenChange }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label>Tipo</Label>
-              <Select value={form.tipo} onValueChange={v => setForm(f => ({ ...f, tipo: v as any }))}>
+              <Select value={form.tipo} onValueChange={v => setForm(f => ({ ...f, tipo: v as typeof form.tipo }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>{TIPOS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
               </Select>
