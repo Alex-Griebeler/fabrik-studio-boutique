@@ -6,6 +6,7 @@ import { ConversionTab } from "@/components/analytics/ConversionTab";
 import { OperationsTab } from "@/components/analytics/OperationsTab";
 import { FinancialTab } from "@/components/analytics/FinancialTab";
 import { KPIsTab } from "@/components/analytics/KPIsTab";
+import { MonthlyKPIsTab } from "@/components/analytics/MonthlyKPIsTab";
 import {
   useConversionAnalytics,
   useOperationsAnalytics,
@@ -37,7 +38,8 @@ export default function Analytics() {
           <TabsTrigger value="conversion">Conversão</TabsTrigger>
           <TabsTrigger value="operations">Operações</TabsTrigger>
           <TabsTrigger value="financial">Financeiro</TabsTrigger>
-          <TabsTrigger value="kpis">KPIs Mensais</TabsTrigger>
+          <TabsTrigger value="kpis">KPIs</TabsTrigger>
+          <TabsTrigger value="monthly_kpis">KPIs Mensais</TabsTrigger>
         </TabsList>
 
         <TabsContent value="conversion">
@@ -54,6 +56,10 @@ export default function Analytics() {
 
         <TabsContent value="kpis">
           <KPIsTab />
+        </TabsContent>
+
+        <TabsContent value="monthly_kpis">
+          <MonthlyKPIsTab />
         </TabsContent>
       </Tabs>
     </div>
