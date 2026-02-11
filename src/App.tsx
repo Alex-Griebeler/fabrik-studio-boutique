@@ -20,6 +20,7 @@ import Expenses from "@/pages/Expenses";
 import SettingsPage from "@/pages/SettingsPage";
 import Plans from "@/pages/Plans";
 import Instructors from "@/pages/Instructors";
+import Payroll from "@/pages/Payroll";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -128,6 +129,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AppLayout><SettingsPage /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/payroll"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout><Payroll /></AppLayout>
                   </ProtectedRoute>
                 }
               />
