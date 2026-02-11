@@ -65,6 +65,8 @@ export interface Lead {
   tags: string[];
   referred_by: string | null;
   notes: string | null;
+  temperature: string | null;
+  consultant_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -242,13 +244,13 @@ export function useConvertLead() {
       const { data: student, error: studentErr } = await supabase
         .from("students")
         .insert({
-          full_name: (lead as any).name,
-          email: (lead as any).email || null,
-          phone: (lead as any).phone || null,
+          full_name: lead.name,
+          email: lead.email || null,
+          phone: lead.phone || null,
           status: "active",
           is_active: true,
-          lead_source: (lead as any).source || null,
-          notes: (lead as any).notes || null,
+          lead_source: lead.source || null,
+          notes: lead.notes || null,
         })
         .select("id")
         .single();
@@ -263,10 +265,27 @@ export function useConvertLead() {
         })
         .eq("id", leadId);
       if (updateErr) throw updateErr;
+
+      // 4. Auto-create commission for consultant if assigned
+      if (lead.consultant_id) {
+        const today = new Date();
+        const competencia = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+        await supabase.from("commissions").insert({
+          profile_id: lead.consultant_id,
+          lead_id: leadId,
+          tipo: "venda_nova",
+          competencia,
+          valor_base_cents: 0,
+          percentual_comissao: 0,
+          valor_comissao_cents: 0,
+          status: "calculada",
+        });
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["students"] });
+      qc.invalidateQueries({ queryKey: ["commissions"] });
       toast.success("Lead convertido em aluno com sucesso!");
     },
     onError: () => toast.error("Erro ao converter lead."),

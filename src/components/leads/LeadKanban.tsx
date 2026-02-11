@@ -145,9 +145,9 @@ export function LeadKanban({ leads, onSelectLead, onNewInteraction }: Props) {
                           )}
 
                             <div className="flex items-center gap-1">
-                             {(lead as any).temperature && (
-                               <Badge variant="outline" className={`text-[10px] ${(lead as any).temperature === "hot" ? "border-red-300 text-red-600" : (lead as any).temperature === "warm" ? "border-yellow-300 text-yellow-600" : "border-blue-300 text-blue-600"}`}>
-                                 {(lead as any).temperature === "hot" ? "🔥" : (lead as any).temperature === "warm" ? "🌤" : "❄️"}
+                             {lead.temperature && (
+                               <Badge variant="outline" className={`text-[10px] ${lead.temperature === "hot" ? "border-red-300 text-red-600" : lead.temperature === "warm" ? "border-yellow-300 text-yellow-600" : "border-blue-300 text-blue-600"}`}>
+                                 {lead.temperature === "hot" ? "🔥" : lead.temperature === "warm" ? "🌤" : "❄️"}
                                </Badge>
                              )}
                              {lead.source && (
