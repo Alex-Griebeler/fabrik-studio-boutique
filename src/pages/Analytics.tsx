@@ -7,6 +7,8 @@ import { OperationsTab } from "@/components/analytics/OperationsTab";
 import { FinancialTab } from "@/components/analytics/FinancialTab";
 import { KPIsTab } from "@/components/analytics/KPIsTab";
 import { MonthlyKPIsTab } from "@/components/analytics/MonthlyKPIsTab";
+import { CohortAnalysis } from "@/components/analytics/CohortAnalysis";
+import { PredictionsTab } from "@/components/analytics/PredictionsTab";
 import {
   useConversionAnalytics,
   useOperationsAnalytics,
@@ -34,10 +36,12 @@ export default function Analytics() {
       />
 
       <Tabs defaultValue="conversion" className="space-y-4">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="conversion">Conversão</TabsTrigger>
           <TabsTrigger value="operations">Operações</TabsTrigger>
           <TabsTrigger value="financial">Financeiro</TabsTrigger>
+          <TabsTrigger value="cohort">Cohort</TabsTrigger>
+          <TabsTrigger value="predictions">Predições</TabsTrigger>
           <TabsTrigger value="kpis">KPIs</TabsTrigger>
           <TabsTrigger value="monthly_kpis">KPIs Mensais</TabsTrigger>
         </TabsList>
@@ -52,6 +56,14 @@ export default function Analytics() {
 
         <TabsContent value="financial">
           <FinancialTab data={financial.data} isLoading={financial.isLoading} />
+        </TabsContent>
+
+        <TabsContent value="cohort">
+          <CohortAnalysis />
+        </TabsContent>
+
+        <TabsContent value="predictions">
+          <PredictionsTab />
         </TabsContent>
 
         <TabsContent value="kpis">
