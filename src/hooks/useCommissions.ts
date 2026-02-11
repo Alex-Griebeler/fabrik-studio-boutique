@@ -39,7 +39,8 @@ export function useCommissions(filters?: { competencia?: string; profile_id?: st
       let query = supabase
         .from("commissions")
         .select("*, profiles(full_name)")
-        .order("competencia", { ascending: false });
+        .order("competencia", { ascending: false })
+        .limit(1000);
 
       if (filters?.competencia) {
         query = query.eq("competencia", filters.competencia);
@@ -91,7 +92,7 @@ export function useCommissionSummary(competencia?: string) {
   return useQuery({
     queryKey: ["commissions", "summary", competencia],
     queryFn: async () => {
-      let query = supabase.from("commissions").select("status, valor_comissao_cents");
+      let query = supabase.from("commissions").select("status, valor_comissao_cents").limit(5000);
       if (competencia) query = query.eq("competencia", competencia);
        const { data, error } = await query;
        if (error) throw error;

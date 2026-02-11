@@ -68,7 +68,8 @@ export function usePlans(categoryFilter: CategoryFilter, activeOnly: boolean) {
         .from("plans")
         .select("*")
         .order("category")
-        .order("name");
+        .order("name")
+        .limit(500);
 
       if (categoryFilter !== "all") query = query.eq("category", categoryFilter);
       if (activeOnly) query = query.eq("is_active", true);

@@ -26,7 +26,7 @@ export function useMessageTemplates(category?: string) {
         query = query.eq("category", category);
       }
 
-      const { data, error } = await query.order("name");
+      const { data, error } = await query.order("name").limit(200);
       if (error) throw error;
       return data as MessageTemplate[];
     },
@@ -42,7 +42,8 @@ export function useAllMessageTemplates() {
         .select("*")
         .eq("is_active", true)
         .order("category")
-        .order("name");
+        .order("name")
+        .limit(200);
       if (error) throw error;
       return data as MessageTemplate[];
     },

@@ -68,7 +68,8 @@ export function useAllExpenseCategories() {
       const { data, error } = await supabase
         .from("expense_categories")
         .select("*")
-        .order("sort_order");
+        .order("sort_order")
+        .limit(500);
       if (error) throw error;
       return data as ExpenseCategory[];
     },
@@ -83,7 +84,8 @@ export function useExpenseCategories() {
         .from("expense_categories")
         .select("*")
         .eq("is_active", true)
-        .order("sort_order");
+        .order("sort_order")
+        .limit(500);
       if (error) throw error;
       return data as ExpenseCategory[];
     },
@@ -135,7 +137,8 @@ export function useExpenses(statusFilter: "all" | ExpenseStatus = "all") {
       let query = supabase
         .from("expenses")
         .select("*, category:expense_categories(name, color)")
-        .order("due_date", { ascending: false });
+        .order("due_date", { ascending: false })
+        .limit(1000);
 
       if (statusFilter !== "all") query = query.eq("status", statusFilter);
 

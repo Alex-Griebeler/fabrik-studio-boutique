@@ -37,7 +37,8 @@ export function usePayrollDisputes(filters?: {
           sessions(session_date, start_time, payment_amount_cents),
           trainers(full_name)`
         )
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(1000);
 
       if (filters?.trainerId) {
         query = query.eq("trainer_id", filters.trainerId);
@@ -49,12 +50,12 @@ export function usePayrollDisputes(filters?: {
       const { data, error } = await query;
       if (error) throw error;
 
-      return (data || []).map((dispute: any) => ({
+      return (data || []).map((dispute: Record<string, unknown>) => ({
         ...dispute,
-        trainer_name: dispute.trainers?.full_name,
-        session_date: dispute.sessions?.session_date,
-        session_time: dispute.sessions?.start_time,
-        payment_amount_cents: dispute.sessions?.payment_amount_cents,
+        trainer_name: (dispute.trainers as Record<string, string> | null)?.full_name,
+        session_date: (dispute.sessions as Record<string, unknown> | null)?.session_date as string | undefined,
+        session_time: (dispute.sessions as Record<string, unknown> | null)?.start_time as string | undefined,
+        payment_amount_cents: (dispute.sessions as Record<string, unknown> | null)?.payment_amount_cents as number | undefined,
       })) as PayrollDisputeWithDetails[];
     },
   });

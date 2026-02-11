@@ -80,14 +80,16 @@ export function useDashboardKPIs() {
         supabase
           .from("invoices")
           .select("amount_cents")
-          .eq("status", "overdue"),
+          .eq("status", "overdue")
+          .limit(5000),
 
         // Total invoiced this month (for overdue %)
         supabase
           .from("invoices")
           .select("amount_cents")
           .gte("due_date", currentMonthStart)
-          .lte("due_date", currentMonthEnd),
+          .lte("due_date", currentMonthEnd)
+          .limit(5000),
 
         // Sessions this month with bookings for occupancy
         supabase
@@ -95,7 +97,8 @@ export function useDashboardKPIs() {
           .select("capacity, id")
           .gte("session_date", currentMonthStart)
           .lte("session_date", currentMonthEnd)
-          .eq("status", "scheduled"),
+          .eq("status", "scheduled")
+          .limit(2000),
       ]);
 
       // Calculate revenue
@@ -177,12 +180,12 @@ export function useUpcomingDues() {
 
       if (error) throw error;
 
-      return (data ?? []).map((inv: any) => ({
-        id: inv.id,
-        student_name: inv.student?.full_name ?? "—",
-        amount_cents: inv.amount_cents,
-        due_date: inv.due_date,
-        status: inv.status,
+      return (data ?? []).map((inv: Record<string, unknown>) => ({
+        id: inv.id as string,
+        student_name: (inv.student as Record<string, string> | null)?.full_name ?? "—",
+        amount_cents: inv.amount_cents as number,
+        due_date: inv.due_date as string,
+        status: inv.status as string,
       }));
     },
     staleTime: 60_000,

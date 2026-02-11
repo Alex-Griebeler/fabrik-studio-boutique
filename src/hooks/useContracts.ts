@@ -66,7 +66,8 @@ export function useContracts(statusFilter: "all" | ContractStatus = "all") {
       let query = supabase
         .from("contracts")
         .select("*, student:students(full_name), plan:plans(name, category, price_cents)")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(1000);
 
       if (statusFilter !== "all") query = query.eq("status", statusFilter);
 

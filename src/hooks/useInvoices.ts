@@ -60,7 +60,8 @@ export function useInvoices(statusFilter: "all" | InvoiceStatus = "all") {
       let query = supabase
         .from("invoices")
         .select("*, student:students(full_name)")
-        .order("due_date", { ascending: false });
+        .order("due_date", { ascending: false })
+        .limit(1000);
 
       if (statusFilter !== "all") query = query.eq("status", statusFilter);
 

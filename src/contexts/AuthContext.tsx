@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 interface AuthContextType {
   user: User | null;
@@ -38,31 +39,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error as Error | null };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        toast.error(error.message === "Invalid login credentials"
+          ? "E-mail ou senha incorretos."
+          : error.message);
+      }
+      return { error: error as Error | null };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error("Erro inesperado ao fazer login");
+      toast.error(error.message);
+      return { error };
+    }
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: window.location.origin,
-        data: { full_name: fullName },
-      },
-    });
-    return { error: error as Error | null };
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: { full_name: fullName },
+        },
+      });
+      if (error) {
+        toast.error(error.message);
+      }
+      return { error: error as Error | null };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error("Erro inesperado ao criar conta");
+      toast.error(error.message);
+      return { error };
+    }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      toast.error("Erro ao sair da conta.");
+    }
   };
 
   const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    return { error: error as Error | null };
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) {
+        toast.error(error.message);
+      } else {
+        toast.success("E-mail de recuperação enviado!");
+      }
+      return { error: error as Error | null };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error("Erro ao enviar e-mail de recuperação");
+      toast.error(error.message);
+      return { error };
+    }
   };
 
   return (

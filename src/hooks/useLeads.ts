@@ -127,7 +127,8 @@ export function useLeads(filters?: LeadFilters) {
       let query = supabase
         .from("leads")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(1000);
 
       if (filters?.status && filters.status !== "all") {
         query = query.eq("status", filters.status);
@@ -306,7 +307,8 @@ export function useInteractions(leadId: string) {
         .from("interactions")
         .select("*")
         .eq("lead_id", leadId)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(500);
       if (error) throw error;
       return data as unknown as Interaction[];
     },

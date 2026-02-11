@@ -21,7 +21,8 @@ export function useWaitlist() {
         .from("trial_waitlist")
         .select("*")
         .eq("status", "waiting")
-        .order("position", { ascending: true });
+        .order("position", { ascending: true })
+        .limit(500);
       if (error) throw error;
       return data as unknown as WaitlistEntry[];
     },

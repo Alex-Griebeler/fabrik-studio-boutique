@@ -106,7 +106,8 @@ export function useClassSessions(startDate: string, endDate: string) {
         .lte("session_date", endDate)
         .not("status", "in", "(cancelled_on_time,cancelled_late)")
         .order("session_date")
-        .order("start_time");
+        .order("start_time")
+        .limit(2000);
       if (error) throw error;
       return data as unknown as Session[];
     },

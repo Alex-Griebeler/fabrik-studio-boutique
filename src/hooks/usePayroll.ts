@@ -56,7 +56,8 @@ export function usePayableSessions(filters: {
         .lte("session_date", filters.endDate)
         .in("status", ["completed", "cancelled_late", "no_show", "late_arrival"])
         .order("session_date", { ascending: true })
-        .order("start_time", { ascending: true });
+        .order("start_time", { ascending: true })
+        .limit(5000);
 
       if (filters.trainerId) {
         query = query.eq("trainer_id", filters.trainerId);
