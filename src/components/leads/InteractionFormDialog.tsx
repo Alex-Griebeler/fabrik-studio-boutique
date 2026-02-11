@@ -17,13 +17,14 @@ const types: InteractionType[] = ["phone_call", "whatsapp", "email", "visit", "t
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  studentId: string;
+  leadId?: string;
+  studentId?: string;
 }
 
-export function InteractionFormDialog({ open, onOpenChange, studentId }: Props) {
+export function InteractionFormDialog({ open, onOpenChange, leadId, studentId }: Props) {
   const createInteraction = useCreateInteraction();
 
-  const [form, setForm] = useState<Omit<InteractionFormData, "student_id">>({
+  const [form, setForm] = useState<Omit<InteractionFormData, "student_id" | "lead_id">>({
     type: "phone_call",
     description: "",
     scheduled_at: "",
@@ -32,7 +33,7 @@ export function InteractionFormDialog({ open, onOpenChange, studentId }: Props) 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     createInteraction.mutate(
-      { ...form, student_id: studentId },
+      { ...form, lead_id: leadId, student_id: studentId },
       {
         onSuccess: () => {
           onOpenChange(false);
