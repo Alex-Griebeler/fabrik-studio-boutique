@@ -17,6 +17,7 @@ import {
   ListTodo,
   ClipboardList,
   Smartphone,
+  Zap,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -61,6 +62,7 @@ const operationalItems = [
   { title: "Student App", url: "/student-app", icon: Users },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
+  { title: "Marketing IA", url: "/marketing-ai", icon: Zap },
 ];
 
 const settingsItems = [
