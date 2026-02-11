@@ -33,8 +33,13 @@ serve(async (req) => {
     }
 
     // Format the "to" number for WhatsApp
+    const cleanFrom = fromNumber.trim().replace(/^whatsapp:/, "");
     const toWhatsApp = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
-    const fromWhatsApp = fromNumber.startsWith("whatsapp:") ? fromNumber : `whatsapp:${fromNumber}`;
+    const fromWhatsApp = `whatsapp:${cleanFrom}`;
+    
+    console.log("DEBUG - From number raw:", JSON.stringify(fromNumber));
+    console.log("DEBUG - From formatted:", fromWhatsApp);
+    console.log("DEBUG - To formatted:", toWhatsApp);
 
     const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
 
