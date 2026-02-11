@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Users, DollarSign, TrendingDown, CalendarDays, Phone, ArrowRight, ListTodo, AlertTriangle } from "lucide-react";
 import { KPICard } from "@/components/shared/KPICard";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -47,10 +48,14 @@ export default function Dashboard() {
   const { data: pendingTasks } = usePendingTasksCount();
   const { data: overdueTasks } = useOverdueTasksCount();
 
-  const revenueTrend = kpis ? calcTrend(kpis.revenue.current, kpis.revenue.previous) : undefined;
-  const studentsTrend = kpis
-    ? calcTrend(kpis.activeStudents.current, kpis.activeStudents.previous)
-    : undefined;
+  const revenueTrend = useMemo(
+    () => (kpis ? calcTrend(kpis.revenue.current, kpis.revenue.previous) : undefined),
+    [kpis]
+  );
+  const studentsTrend = useMemo(
+    () => (kpis ? calcTrend(kpis.activeStudents.current, kpis.activeStudents.previous) : undefined),
+    [kpis]
+  );
 
   return (
     <div className="space-y-6">
