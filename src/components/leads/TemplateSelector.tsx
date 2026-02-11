@@ -10,7 +10,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useMessageTemplates, substituteVariables } from "@/hooks/useMessageTemplates";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import type { Lead } from "@/hooks/useLeads";
 
 interface TemplateSelectorProps {
@@ -21,6 +23,7 @@ interface TemplateSelectorProps {
 export function TemplateSelector({ lead, onSend }: TemplateSelectorProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
   const { data: templates = [] } = useMessageTemplates();
 
   const handleTemplateSelect = (templateId: string) => {
@@ -39,11 +42,32 @@ export function TemplateSelector({ lead, onSend }: TemplateSelectorProps) {
     }
   };
 
-  const handleSend = () => {
-    if (onSend && message.trim()) {
-      onSend(message);
+  const handleSend = async () => {
+    if (!message.trim()) return;
+
+    if (!lead.phone) {
+      toast.error("Lead não possui telefone cadastrado.");
+      return;
+    }
+
+    setSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-whatsapp", {
+        body: { to: lead.phone, message },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      toast.success("Mensagem enviada via WhatsApp!");
+      onSend?.(message);
       setMessage("");
       setSelectedTemplate("");
+    } catch (err: any) {
+      console.error("WhatsApp send error:", err);
+      toast.error(err.message || "Erro ao enviar mensagem.");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -110,9 +134,14 @@ export function TemplateSelector({ lead, onSend }: TemplateSelectorProps) {
             onClick={handleSend}
             size="sm"
             className="w-full"
-            disabled={!message.trim()}
+            disabled={!message.trim() || sending}
           >
-            <MessageCircle className="mr-2 h-4 w-4" /> Enviar via WhatsApp
+            {sending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <MessageCircle className="mr-2 h-4 w-4" />
+            )}
+            {sending ? "Enviando..." : "Enviar via WhatsApp"}
           </Button>
         </div>
       )}

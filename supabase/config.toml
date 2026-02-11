@@ -2,3 +2,6 @@ project_id = "hcfzqeutssngprldtymo"
 
 [functions.emit-nfse]
 verify_jwt = false
+
+[functions.send-whatsapp]
+verify_jwt = false
