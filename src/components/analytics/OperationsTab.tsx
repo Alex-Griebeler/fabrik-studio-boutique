@@ -10,6 +10,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import { CalendarDays, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { OperationsFilter, type OperationsFilters } from "./OperationsFilter";
+import { OccupancyHeatmap } from "./OccupancyHeatmap";
 import type { OperationsMetrics } from "@/hooks/useAnalytics";
 
 const STATUS_COLORS = [
@@ -130,6 +131,11 @@ export function OperationsTab({ data, isLoading }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Heatmap */}
+      {data.heatmap.length > 0 && (
+        <OccupancyHeatmap heatmap={data.heatmap} />
+      )}
     </div>
   );
 }
