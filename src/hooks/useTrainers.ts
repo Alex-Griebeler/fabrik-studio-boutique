@@ -10,7 +10,8 @@ export function useTrainers(activeOnly = false) {
       let query = supabase
         .from("trainers")
         .select("*")
-        .order("full_name");
+        .order("full_name")
+        .limit(1000);
       if (activeOnly) query = query.eq("is_active", true);
       const { data, error } = await query;
       if (error) throw error;

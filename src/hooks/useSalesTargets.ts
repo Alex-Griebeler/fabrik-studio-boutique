@@ -35,7 +35,8 @@ export function useSalesTargets(competencia?: string) {
       let query = supabase
         .from("sales_targets")
         .select("*, profiles(full_name)")
-        .order("competencia", { ascending: false });
+        .order("competencia", { ascending: false })
+        .limit(1000);
 
       if (competencia) query = query.eq("competencia", competencia);
 

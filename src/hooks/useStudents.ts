@@ -58,7 +58,8 @@ export function useStudents(search: string, statusFilter: StudentStatusFilter) {
       let query = supabase
         .from("students")
         .select("*")
-        .order("full_name", { ascending: true });
+        .order("full_name", { ascending: true })
+        .limit(1000);
 
       if (statusFilter !== "all") {
         query = query.eq("status", statusFilter);

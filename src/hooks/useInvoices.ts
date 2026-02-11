@@ -115,7 +115,6 @@ export function useUpdateInvoice() {
           });
         } catch {
           // Não bloquear o fluxo se a NF-e falhar
-          console.warn("NF-e emission failed, will retry later");
         }
       }
     },

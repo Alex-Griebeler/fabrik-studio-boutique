@@ -81,7 +81,8 @@ export function useTasks(filters?: TaskFilters) {
       let query = supabase
         .from("tasks")
         .select("*, profiles(full_name), leads(name), students(full_name)")
-        .order("data_prevista", { ascending: true, nullsFirst: false });
+        .order("data_prevista", { ascending: true, nullsFirst: false })
+        .limit(1000);
 
       if (filters?.status && filters.status !== "all") {
         query = query.eq("status", filters.status);
