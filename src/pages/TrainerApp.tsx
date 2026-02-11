@@ -143,7 +143,7 @@ export default function TrainerApp() {
             const sessionTime = s.start_time?.slice(0, 5);
             const endTime = s.end_time?.slice(0, 5);
             const isPast = sessionTime && sessionTime < currentTime;
-            const studentName = (s as any).students?.full_name;
+            const studentName = (s as { students?: { full_name: string } }).students?.full_name;
 
             return (
               <Card

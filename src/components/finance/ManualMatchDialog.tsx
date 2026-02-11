@@ -79,7 +79,7 @@ export function ManualMatchDialog({ open, onOpenChange, transaction, onConfirm, 
     if (!search.trim()) return invoices;
     const q = search.toLowerCase();
     return invoices.filter((inv) => {
-      const studentName = (inv.students as any)?.full_name ?? "";
+      const studentName = inv.students?.full_name ?? "";
       return (
         studentName.toLowerCase().includes(q) ||
         (inv.reference_month ?? "").toLowerCase().includes(q) ||
@@ -93,7 +93,7 @@ export function ManualMatchDialog({ open, onOpenChange, transaction, onConfirm, 
     if (!search.trim()) return expenses;
     const q = search.toLowerCase();
     return expenses.filter((exp) => {
-      const catName = (exp.expense_categories as any)?.name ?? "";
+      const catName = exp.expense_categories?.name ?? "";
       return (
         exp.description.toLowerCase().includes(q) ||
         catName.toLowerCase().includes(q) ||
@@ -162,7 +162,7 @@ export function ManualMatchDialog({ open, onOpenChange, transaction, onConfirm, 
                 >
                   <div className="space-y-0.5 min-w-0">
                     <div className="text-sm font-medium truncate">
-                      {(inv.students as any)?.full_name ?? "Aluno"}
+                      {inv.students?.full_name ?? "Aluno"}
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>Venc: {fmtDate(inv.due_date)}</span>
@@ -197,7 +197,7 @@ export function ManualMatchDialog({ open, onOpenChange, transaction, onConfirm, 
                     <div className="text-sm font-medium truncate">{exp.description}</div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>Venc: {fmtDate(exp.due_date)}</span>
-                      <span>{(exp.expense_categories as any)?.name ?? ""}</span>
+                      <span>{exp.expense_categories?.name ?? ""}</span>
                       <Badge variant="outline" className={statusColors[exp.status] ?? ""}>
                         {statusLabels[exp.status] ?? exp.status}
                       </Badge>

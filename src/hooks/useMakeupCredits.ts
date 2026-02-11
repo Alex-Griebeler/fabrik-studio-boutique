@@ -7,7 +7,7 @@ export function useMakeupCredits(studentId?: string) {
   return useQuery({
     queryKey: ["makeup_credits", studentId],
     queryFn: async () => {
-      let query = (supabase as any)
+      let query = supabase
         .from("makeup_credits")
         .select("*, student:students!makeup_credits_student_id_fkey(id, full_name)")
         .order("created_at", { ascending: false });
@@ -24,10 +24,10 @@ export function useAvailableCredits(studentId: string | undefined) {
     queryKey: ["makeup_credits", "available", studentId],
     enabled: !!studentId,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("makeup_credits")
         .select("*")
-        .eq("student_id", studentId)
+        .eq("student_id", studentId!)
         .eq("status", "available");
       if (error) throw error;
       return data as MakeupCredit[];
@@ -39,7 +39,7 @@ export function useUseMakeupCredit() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ creditId, sessionId }: { creditId: string; sessionId: string }) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("makeup_credits")
         .update({
           status: "used",
@@ -50,7 +50,7 @@ export function useUseMakeupCredit() {
       if (error) throw error;
 
       // Mark session as makeup
-      await (supabase as any)
+      await supabase
         .from("sessions")
         .update({ is_makeup: true, makeup_credit_id: creditId })
         .eq("id", sessionId);

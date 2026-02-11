@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import type { Database } from "@/integrations/supabase/types";
 
 export type TaskType = "ligar" | "whatsapp" | "email" | "seguir_experimental" | "fechar_venda" | "outro";
 export type TaskPriority = "baixa" | "media" | "alta" | "urgente";
@@ -137,7 +138,17 @@ export function useCreateTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: TaskFormData) => {
-      const { error } = await supabase.from("tasks").insert(data as any);
+      const insertData: Database["public"]["Tables"]["tasks"]["Insert"] = {
+        tipo: data.tipo,
+        assignee_id: data.assignee_id,
+        titulo: data.titulo,
+        descricao: data.descricao ?? null,
+        data_prevista: data.data_prevista ?? null,
+        prioridade: data.prioridade,
+        lead_id: data.lead_id ?? null,
+        student_id: data.student_id ?? null,
+      };
+      const { error } = await supabase.from("tasks").insert([insertData]);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -152,7 +163,8 @@ export function useUpdateTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<Task> }) => {
-      const { error } = await supabase.from("tasks").update(data as any).eq("id", id);
+      const updateData: Database["public"]["Tables"]["tasks"]["Update"] = data;
+      const { error } = await supabase.from("tasks").update(updateData).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -167,11 +179,12 @@ export function useCompleteTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, resultado }: { id: string; resultado?: string }) => {
-      const { error } = await supabase.from("tasks").update({
-        status: "concluida" as any,
+      const updateData: Database["public"]["Tables"]["tasks"]["Update"] = {
+        status: "concluida",
         data_conclusao: new Date().toISOString(),
         resultado: resultado || null,
-      }).eq("id", id);
+      };
+      const { error } = await supabase.from("tasks").update(updateData).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {

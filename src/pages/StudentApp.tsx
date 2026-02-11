@@ -18,6 +18,8 @@ import {
   useStudentCredits,
   useStudentActiveContract,
   useStudentCheckin,
+  type SessionWithTrainer,
+  type ContractWithPlan,
 } from "@/hooks/useStudentApp";
 import { requestGeolocation, takeCheckinPhoto } from "@/hooks/useTrainerCheckin";
 import { useAuth } from "@/contexts/AuthContext";
@@ -171,9 +173,9 @@ export default function StudentApp() {
                           <p className="text-sm text-muted-foreground">
                             {session.start_time?.slice(0, 5)} – {session.end_time?.slice(0, 5)}
                           </p>
-                          {(session as any).trainers?.full_name && (
+                          {session.trainers?.full_name && (
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              Prof. {(session as any).trainers.full_name}
+                              Prof. {session.trainers.full_name}
                             </p>
                           )}
                         </div>
@@ -246,9 +248,9 @@ export default function StudentApp() {
                         <Clock className="h-3 w-3 inline mr-1" />
                         {session.start_time?.slice(0, 5)} – {session.end_time?.slice(0, 5)}
                       </p>
-                      {(session as any).trainers?.full_name && (
+                      {session.trainers?.full_name && (
                         <p className="text-xs text-muted-foreground">
-                          Prof. {(session as any).trainers.full_name}
+                          Prof. {session.trainers.full_name}
                         </p>
                       )}
                     </div>
@@ -341,11 +343,11 @@ export default function StudentApp() {
                 <CardContent className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Plano</span>
-                    <span className="font-medium">{(contract as any).plan?.name ?? "—"}</span>
+                    <span className="font-medium">{contract.plan?.name ?? "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Frequência</span>
-                    <span className="font-medium">{(contract as any).plan?.frequency ?? "—"}</span>
+                    <span className="font-medium">{contract.plan?.frequency ?? "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Início</span>

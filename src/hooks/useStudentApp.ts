@@ -2,6 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import type { Database } from "@/integrations/supabase/types";
+
+type SessionRow = Database["public"]["Tables"]["sessions"]["Row"];
+type ContractRow = Database["public"]["Tables"]["contracts"]["Row"];
+
+export interface SessionWithTrainer extends SessionRow {
+  trainers: { id: string; full_name: string } | null;
+}
+
+export interface ContractWithPlan extends ContractRow {
+  plan: { name: string; frequency: string | null } | null;
+}
 
 /** Resolve the current logged-in user's student record via profiles → students.profile_id */
 export function useCurrentStudent() {
@@ -50,7 +62,7 @@ export function useStudentUpcomingSessions(studentId: string | undefined) {
         .limit(20);
 
       if (error) throw error;
-      return data;
+      return data as unknown as SessionWithTrainer[];
     },
     refetchInterval: 30_000,
   });
@@ -74,7 +86,7 @@ export function useStudentSessionHistory(studentId: string | undefined) {
         .limit(50);
 
       if (error) throw error;
-      return data;
+      return data as unknown as SessionWithTrainer[];
     },
   });
 }
@@ -111,7 +123,7 @@ export function useStudentActiveContract(studentId: string | undefined) {
         .single();
 
       if (error && error.code !== "PGRST116") throw error;
-      return data ?? null;
+      return (data as unknown as ContractWithPlan) ?? null;
     },
   });
 }
@@ -173,7 +185,7 @@ export function useAvailableGroupSessions(studentId: string | undefined) {
         .limit(30);
 
       if (error) throw error;
-      return data;
+      return data as unknown as SessionWithTrainer[];
     },
   });
 }
