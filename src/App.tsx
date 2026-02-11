@@ -27,6 +27,7 @@ import Tasks from "@/pages/Tasks";
 import TrainerPayroll from "@/pages/TrainerPayroll";
 import TrainerApp from "@/pages/TrainerApp";
 import StudentApp from "@/pages/StudentApp";
+import MarketingAI from "@/pages/MarketingAI";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -186,15 +187,23 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/student-app"
-                element={
-                  <ProtectedRoute>
-                    <StudentApp />
-                  </ProtectedRoute>
-                }
-              />
-              <Route path="*" element={<NotFound />} />
+               <Route
+                 path="/student-app"
+                 element={
+                   <ProtectedRoute>
+                     <StudentApp />
+                   </ProtectedRoute>
+                 }
+               />
+               <Route
+                 path="/marketing-ai"
+                 element={
+                   <ProtectedRoute>
+                     <AppLayout><MarketingAI /></AppLayout>
+                   </ProtectedRoute>
+                 }
+               />
+               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
         </TooltipProvider>
