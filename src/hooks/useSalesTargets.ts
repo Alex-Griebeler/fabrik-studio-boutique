@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import type { Database } from "@/integrations/supabase/types";
 
 export interface SalesTarget {
   id: string;
@@ -51,7 +52,15 @@ export function useUpsertSalesTarget() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: SalesTargetFormData) => {
-      const { error } = await supabase.from("sales_targets").upsert(data as any, {
+      const insertData: Database["public"]["Tables"]["sales_targets"]["Insert"] = {
+        profile_id: data.profile_id,
+        competencia: data.competencia,
+        meta_leads: data.meta_leads,
+        meta_experimentais: data.meta_experimentais,
+        meta_conversoes: data.meta_conversoes,
+        meta_faturamento_cents: data.meta_faturamento_cents,
+      };
+      const { error } = await supabase.from("sales_targets").upsert(insertData, {
         onConflict: "profile_id,competencia",
       });
       if (error) throw error;

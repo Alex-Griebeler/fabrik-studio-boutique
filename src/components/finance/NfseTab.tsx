@@ -101,7 +101,7 @@ export function NfseTab() {
             className="pl-9"
           />
         </div>
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "all" | Nfse["status"])}>
           <SelectTrigger className="w-[160px]">
             <SelectValue />
           </SelectTrigger>
@@ -165,7 +165,7 @@ export function NfseTab() {
                         <TooltipContent className="max-w-xs">{n.error_message}</TooltipContent>
                       </Tooltip>
                     )}
-                    {n.api_response && (n.api_response as any)?.mock && (
+                    {n.api_response && (n.api_response as Record<string, unknown>)?.mock && (
                       <Badge variant="outline" className="ml-1.5 text-xs bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
                         Mock
                       </Badge>
@@ -232,7 +232,7 @@ export function NfseTab() {
             <AlertDialogTitle>Cancelar NF-e</AlertDialogTitle>
             <AlertDialogDescription>
               Tem certeza que deseja cancelar a NF-e {cancelTarget?.nfse_number ?? ""}?
-              {cancelTarget?.api_response && !(cancelTarget.api_response as any)?.mock && (
+              {cancelTarget?.api_response && !(cancelTarget.api_response as Record<string, unknown>)?.mock && (
                 <span className="block mt-1 text-red-500 font-medium">
                   Atenção: Esta NF-e será cancelada também na prefeitura.
                 </span>

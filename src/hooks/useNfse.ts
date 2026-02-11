@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import type { Database } from "@/integrations/supabase/types";
 
 export interface Nfse {
   id: string;
@@ -101,7 +102,7 @@ export function useCancelNfse() {
           status: "cancelled",
           cancelled_at: new Date().toISOString(),
           cancellation_reason: reason,
-        } as any)
+        } satisfies Database["public"]["Tables"]["nfse"]["Update"])
         .eq("id", id);
       if (error) throw error;
     },

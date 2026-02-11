@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import type { Json } from "@/integrations/supabase/types";
 
 export interface TrialQuota {
   date: string;
@@ -57,24 +58,25 @@ export function useBookTrial() {
         .eq("date", date)
         .maybeSingle();
 
-      if (existing) {
-        const hours = [...((existing as any).occupied_hours ?? []), time];
+      const typedExisting = existing as unknown as TrialQuota | null;
+      if (typedExisting) {
+        const hours = [...(typedExisting.occupied_hours ?? []), time];
         const { error } = await supabase
           .from("trial_quotas")
           .update({
-            trials_booked: (existing as any).trials_booked + 1,
-            occupied_hours: hours as any,
+            trials_booked: typedExisting.trials_booked + 1,
+            occupied_hours: hours as Json,
           })
           .eq("date", date);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("trial_quotas")
-          .insert({
+          .insert([{
             date,
             trials_booked: 1,
-            occupied_hours: [time] as any,
-          });
+            occupied_hours: [time] as Json,
+          }]);
         if (error) throw error;
       }
 
