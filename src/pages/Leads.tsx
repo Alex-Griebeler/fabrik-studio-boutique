@@ -12,6 +12,7 @@ import { LeadTable } from "@/components/leads/LeadTable";
 import { LeadDetailDialog } from "@/components/leads/LeadDetailDialog";
 import { InteractionFormDialog } from "@/components/leads/InteractionFormDialog";
 import { TrialScheduler } from "@/components/leads/TrialScheduler";
+import { FunnelMetrics } from "@/components/leads/FunnelMetrics";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -125,21 +126,26 @@ export default function Leads() {
 
       {isLoading ? (
         <Skeleton className="h-[400px] w-full" />
-      ) : view === "kanban" ? (
-        <LeadKanban
-          leads={leads ?? []}
-          onSelectLead={handleSelectLead}
-          onNewInteraction={handleNewInteraction}
-        />
       ) : (
-        <LeadTable
-          leads={leads ?? []}
-          onSelectLead={handleSelectLead}
-          onNewInteraction={handleNewInteraction}
-          onScheduleTrial={handleScheduleTrial}
-          onConvert={(id) => setConvertDialog(id)}
-          onMarkLost={(id) => setLostDialog(id)}
-        />
+        <>
+          <FunnelMetrics leads={leads ?? []} />
+          {view === "kanban" ? (
+            <LeadKanban
+              leads={leads ?? []}
+              onSelectLead={handleSelectLead}
+              onNewInteraction={handleNewInteraction}
+            />
+          ) : (
+            <LeadTable
+              leads={leads ?? []}
+              onSelectLead={handleSelectLead}
+              onNewInteraction={handleNewInteraction}
+              onScheduleTrial={handleScheduleTrial}
+              onConvert={(id) => setConvertDialog(id)}
+              onMarkLost={(id) => setLostDialog(id)}
+            />
+          )}
+        </>
       )}
 
       {/* Dialogs */}
