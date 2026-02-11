@@ -1,12 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
-
-@font-face {
-  font-family: 'PP Editorial New';
-  src: url('/fonts/PPEditorialNew-Italic.woff2') format('woff2');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -119,12 +111,12 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'PP Editorial New', 'Inter', serif;
-    @apply tracking-tight italic;
+    font-family: 'Plus Jakarta Sans', 'DM Sans', sans-serif;
+    @apply tracking-tight;
   }
 }
 
