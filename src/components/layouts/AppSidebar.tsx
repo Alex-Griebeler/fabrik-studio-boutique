@@ -16,6 +16,7 @@ import {
   Percent,
   ListTodo,
   ClipboardList,
+  Smartphone,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -56,6 +57,7 @@ const financeItems = [
 const operationalItems = [
   { title: "Agenda", url: "/schedule", icon: CalendarDays },
   { title: "Instrutores", url: "/instructors", icon: GraduationCap },
+  { title: "Trainer App", url: "/trainer-app", icon: Smartphone },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
 ];
