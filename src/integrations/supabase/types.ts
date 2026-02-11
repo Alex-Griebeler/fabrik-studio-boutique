@@ -350,6 +350,76 @@ export type Database = {
           },
         ]
       }
+      commissions: {
+        Row: {
+          competencia: string
+          contract_id: string | null
+          created_at: string
+          data_pagamento: string | null
+          id: string
+          lead_id: string | null
+          percentual_comissao: number
+          profile_id: string
+          status: Database["public"]["Enums"]["commission_status"]
+          tipo: Database["public"]["Enums"]["commission_type"]
+          updated_at: string
+          valor_base_cents: number
+          valor_comissao_cents: number
+        }
+        Insert: {
+          competencia: string
+          contract_id?: string | null
+          created_at?: string
+          data_pagamento?: string | null
+          id?: string
+          lead_id?: string | null
+          percentual_comissao?: number
+          profile_id: string
+          status?: Database["public"]["Enums"]["commission_status"]
+          tipo: Database["public"]["Enums"]["commission_type"]
+          updated_at?: string
+          valor_base_cents?: number
+          valor_comissao_cents?: number
+        }
+        Update: {
+          competencia?: string
+          contract_id?: string | null
+          created_at?: string
+          data_pagamento?: string | null
+          id?: string
+          lead_id?: string | null
+          percentual_comissao?: number
+          profile_id?: string
+          status?: Database["public"]["Enums"]["commission_status"]
+          tipo?: Database["public"]["Enums"]["commission_type"]
+          updated_at?: string
+          valor_base_cents?: number
+          valor_comissao_cents?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commissions_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commissions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commissions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contracts: {
         Row: {
           cancellation_reason: string | null
@@ -647,6 +717,7 @@ export type Database = {
       }
       leads: {
         Row: {
+          consultant_id: string | null
           converted_to_student_id: string | null
           created_at: string
           email: string | null
@@ -661,6 +732,7 @@ export type Database = {
           source: string | null
           status: string
           tags: string[]
+          temperature: string | null
           trial_date: string | null
           trial_time: string | null
           trial_type: string | null
@@ -668,6 +740,7 @@ export type Database = {
           utm_params: Json | null
         }
         Insert: {
+          consultant_id?: string | null
           converted_to_student_id?: string | null
           created_at?: string
           email?: string | null
@@ -682,6 +755,7 @@ export type Database = {
           source?: string | null
           status?: string
           tags?: string[]
+          temperature?: string | null
           trial_date?: string | null
           trial_time?: string | null
           trial_type?: string | null
@@ -689,6 +763,7 @@ export type Database = {
           utm_params?: Json | null
         }
         Update: {
+          consultant_id?: string | null
           converted_to_student_id?: string | null
           created_at?: string
           email?: string | null
@@ -703,6 +778,7 @@ export type Database = {
           source?: string | null
           status?: string
           tags?: string[]
+          temperature?: string | null
           trial_date?: string | null
           trial_time?: string | null
           trial_type?: string | null
@@ -710,6 +786,13 @@ export type Database = {
           utm_params?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "leads_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "leads_converted_to_student_id_fkey"
             columns: ["converted_to_student_id"]
@@ -803,6 +886,87 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      monthly_kpis: {
+        Row: {
+          alunos_novos: number
+          alunos_perdidos: number
+          calculado_em: string
+          cancelamentos: number
+          competencia: string
+          conversoes_indicacao: number
+          conversoes_marketing: number
+          despesas_cents: number
+          faturamento_cents: number
+          leads_indicacao: number
+          leads_marketing: number
+          leads_resgate: number
+          margem_lucro_pct: number
+          planos_para_renovar: number
+          renovacoes_efetivas: number
+          resultado_cents: number
+          taxa_churn: number
+          taxa_conversao_experimentais: number
+          taxa_conversao_leads: number
+          taxa_renovacao: number
+          total_alunos: number
+          total_conversoes: number
+          total_experimentais: number
+          total_leads: number
+        }
+        Insert: {
+          alunos_novos?: number
+          alunos_perdidos?: number
+          calculado_em?: string
+          cancelamentos?: number
+          competencia: string
+          conversoes_indicacao?: number
+          conversoes_marketing?: number
+          despesas_cents?: number
+          faturamento_cents?: number
+          leads_indicacao?: number
+          leads_marketing?: number
+          leads_resgate?: number
+          margem_lucro_pct?: number
+          planos_para_renovar?: number
+          renovacoes_efetivas?: number
+          resultado_cents?: number
+          taxa_churn?: number
+          taxa_conversao_experimentais?: number
+          taxa_conversao_leads?: number
+          taxa_renovacao?: number
+          total_alunos?: number
+          total_conversoes?: number
+          total_experimentais?: number
+          total_leads?: number
+        }
+        Update: {
+          alunos_novos?: number
+          alunos_perdidos?: number
+          calculado_em?: string
+          cancelamentos?: number
+          competencia?: string
+          conversoes_indicacao?: number
+          conversoes_marketing?: number
+          despesas_cents?: number
+          faturamento_cents?: number
+          leads_indicacao?: number
+          leads_marketing?: number
+          leads_resgate?: number
+          margem_lucro_pct?: number
+          planos_para_renovar?: number
+          renovacoes_efetivas?: number
+          resultado_cents?: number
+          taxa_churn?: number
+          taxa_conversao_experimentais?: number
+          taxa_conversao_leads?: number
+          taxa_renovacao?: number
+          total_alunos?: number
+          total_conversoes?: number
+          total_experimentais?: number
+          total_leads?: number
+        }
+        Relationships: []
       }
       nfse: {
         Row: {
@@ -992,6 +1156,7 @@ export type Database = {
         Row: {
           auth_user_id: string
           avatar_url: string | null
+          commission_rate_pct: number | null
           created_at: string
           email: string | null
           full_name: string
@@ -1002,6 +1167,7 @@ export type Database = {
         Insert: {
           auth_user_id: string
           avatar_url?: string | null
+          commission_rate_pct?: number | null
           created_at?: string
           email?: string | null
           full_name: string
@@ -1012,6 +1178,7 @@ export type Database = {
         Update: {
           auth_user_id?: string
           avatar_url?: string | null
+          commission_rate_pct?: number | null
           created_at?: string
           email?: string | null
           full_name?: string
@@ -1020,6 +1187,68 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      sales_targets: {
+        Row: {
+          bonus_cents: number
+          competencia: string
+          created_at: string
+          id: string
+          meta_batida: boolean
+          meta_conversoes: number
+          meta_experimentais: number
+          meta_faturamento_cents: number
+          meta_leads: number
+          profile_id: string
+          realizado_conversoes: number
+          realizado_experimentais: number
+          realizado_faturamento_cents: number
+          realizado_leads: number
+          updated_at: string
+        }
+        Insert: {
+          bonus_cents?: number
+          competencia: string
+          created_at?: string
+          id?: string
+          meta_batida?: boolean
+          meta_conversoes?: number
+          meta_experimentais?: number
+          meta_faturamento_cents?: number
+          meta_leads?: number
+          profile_id: string
+          realizado_conversoes?: number
+          realizado_experimentais?: number
+          realizado_faturamento_cents?: number
+          realizado_leads?: number
+          updated_at?: string
+        }
+        Update: {
+          bonus_cents?: number
+          competencia?: string
+          created_at?: string
+          id?: string
+          meta_batida?: boolean
+          meta_conversoes?: number
+          meta_experimentais?: number
+          meta_faturamento_cents?: number
+          meta_leads?: number
+          profile_id?: string
+          realizado_conversoes?: number
+          realizado_experimentais?: number
+          realizado_faturamento_cents?: number
+          realizado_leads?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_targets_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sessions: {
         Row: {
@@ -1325,6 +1554,79 @@ export type Database = {
           },
         ]
       }
+      tasks: {
+        Row: {
+          assignee_id: string
+          created_at: string
+          data_conclusao: string | null
+          data_prevista: string | null
+          descricao: string | null
+          id: string
+          lead_id: string | null
+          prioridade: Database["public"]["Enums"]["task_priority"]
+          resultado: string | null
+          status: Database["public"]["Enums"]["task_status"]
+          student_id: string | null
+          tipo: Database["public"]["Enums"]["task_type"]
+          titulo: string
+          updated_at: string
+        }
+        Insert: {
+          assignee_id: string
+          created_at?: string
+          data_conclusao?: string | null
+          data_prevista?: string | null
+          descricao?: string | null
+          id?: string
+          lead_id?: string | null
+          prioridade?: Database["public"]["Enums"]["task_priority"]
+          resultado?: string | null
+          status?: Database["public"]["Enums"]["task_status"]
+          student_id?: string | null
+          tipo?: Database["public"]["Enums"]["task_type"]
+          titulo: string
+          updated_at?: string
+        }
+        Update: {
+          assignee_id?: string
+          created_at?: string
+          data_conclusao?: string | null
+          data_prevista?: string | null
+          descricao?: string | null
+          id?: string
+          lead_id?: string | null
+          prioridade?: Database["public"]["Enums"]["task_priority"]
+          resultado?: string | null
+          status?: Database["public"]["Enums"]["task_status"]
+          student_id?: string | null
+          tipo?: Database["public"]["Enums"]["task_type"]
+          titulo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasks_assignee_id_fkey"
+            columns: ["assignee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trainers: {
         Row: {
           bank_account: string | null
@@ -1557,6 +1859,7 @@ export type Database = {
       }
     }
     Functions: {
+      calculate_monthly_kpis: { Args: { p_date: string }; Returns: undefined }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1573,6 +1876,8 @@ export type Database = {
       app_role: "admin" | "instructor" | "student" | "manager" | "reception"
       booking_status: "confirmed" | "cancelled" | "waitlist" | "no_show"
       checkin_method: "manual" | "qr_code" | "geolocation" | "auto"
+      commission_status: "calculada" | "aprovada" | "paga" | "cancelada"
+      commission_type: "venda_nova" | "renovacao" | "indicacao" | "meta"
       contract_status: "active" | "suspended" | "cancelled" | "expired"
       expense_status: "pending" | "paid" | "cancelled"
       full_session_status:
@@ -1623,6 +1928,15 @@ export type Database = {
       session_status: "scheduled" | "cancelled" | "completed"
       session_type: "personal" | "group"
       student_status: "lead" | "active" | "inactive" | "suspended"
+      task_priority: "baixa" | "media" | "alta" | "urgente"
+      task_status: "pendente" | "em_andamento" | "concluida" | "cancelada"
+      task_type:
+        | "ligar"
+        | "whatsapp"
+        | "email"
+        | "seguir_experimental"
+        | "fechar_venda"
+        | "outro"
       trainer_payment_method: "hourly" | "per_session" | "hybrid"
     }
     CompositeTypes: {
@@ -1754,6 +2068,8 @@ export const Constants = {
       app_role: ["admin", "instructor", "student", "manager", "reception"],
       booking_status: ["confirmed", "cancelled", "waitlist", "no_show"],
       checkin_method: ["manual", "qr_code", "geolocation", "auto"],
+      commission_status: ["calculada", "aprovada", "paga", "cancelada"],
+      commission_type: ["venda_nova", "renovacao", "indicacao", "meta"],
       contract_status: ["active", "suspended", "cancelled", "expired"],
       expense_status: ["pending", "paid", "cancelled"],
       full_session_status: [
@@ -1809,6 +2125,16 @@ export const Constants = {
       session_status: ["scheduled", "cancelled", "completed"],
       session_type: ["personal", "group"],
       student_status: ["lead", "active", "inactive", "suspended"],
+      task_priority: ["baixa", "media", "alta", "urgente"],
+      task_status: ["pendente", "em_andamento", "concluida", "cancelada"],
+      task_type: [
+        "ligar",
+        "whatsapp",
+        "email",
+        "seguir_experimental",
+        "fechar_venda",
+        "outro",
+      ],
       trainer_payment_method: ["hourly", "per_session", "hybrid"],
     },
   },

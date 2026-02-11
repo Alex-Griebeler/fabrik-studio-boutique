@@ -5,6 +5,7 @@ import { DateRangeFilter } from "@/components/analytics/DateRangeFilter";
 import { ConversionTab } from "@/components/analytics/ConversionTab";
 import { OperationsTab } from "@/components/analytics/OperationsTab";
 import { FinancialTab } from "@/components/analytics/FinancialTab";
+import { KPIsTab } from "@/components/analytics/KPIsTab";
 import {
   useConversionAnalytics,
   useOperationsAnalytics,
@@ -36,6 +37,7 @@ export default function Analytics() {
           <TabsTrigger value="conversion">Conversão</TabsTrigger>
           <TabsTrigger value="operations">Operações</TabsTrigger>
           <TabsTrigger value="financial">Financeiro</TabsTrigger>
+          <TabsTrigger value="kpis">KPIs Mensais</TabsTrigger>
         </TabsList>
 
         <TabsContent value="conversion">
@@ -48,6 +50,10 @@ export default function Analytics() {
 
         <TabsContent value="financial">
           <FinancialTab data={financial.data} isLoading={financial.isLoading} />
+        </TabsContent>
+
+        <TabsContent value="kpis">
+          <KPIsTab />
         </TabsContent>
       </Tabs>
     </div>

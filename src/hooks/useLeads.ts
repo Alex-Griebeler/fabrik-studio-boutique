@@ -166,7 +166,9 @@ export function useCreateLead() {
         tags: data.tags ?? [],
         qualification_details: details as any,
         qualification_score: score,
-      });
+        temperature: (data as any).temperature || null,
+        consultant_id: (data as any).consultant_id || null,
+      } as any);
       if (error) throw error;
     },
     onSuccess: () => {

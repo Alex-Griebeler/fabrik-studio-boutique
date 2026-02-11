@@ -13,6 +13,8 @@ import {
   GraduationCap,
   Landmark,
   Banknote,
+  Percent,
+  ListTodo,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -37,12 +39,14 @@ const mainItems = [
 const managementItems = [
   { title: "Alunos", url: "/students", icon: Users },
   { title: "Leads", url: "/leads", icon: UserPlus },
+  { title: "Tarefas", url: "/tasks", icon: ListTodo },
   { title: "Planos", url: "/plans", icon: Package },
 ];
 
 const financeItems = [
   { title: "Financeiro", url: "/finance", icon: DollarSign },
   { title: "Despesas", url: "/expenses", icon: Receipt },
+  { title: "Comissões", url: "/commissions", icon: Percent },
   { title: "Folha Pagto", url: "/payroll", icon: Banknote },
   { title: "Conciliação", url: "/bank-reconciliation", icon: Landmark },
 ];

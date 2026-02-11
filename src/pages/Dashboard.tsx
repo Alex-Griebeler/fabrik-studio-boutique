@@ -1,10 +1,11 @@
-import { Users, DollarSign, TrendingDown, CalendarDays, Phone, ArrowRight } from "lucide-react";
+import { Users, DollarSign, TrendingDown, CalendarDays, Phone, ArrowRight, ListTodo, AlertTriangle } from "lucide-react";
 import { KPICard } from "@/components/shared/KPICard";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardKPIs, useUpcomingDues, useRecentLeads } from "@/hooks/useDashboard";
+import { usePendingTasksCount, useOverdueTasksCount } from "@/hooks/useTasks";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
@@ -43,6 +44,8 @@ export default function Dashboard() {
   const { data: kpis, isLoading: kpisLoading } = useDashboardKPIs();
   const { data: upcomingDues, isLoading: duesLoading } = useUpcomingDues();
   const { data: recentLeads, isLoading: leadsLoading } = useRecentLeads();
+  const { data: pendingTasks } = usePendingTasksCount();
+  const { data: overdueTasks } = useOverdueTasksCount();
 
   const revenueTrend = kpis ? calcTrend(kpis.revenue.current, kpis.revenue.previous) : undefined;
   const studentsTrend = kpis
@@ -108,6 +111,23 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {/* Tasks card */}
+      <Card className="border-border/50 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate("/tasks")}>
+        <CardContent className="flex items-center justify-between pt-6">
+          <div className="flex items-center gap-3">
+            <ListTodo className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">Tarefas Pendentes</p>
+              <p className="text-xs text-muted-foreground">{overdueTasks ?? 0} atrasada(s)</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold">{pendingTasks ?? 0}</span>
+            {(overdueTasks ?? 0) > 0 && <AlertTriangle className="h-4 w-4 text-destructive" />}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Bottom cards */}
       <div className="grid gap-4 lg:grid-cols-2">

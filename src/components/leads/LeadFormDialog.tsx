@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useCreateLead, type LeadFormData } from "@/hooks/useLeads";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { calculateLeadScore, gradeColors, type QualificationDetails } from "@/lib/leadScoring";
 
 const SOURCES = [
@@ -33,6 +35,12 @@ const OBJECTIVES = [
 
 const AGE_RANGES = ["18-29", "30-39", "40-55", "56-65", "65+"];
 
+const TEMPERATURES = [
+  { value: "hot", label: "🔥 Quente", color: "text-red-600" },
+  { value: "warm", label: "🌤 Morno", color: "text-yellow-600" },
+  { value: "cold", label: "❄️ Frio", color: "text-blue-600" },
+];
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -41,7 +49,16 @@ interface Props {
 export function LeadFormDialog({ open, onOpenChange }: Props) {
   const createLead = useCreateLead();
 
-  const [form, setForm] = useState<LeadFormData>({
+  const { data: profiles } = useQuery({
+    queryKey: ["profiles-list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("id, full_name").order("full_name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const [form, setForm] = useState<LeadFormData & { temperature?: string; consultant_id?: string }>({
     name: "",
     email: "",
     phone: "",
@@ -49,6 +66,8 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
     notes: "",
     tags: [],
     qualification_details: {},
+    temperature: "",
+    consultant_id: "",
   });
 
   const details = form.qualification_details ?? {};
@@ -63,10 +82,11 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    createLead.mutate(form, {
+    const { temperature, consultant_id, ...rest } = form;
+    createLead.mutate({ ...rest, temperature: temperature || undefined, consultant_id: consultant_id || undefined } as any, {
       onSuccess: () => {
         onOpenChange(false);
-        setForm({ name: "", email: "", phone: "", source: "", notes: "", tags: [], qualification_details: {} });
+        setForm({ name: "", email: "", phone: "", source: "", notes: "", tags: [], qualification_details: {}, temperature: "", consultant_id: "" });
       },
     });
   };
@@ -105,6 +125,24 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
                 <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                 <SelectContent>
                   {SOURCES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Temperatura</Label>
+              <Select value={form.temperature ?? ""} onValueChange={(v) => setForm({ ...form, temperature: v })}>
+                <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  {TEMPERATURES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Consultor</Label>
+              <Select value={form.consultant_id ?? ""} onValueChange={(v) => setForm({ ...form, consultant_id: v })}>
+                <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  {profiles?.map((p) => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
