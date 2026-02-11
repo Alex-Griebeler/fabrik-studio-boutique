@@ -6,6 +6,7 @@ import {
   Receipt,
   CalendarDays,
   BarChart3,
+  TrendingUp,
   Settings,
   LogOut,
   Package,
@@ -49,6 +50,7 @@ const financeItems = [
 const operationalItems = [
   { title: "Agenda", url: "/schedule", icon: CalendarDays },
   { title: "Instrutores", url: "/instructors", icon: GraduationCap },
+  { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
 ];
 
