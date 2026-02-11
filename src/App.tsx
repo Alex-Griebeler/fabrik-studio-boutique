@@ -22,6 +22,8 @@ import Plans from "@/pages/Plans";
 import Instructors from "@/pages/Instructors";
 import Payroll from "@/pages/Payroll";
 import Analytics from "@/pages/Analytics";
+import Commissions from "@/pages/Commissions";
+import Tasks from "@/pages/Tasks";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -146,6 +148,22 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AppLayout><Analytics /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/commissions"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout><Commissions /></AppLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/tasks"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout><Tasks /></AppLayout>
                   </ProtectedRoute>
                 }
               />
