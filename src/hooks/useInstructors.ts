@@ -54,13 +54,13 @@ export function useAllProfiles() {
 }
 
 export function useAddInstructorRole() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (userId: string) => {
-      const { error } = await supabase.from("user_roles").insert({
-        user_id: userId,
-        role: "instructor" as any,
-      });
+   const qc = useQueryClient();
+   return useMutation({
+     mutationFn: async (userId: string) => {
+       const { error } = await supabase.from("user_roles").insert({
+         user_id: userId,
+         role: "instructor",
+       });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -76,14 +76,14 @@ export function useAddInstructorRole() {
 }
 
 export function useRemoveInstructorRole() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (userId: string) => {
-      const { error } = await supabase
-        .from("user_roles")
-        .delete()
-        .eq("user_id", userId)
-        .eq("role", "instructor" as any);
+   const qc = useQueryClient();
+   return useMutation({
+     mutationFn: async (userId: string) => {
+       const { error } = await supabase
+         .from("user_roles")
+         .delete()
+         .eq("user_id", userId)
+         .eq("role", "instructor");
       if (error) throw error;
     },
     onSuccess: () => {

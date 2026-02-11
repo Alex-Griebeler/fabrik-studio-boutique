@@ -56,10 +56,10 @@ export function useCommissions(filters?: { competencia?: string; profile_id?: st
 }
 
 export function useCreateCommission() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: CommissionFormData) => {
-      const { error } = await supabase.from("commissions").insert(data as any);
+   const qc = useQueryClient();
+   return useMutation({
+     mutationFn: async (data: CommissionFormData) => {
+       const { error } = await supabase.from("commissions").insert(data);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -71,10 +71,10 @@ export function useCreateCommission() {
 }
 
 export function useUpdateCommissionStatus() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, status, data_pagamento }: { id: string; status: Commission["status"]; data_pagamento?: string }) => {
-      const updates: Record<string, any> = { status };
+   const qc = useQueryClient();
+   return useMutation({
+     mutationFn: async ({ id, status, data_pagamento }: { id: string; status: Commission["status"]; data_pagamento?: string }) => {
+       const updates: Record<string, Commission["status"] | string> = { status };
       if (data_pagamento) updates.data_pagamento = data_pagamento;
       const { error } = await supabase.from("commissions").update(updates).eq("id", id);
       if (error) throw error;
@@ -93,12 +93,12 @@ export function useCommissionSummary(competencia?: string) {
     queryFn: async () => {
       let query = supabase.from("commissions").select("status, valor_comissao_cents");
       if (competencia) query = query.eq("competencia", competencia);
-      const { data, error } = await query;
-      if (error) throw error;
+       const { data, error } = await query;
+       if (error) throw error;
 
-      const items = data as any[];
-      return {
-        total: items.reduce((s, c) => s + (c.valor_comissao_cents ?? 0), 0),
+       const items = data as Array<{ valor_comissao_cents?: number; status: string }>;
+       return {
+         total: items.reduce((s, c) => s + (c.valor_comissao_cents ?? 0), 0),
         pago: items.filter(c => c.status === "paga").reduce((s, c) => s + (c.valor_comissao_cents ?? 0), 0),
         pendente: items.filter(c => c.status !== "paga" && c.status !== "cancelada").reduce((s, c) => s + (c.valor_comissao_cents ?? 0), 0),
         count: items.length,
