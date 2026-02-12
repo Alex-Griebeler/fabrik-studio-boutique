@@ -92,9 +92,9 @@ export function useBankTransactions(importId: string | null) {
 export function useUploadBankStatement() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ fileContent, fileName }: { fileContent: string; fileName: string }) => {
+    mutationFn: async ({ fileContent, fileName, fileType }: { fileContent: string; fileName: string; fileType: string }) => {
       const { data, error } = await supabase.functions.invoke("parse-bank-statement", {
-        body: { fileContent, fileName, fileType: "ofx" },
+        body: { fileContent, fileName, fileType },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);

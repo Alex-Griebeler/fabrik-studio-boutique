@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-interface OFXTransaction {
+interface ParsedTransaction {
   trnType: string;
   dtPosted: string;
   trnAmt: number;
@@ -14,16 +14,18 @@ interface OFXTransaction {
   memo: string;
 }
 
-interface OFXResult {
+interface ParsedResult {
   bankId: string | null;
   accountId: string | null;
   periodStart: string | null;
   periodEnd: string | null;
-  transactions: OFXTransaction[];
+  transactions: ParsedTransaction[];
 }
 
-function parseOFX(raw: string): OFXResult {
-  const result: OFXResult = {
+// ── OFX Parser ──
+
+function parseOFX(raw: string): ParsedResult {
+  const result: ParsedResult = {
     bankId: null, accountId: null, periodStart: null, periodEnd: null, transactions: [],
   };
   const bankIdMatch = raw.match(/<BANKID>([^\s<]+)/);
@@ -65,6 +67,117 @@ function ef(block: string, field: string): string | null {
 
 function fmtDate(d: string): string {
   return `${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}`;
+}
+
+// ── CSV Parser ──
+
+function parseCSV(raw: string): ParsedResult {
+  const result: ParsedResult = {
+    bankId: null, accountId: null, periodStart: null, periodEnd: null, transactions: [],
+  };
+
+  // Split lines and remove empty
+  const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return result;
+
+  // Detect separator (semicolon or comma)
+  const sep = lines[0].includes(";") ? ";" : ",";
+
+  // Parse header to find column indices
+  const headerRaw = lines[0].split(sep).map((h) => h.replace(/"/g, "").trim().toLowerCase());
+
+  // Map common column names from Brazilian banks
+  const dateAliases = ["data", "data lançamento", "data lancamento", "data movimentação", "data mov", "date", "dt_lancamento"];
+  const descAliases = ["histórico", "historico", "descrição", "descricao", "memo", "description", "lançamento", "lancamento", "extrato"];
+  const amountAliases = ["valor", "value", "amount", "vl_transacao"];
+  const creditAliases = ["crédito", "credito", "credit", "entrada"];
+  const debitAliases = ["débito", "debito", "debit", "saída", "saida"];
+
+  const find = (aliases: string[]) => headerRaw.findIndex((h) => aliases.some((a) => h.includes(a)));
+
+  const dateIdx = find(dateAliases);
+  const descIdx = find(descAliases);
+  const amountIdx = find(amountAliases);
+  const creditIdx = find(creditAliases);
+  const debitIdx = find(debitAliases);
+
+  if (dateIdx === -1) return result; // Must have a date column
+
+  let minDate: string | null = null;
+  let maxDate: string | null = null;
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = splitCSVLine(lines[i], sep);
+    if (cols.length <= dateIdx) continue;
+
+    const rawDate = cols[dateIdx]?.replace(/"/g, "").trim();
+    const postedDate = normalizeDate(rawDate);
+    if (!postedDate) continue;
+
+    // Track period
+    if (!minDate || postedDate < minDate) minDate = postedDate;
+    if (!maxDate || postedDate > maxDate) maxDate = postedDate;
+
+    const memo = descIdx >= 0 ? (cols[descIdx]?.replace(/"/g, "").trim() ?? "") : "";
+
+    let amount = 0;
+    if (amountIdx >= 0) {
+      amount = parseBRNumber(cols[amountIdx]);
+    } else if (creditIdx >= 0 && debitIdx >= 0) {
+      const credit = parseBRNumber(cols[creditIdx]);
+      const debit = parseBRNumber(cols[debitIdx]);
+      amount = credit !== 0 ? Math.abs(credit) : -Math.abs(debit);
+    }
+
+    if (amount === 0) continue;
+
+    const trnType = amount > 0 ? "CREDIT" : "DEBIT";
+    const fitId = `csv_${postedDate}_${i}_${Math.abs(Math.round(amount * 100))}`;
+
+    result.transactions.push({ trnType, dtPosted: postedDate, trnAmt: amount, fitId, memo });
+  }
+
+  result.periodStart = minDate;
+  result.periodEnd = maxDate;
+  return result;
+}
+
+function splitCSVLine(line: string, sep: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (const ch of line) {
+    if (ch === '"') { inQuotes = !inQuotes; continue; }
+    if (ch === sep && !inQuotes) { result.push(current); current = ""; continue; }
+    current += ch;
+  }
+  result.push(current);
+  return result;
+}
+
+function normalizeDate(raw: string): string | null {
+  // dd/mm/yyyy or dd-mm-yyyy
+  const brMatch = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (brMatch) {
+    const [, d, m, y] = brMatch;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  // yyyy-mm-dd
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return raw;
+  return null;
+}
+
+function parseBRNumber(raw: string | undefined): number {
+  if (!raw) return 0;
+  let s = raw.replace(/"/g, "").trim();
+  if (!s) return 0;
+  // Brazilian format: 1.234,56 → remove dots, replace comma with dot
+  if (s.includes(",")) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
 }
 
 interface ParsedInfo {
@@ -146,12 +259,12 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Arquivo obrigatório" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    if (fileType !== "ofx")
-      return new Response(JSON.stringify({ error: "Apenas OFX suportado" }), {
+    if (fileType !== "ofx" && fileType !== "csv")
+      return new Response(JSON.stringify({ error: "Formato não suportado. Use OFX ou CSV." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
 
-    const parsed = parseOFX(fileContent);
+    const parsed = fileType === "ofx" ? parseOFX(fileContent) : parseCSV(fileContent);
 
     const { data: importRec, error: impErr } = await supabase.from("bank_imports").insert({
       file_name: fileName, file_type: fileType,

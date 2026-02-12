@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo, useCallback } from "react";
 import { Upload, Loader2, Wand2, Zap } from "lucide-react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,9 +46,12 @@ export default function BankReconciliation() {
     const file = e.target.files?.[0];
     if (!file) return;
     const ext = file.name.split(".").pop()?.toLowerCase();
-    if (ext !== "ofx") return;
+    if (ext !== "ofx" && ext !== "csv") {
+      toast.error("Formato não suportado. Use arquivos OFX ou CSV.");
+      return;
+    }
     const text = await file.text();
-    uploadMutation.mutate({ fileContent: text, fileName: file.name });
+    uploadMutation.mutate({ fileContent: text, fileName: file.name, fileType: ext });
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -153,10 +157,10 @@ export default function BankReconciliation() {
 
       {/* Upload + Import selector */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
-        <input ref={fileInputRef} type="file" accept=".ofx" onChange={handleFileUpload} className="hidden" />
+        <input ref={fileInputRef} type="file" accept=".ofx,.csv" onChange={handleFileUpload} className="hidden" />
         <Button onClick={() => fileInputRef.current?.click()} disabled={uploadMutation.isPending}>
           {uploadMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
-          Importar OFX
+          Importar Extrato
         </Button>
 
         {imports && imports.length > 0 && (
@@ -292,7 +296,7 @@ export default function BankReconciliation() {
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <Upload className="h-12 w-12 mb-4 opacity-40" />
           <p className="text-lg font-medium">Nenhuma importação encontrada</p>
-          <p className="text-sm">Importe um extrato OFX do Itaú para começar a conciliação.</p>
+          <p className="text-sm">Importe um extrato OFX ou CSV do seu banco para começar a conciliação.</p>
         </div>
       )}
 
