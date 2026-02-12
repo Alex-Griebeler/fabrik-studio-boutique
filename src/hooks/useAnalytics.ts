@@ -50,9 +50,9 @@ export function useConversionAnalytics(range: DateRange) {
       const { data: leads, error } = await supabase
         .from("leads")
         .select("id, status, source, trial_date, created_at, converted_to_student_id")
-        .gte("created_at", from + "T00:00:00")
-        .lte("created_at", to + "T23:59:59")
-        .limit(5000);
+         .gte("created_at", from + "T00:00:00")
+         .lte("created_at", to + "T23:59:59")
+         .limit(1000);
       if (error) throw error;
 
       const all = leads ?? [];
@@ -115,9 +115,9 @@ export function useOperationsAnalytics(range: DateRange) {
       const { data: sessions, error } = await supabase
         .from("sessions")
         .select("id, session_date, start_time, status, capacity")
-        .gte("session_date", from)
-        .lte("session_date", to)
-        .limit(5000);
+         .gte("session_date", from)
+         .lte("session_date", to)
+         .limit(1000);
       if (error) throw error;
 
       const all = sessions ?? [];
@@ -176,9 +176,9 @@ export function useFinancialAnalytics(range: DateRange) {
         .from("invoices")
         .select("paid_amount_cents, payment_date")
         .eq("status", "paid")
-        .gte("payment_date", format(from, "yyyy-MM-dd"))
-        .lte("payment_date", format(to, "yyyy-MM-dd"))
-        .limit(5000);
+         .gte("payment_date", format(from, "yyyy-MM-dd"))
+         .lte("payment_date", format(to, "yyyy-MM-dd"))
+         .limit(1000);
 
       // group by month
       const monthlyMap = new Map<string, number>();
@@ -197,9 +197,9 @@ export function useFinancialAnalytics(range: DateRange) {
       // MRR: active contracts monthly_value_cents
       const { data: contracts } = await supabase
         .from("contracts")
-        .select("monthly_value_cents")
-        .eq("status", "active")
-        .limit(5000);
+         .select("monthly_value_cents")
+         .eq("status", "active")
+         .limit(1000);
       const mrr = (contracts ?? []).reduce((sum, c) => sum + (c.monthly_value_cents ?? 0), 0);
 
       // Churn: cancelled contracts this month vs total active start of month
@@ -243,9 +243,9 @@ export function useFinancialAnalytics(range: DateRange) {
       const { data: expenses } = await supabase
         .from("expenses")
         .select("amount_cents, category_id")
-        .gte("due_date", format(from, "yyyy-MM-dd"))
-        .lte("due_date", format(to, "yyyy-MM-dd"))
-        .limit(5000);
+         .gte("due_date", format(from, "yyyy-MM-dd"))
+         .lte("due_date", format(to, "yyyy-MM-dd"))
+         .limit(1000);
 
       const { data: categories } = await supabase
         .from("expense_categories")

@@ -79,17 +79,17 @@ export function useDashboardKPIs() {
         // Overdue invoices
         supabase
           .from("invoices")
-          .select("amount_cents")
-          .eq("status", "overdue")
-          .limit(5000),
+           .select("amount_cents")
+           .eq("status", "overdue")
+           .limit(1000),
 
         // Total invoiced this month (for overdue %)
         supabase
           .from("invoices")
-          .select("amount_cents")
-          .gte("due_date", currentMonthStart)
-          .lte("due_date", currentMonthEnd)
-          .limit(5000),
+           .select("amount_cents")
+           .gte("due_date", currentMonthStart)
+           .lte("due_date", currentMonthEnd)
+           .limit(1000),
 
         // Sessions this month with bookings for occupancy
         // Include both scheduled and completed sessions for more accurate occupancy

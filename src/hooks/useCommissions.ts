@@ -92,7 +92,7 @@ export function useCommissionSummary(competencia?: string) {
   return useQuery({
     queryKey: ["commissions", "summary", competencia],
     queryFn: async () => {
-      let query = supabase.from("commissions").select("status, valor_comissao_cents").limit(5000);
+       let query = supabase.from("commissions").select("status, valor_comissao_cents").limit(1000);
       if (competencia) query = query.eq("competencia", competencia);
        const { data, error } = await query;
        if (error) throw error;

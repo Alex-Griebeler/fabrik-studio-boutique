@@ -80,9 +80,9 @@ export function useBankTransactions(importId: string | null) {
       const { data, error } = await supabase
         .from("bank_transactions")
         .select("*")
-        .eq("import_id", importId!)
-        .order("posted_date", { ascending: false })
-        .limit(5000);
+         .eq("import_id", importId!)
+         .order("posted_date", { ascending: false })
+         .limit(1000);
       if (error) throw error;
       return data as BankTransaction[];
     },
