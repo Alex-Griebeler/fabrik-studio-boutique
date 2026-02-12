@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardKPIs, useUpcomingDues, useRecentLeads } from "@/hooks/useDashboard";
 import { usePendingTasksCount, useOverdueTasksCount } from "@/hooks/useTasks";
+import { MonthlyKPISummary } from "@/components/analytics/MonthlyKPISummary";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
@@ -60,6 +61,9 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <PageHeader title="Dashboard" description="Visão geral do seu studio" />
+
+      {/* Monthly KPI Summary */}
+      <MonthlyKPISummary />
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
