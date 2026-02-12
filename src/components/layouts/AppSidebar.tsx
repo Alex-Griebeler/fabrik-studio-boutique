@@ -18,6 +18,7 @@ import {
   ClipboardList,
   Smartphone,
   Zap,
+  FileUp,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -74,6 +75,7 @@ const operationalItems: MenuItem[] = [
 ];
 
 const settingsItems: MenuItem[] = [
+  { title: "Importar Alunos", url: "/import", icon: FileUp, roles: ["admin"] },
   { title: "Configurações", url: "/settings", icon: Settings, roles: ["admin"] },
 ];
 
