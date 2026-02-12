@@ -16,10 +16,13 @@ export type Database = {
     Tables: {
       ai_agent_config: {
         Row: {
+          behavior_config: Json
           created_at: string
           description: string | null
+          handoff_rules: Json
           id: string
           is_active: boolean | null
+          knowledge_base: Json
           max_tokens: number | null
           model: string | null
           name: string
@@ -28,10 +31,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          behavior_config?: Json
           created_at?: string
           description?: string | null
+          handoff_rules?: Json
           id?: string
           is_active?: boolean | null
+          knowledge_base?: Json
           max_tokens?: number | null
           model?: string | null
           name: string
@@ -40,10 +46,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          behavior_config?: Json
           created_at?: string
           description?: string | null
+          handoff_rules?: Json
           id?: string
           is_active?: boolean | null
+          knowledge_base?: Json
           max_tokens?: number | null
           model?: string | null
           name?: string
@@ -52,6 +61,44 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      ai_conversation_logs: {
+        Row: {
+          conversation_id: string
+          cost_cents: number
+          created_at: string
+          id: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+        }
+        Insert: {
+          conversation_id: string
+          cost_cents?: number
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          model: string
+          output_tokens?: number
+        }
+        Update: {
+          conversation_id?: string
+          cost_cents?: number
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_conversation_logs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       bank_imports: {
         Row: {
@@ -541,6 +588,7 @@ export type Database = {
           conversation_id: string
           created_at: string
           id: string
+          metadata: Json
           role: string
         }
         Insert: {
@@ -549,6 +597,7 @@ export type Database = {
           conversation_id: string
           created_at?: string
           id?: string
+          metadata?: Json
           role: string
         }
         Update: {
@@ -557,6 +606,7 @@ export type Database = {
           conversation_id?: string
           created_at?: string
           id?: string
+          metadata?: Json
           role?: string
         }
         Relationships: [
@@ -572,31 +622,43 @@ export type Database = {
       conversations: {
         Row: {
           agent_id: string | null
+          channel: string
+          context: Json
           created_at: string
           id: string
           last_message_at: string | null
           lead_id: string
           status: string
+          taken_over_at: string | null
+          taken_over_by: string | null
           topic: string | null
           updated_at: string
         }
         Insert: {
           agent_id?: string | null
+          channel?: string
+          context?: Json
           created_at?: string
           id?: string
           last_message_at?: string | null
           lead_id: string
           status?: string
+          taken_over_at?: string | null
+          taken_over_by?: string | null
           topic?: string | null
           updated_at?: string
         }
         Update: {
           agent_id?: string | null
+          channel?: string
+          context?: Json
           created_at?: string
           id?: string
           last_message_at?: string | null
           lead_id?: string
           status?: string
+          taken_over_at?: string | null
+          taken_over_by?: string | null
           topic?: string | null
           updated_at?: string
         }
@@ -1538,6 +1600,60 @@ export type Database = {
           },
         ]
       }
+      sequence_executions: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          current_step: number
+          id: string
+          lead_id: string
+          next_step_at: string | null
+          sequence_id: string
+          started_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          current_step?: number
+          id?: string
+          lead_id: string
+          next_step_at?: string | null
+          sequence_id: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          current_step?: number
+          id?: string
+          lead_id?: string
+          next_step_at?: string | null
+          sequence_id?: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sequence_executions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sequence_executions_sequence_id_fkey"
+            columns: ["sequence_id"]
+            isOneToOne: false
+            referencedRelation: "nurturing_sequences"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sequence_logs: {
         Row: {
           completed_at: string | null
@@ -1586,9 +1702,50 @@ export type Database = {
           },
         ]
       }
+      sequence_step_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          execution_id: string
+          id: string
+          step_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          execution_id: string
+          id?: string
+          step_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          execution_id?: string
+          id?: string
+          step_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sequence_step_events_execution_id_fkey"
+            columns: ["execution_id"]
+            isOneToOne: false
+            referencedRelation: "sequence_executions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sequence_step_events_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "sequence_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sequence_steps: {
         Row: {
           action_type: string | null
+          channel: string
+          condition: Json | null
           created_at: string
           delay_hours: number | null
           id: string
@@ -1600,6 +1757,8 @@ export type Database = {
         }
         Insert: {
           action_type?: string | null
+          channel?: string
+          condition?: Json | null
           created_at?: string
           delay_hours?: number | null
           id?: string
@@ -1611,6 +1770,8 @@ export type Database = {
         }
         Update: {
           action_type?: string | null
+          channel?: string
+          condition?: Json | null
           created_at?: string
           delay_hours?: number | null
           id?: string

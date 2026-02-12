@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.send-whatsapp]
 verify_jwt = false
+
+[functions.process-conversation-message]
+verify_jwt = false
+
+[functions.execute-nurturing-step]
+verify_jwt = false
