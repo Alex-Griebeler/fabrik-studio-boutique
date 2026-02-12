@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Plus, Trash2, Save, ArrowDown, Clock, MessageSquare, Smartphone, Mail, BarChart3, List } from "lucide-react";
 import { useNurturingSequences, NurturingSequence } from "@/hooks/useNurturingSequences";
 import { KPICard } from "@/components/shared/KPICard";
@@ -53,7 +54,7 @@ export function SequenceBuilder() {
   const completedCount = executions.filter(e => e.status === "completed").length;
 
   return (
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
       {/* Sequences List */}
       <Card className="col-span-1">
         <CardHeader className="py-3 px-4 border-b">
@@ -90,7 +91,7 @@ export function SequenceBuilder() {
       </Card>
 
       {/* Builder */}
-      <Card className="col-span-3">
+      <Card className="md:col-span-2 lg:col-span-3">
         {selectedSeqId ? (
           <Tabs defaultValue="builder">
             <CardHeader className="py-3 px-4 border-b">
@@ -100,9 +101,23 @@ export function SequenceBuilder() {
                   <TabsTrigger value="analytics" className="text-xs gap-1 h-7"><BarChart3 className="h-3 w-3" /> Analytics</TabsTrigger>
                 </TabsList>
                 <div className="flex gap-2">
-                  <Button variant="destructive" size="sm" className="h-7" onClick={() => deleteSequence(selectedSeqId)}>
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" size="sm" className="h-7">
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir sequência?</AlertDialogTitle>
+                        <AlertDialogDescription>Esta ação não pode ser desfeita. A sequência e todos os seus passos serão removidos permanentemente.</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => deleteSequence(selectedSeqId)}>Excluir</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                   <Button size="sm" className="h-7" onClick={handleSave} disabled={loading}>
                     <Save className="h-3 w-3 mr-1" /> Salvar
                   </Button>
@@ -112,7 +127,7 @@ export function SequenceBuilder() {
             <CardContent className="p-4">
               <TabsContent value="builder" className="space-y-4 mt-0">
                 {/* Sequence Config */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <Label className="text-sm">Nome</Label>
                     <Input value={currentForm.name || ""} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="h-8" />
