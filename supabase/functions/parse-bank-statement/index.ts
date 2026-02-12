@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -180,6 +181,127 @@ function parseBRNumber(raw: string | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
+// ── XLSX Parser ──
+
+function parseXLSX(base64Content: string): ParsedResult {
+  const result: ParsedResult = {
+    bankId: null, accountId: null, periodStart: null, periodEnd: null, transactions: [],
+  };
+
+  // Decode base64 to binary
+  const binaryStr = atob(base64Content);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+  const workbook = XLSX.read(bytes, { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!sheet) return result;
+
+  const rows: (string | number | null)[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+  // Extract metadata from header rows
+  let vencimento: string | null = null;
+  let dataStartRow = -1;
+
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const firstCell = String(row[0] ?? "").trim();
+    const secondCell = String(row[1] ?? "").trim();
+
+    // Look for "Data Vencimento" or card info in header
+    if (firstCell.toLowerCase().includes("cartao") || firstCell.toLowerCase().includes("cartão")) {
+      result.accountId = secondCell || null;
+    }
+    if (firstCell.toLowerCase().includes("vencimento")) {
+      vencimento = secondCell;
+    }
+    // Find where "Data" / "Lancamentos" header row is
+    if (firstCell.toLowerCase() === "data" && secondCell.toLowerCase().includes("lancamento")) {
+      dataStartRow = i + 1;
+      break;
+    }
+  }
+
+  if (dataStartRow === -1) {
+    // Fallback: try to find rows that start with a date pattern dd/mm
+    dataStartRow = 0;
+  }
+
+  // Determine the year from vencimento (e.g., "28/01/2026" → 2026)
+  let baseYear = new Date().getFullYear();
+  if (vencimento) {
+    const match = vencimento.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (match) {
+      baseYear = parseInt(match[3]);
+      result.periodEnd = `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+    }
+  }
+
+  let minDate: string | null = null;
+  let maxDate: string | null = null;
+
+  for (let i = dataStartRow; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+
+    const dateCell = String(row[0] ?? "").trim();
+    const descCell = String(row[1] ?? "").trim();
+
+    // Skip non-transaction rows (subtotals, category headers, empty dates)
+    if (!dateCell || !dateCell.match(/^\d{1,2}\/\d{1,2}$/)) continue;
+    if (!descCell) continue;
+
+    // Skip subtotals and totals
+    const descUpper = descCell.toUpperCase();
+    if (descUpper.includes("SUBTOTAL") || descUpper === "TOTAL") continue;
+    if (descUpper.includes("SALDO FATURA")) continue;
+
+    // Parse date dd/mm → yyyy-mm-dd
+    const [dd, mm] = dateCell.split("/");
+    const month = parseInt(mm);
+    const day = parseInt(dd);
+    // If month > vencimento month, it's from previous year
+    let year = baseYear;
+    if (vencimento) {
+      const vencMatch = vencimento.match(/(\d{1,2})[\/\-](\d{1,2})/);
+      if (vencMatch) {
+        const vencMonth = parseInt(vencMatch[2]);
+        if (month > vencMonth) year = baseYear - 1;
+      }
+    }
+    const postedDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+    // Find the value - check columns for R$ value
+    let amount = 0;
+    // Typically: col 0=date, col 1=desc, col 2="R$", col 3=value
+    // Or: col 0=date, col 1=desc, col 2=value
+    for (let c = 2; c < (row.length ?? 0); c++) {
+      const cell = row[c];
+      if (cell === null || cell === undefined) continue;
+      const cellStr = String(cell).trim();
+      if (cellStr === "R$" || cellStr === "US$" || cellStr === "") continue;
+      const val = typeof cell === "number" ? cell : parseBRNumber(cellStr);
+      if (val !== 0) { amount = val; break; }
+    }
+
+    if (amount === 0) continue;
+
+    if (!minDate || postedDate < minDate) minDate = postedDate;
+    if (!maxDate || postedDate > maxDate) maxDate = postedDate;
+
+    const trnType = amount > 0 ? "CREDIT" : "DEBIT";
+    const fitId = `xlsx_${postedDate}_${i}_${Math.abs(Math.round(amount * 100))}`;
+
+    result.transactions.push({ trnType, dtPosted: postedDate, trnAmt: amount, fitId, memo: descCell });
+  }
+
+  result.periodStart = minDate ?? result.periodStart;
+  result.periodEnd = maxDate ?? result.periodEnd;
+  result.bankId = "BB";
+  return result;
+}
+
 interface ParsedInfo {
   type: string; name: string | null; document: string | null; isBalance: boolean;
 }
@@ -259,12 +381,15 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Arquivo obrigatório" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    if (fileType !== "ofx" && fileType !== "csv")
-      return new Response(JSON.stringify({ error: "Formato não suportado. Use OFX ou CSV." }), {
+    if (fileType !== "ofx" && fileType !== "csv" && fileType !== "xlsx" && fileType !== "xls")
+      return new Response(JSON.stringify({ error: "Formato não suportado. Use OFX, CSV ou Excel." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
 
-    const parsed = fileType === "ofx" ? parseOFX(fileContent) : parseCSV(fileContent);
+    let parsed: ParsedResult;
+    if (fileType === "ofx") parsed = parseOFX(fileContent);
+    else if (fileType === "csv") parsed = parseCSV(fileContent);
+    else parsed = parseXLSX(fileContent);
 
     const { data: importRec, error: impErr } = await supabase.from("bank_imports").insert({
       file_name: fileName, file_type: fileType,

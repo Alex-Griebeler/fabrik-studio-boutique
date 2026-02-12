@@ -94,7 +94,7 @@ export function useUploadBankStatement() {
   return useMutation({
     mutationFn: async ({ fileContent, fileName, fileType }: { fileContent: string; fileName: string; fileType: string }) => {
       const { data, error } = await supabase.functions.invoke("parse-bank-statement", {
-        body: { fileContent, fileName, fileType },
+        body: { fileContent, fileName, fileType: fileType === "xls" ? "xlsx" : fileType },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
