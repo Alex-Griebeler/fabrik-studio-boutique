@@ -92,12 +92,13 @@ export function useDashboardKPIs() {
           .limit(5000),
 
         // Sessions this month with bookings for occupancy
+        // Include both scheduled and completed sessions for more accurate occupancy
         supabase
           .from("class_sessions")
           .select("capacity, id")
           .gte("session_date", currentMonthStart)
           .lte("session_date", currentMonthEnd)
-          .eq("status", "scheduled")
+          .in("status", ["scheduled", "completed"])
           .limit(2000),
       ]);
 
@@ -197,14 +198,21 @@ export function useRecentLeads() {
     queryKey: ["dashboard-recent-leads"],
     queryFn: async (): Promise<RecentLead[]> => {
       const { data, error } = await supabase
-        .from("students")
-        .select("id, full_name, lead_stage, lead_source, created_at, phone")
-        .eq("status", "lead")
+        .from("leads")
+        .select("id, name, status, source, created_at, phone")
+        .eq("status", "new")
         .order("created_at", { ascending: false })
         .limit(5);
 
       if (error) throw error;
-      return data as RecentLead[];
+      return (data ?? []).map(row => ({
+        id: row.id,
+        full_name: row.name,
+        lead_stage: row.status,
+        lead_source: row.source,
+        created_at: row.created_at,
+        phone: row.phone,
+      })) as RecentLead[];
     },
     staleTime: 60_000,
   });

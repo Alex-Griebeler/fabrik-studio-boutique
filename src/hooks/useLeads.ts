@@ -268,6 +268,8 @@ export function useConvertLead() {
       if (updateErr) throw updateErr;
 
       // 4. Auto-create commission for consultant if assigned
+      // Note: Commission values start at 0. They should be populated when a contract is created
+      // with actual values, or manually edited by admin/manager
       if (lead.consultant_id) {
         const today = new Date();
         const competencia = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
