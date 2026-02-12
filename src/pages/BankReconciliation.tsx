@@ -46,12 +46,21 @@ export default function BankReconciliation() {
     const file = e.target.files?.[0];
     if (!file) return;
     const ext = file.name.split(".").pop()?.toLowerCase();
-    if (ext !== "ofx" && ext !== "csv") {
-      toast.error("Formato não suportado. Use arquivos OFX ou CSV.");
+    if (!ext || !["ofx", "csv", "xlsx", "xls"].includes(ext)) {
+      toast.error("Formato não suportado. Use OFX, CSV ou Excel (.xlsx/.xls).");
       return;
     }
-    const text = await file.text();
-    uploadMutation.mutate({ fileContent: text, fileName: file.name, fileType: ext });
+    // For Excel files, send as base64; for text files, send as text
+    if (ext === "xlsx" || ext === "xls") {
+      const buffer = await file.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+      );
+      uploadMutation.mutate({ fileContent: base64, fileName: file.name, fileType: ext });
+    } else {
+      const text = await file.text();
+      uploadMutation.mutate({ fileContent: text, fileName: file.name, fileType: ext });
+    }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -157,7 +166,7 @@ export default function BankReconciliation() {
 
       {/* Upload + Import selector */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
-        <input ref={fileInputRef} type="file" accept=".ofx,.csv" onChange={handleFileUpload} className="hidden" />
+        <input ref={fileInputRef} type="file" accept=".ofx,.csv,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
         <Button onClick={() => fileInputRef.current?.click()} disabled={uploadMutation.isPending}>
           {uploadMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
           Importar Extrato
