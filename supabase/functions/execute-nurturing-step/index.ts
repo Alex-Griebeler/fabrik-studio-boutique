@@ -27,13 +27,14 @@ serve(async (req) => {
 
     for (const execution of (readyExecutions || [])) {
       try {
-        // Get the current step
-        const { data: step } = await supabase
+        // Get the next step by order, not by step_number (in case steps were deleted/renumbered)
+        const { data: steps } = await supabase
           .from("sequence_steps")
           .select("*")
           .eq("sequence_id", execution.sequence_id)
-          .eq("step_number", execution.current_step + 1)
-          .single();
+          .order("step_number", { ascending: true });
+        
+        const step = steps?.[execution.current_step] || null;
 
         if (!step) {
           // No more steps, mark as completed
@@ -70,13 +71,8 @@ serve(async (req) => {
           event_type: "sent",
         });
 
-        // Check if there are more steps
-        const { data: nextStep } = await supabase
-          .from("sequence_steps")
-          .select("delay_hours")
-          .eq("sequence_id", execution.sequence_id)
-          .eq("step_number", execution.current_step + 2)
-          .single();
+        // Check if there are more steps (by using all fetched steps array)
+        const nextStep = steps?.[execution.current_step + 1];
 
         if (nextStep) {
           const nextAt = new Date();

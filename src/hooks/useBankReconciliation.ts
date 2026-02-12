@@ -228,7 +228,17 @@ export function useBatchApproveMatches() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (suggestions: MatchSuggestion[]) => {
-      for (const s of suggestions) {
+      // Fetch all required data upfront to avoid N+1 queries and get transaction dates
+      const transactionIds = suggestions.map(s => s.transaction_id);
+      const { data: transactions } = await supabase
+        .from("bank_transactions")
+        .select("id, posted_date")
+        .in("id", transactionIds);
+      
+      const txMap = new Map(transactions?.map(t => [t.id, t.posted_date]) ?? []);
+
+      // Batch update all bank_transactions
+      const updatePromises = suggestions.map(s => {
         const updateData: Record<string, unknown> = {
           match_status: "manual_matched",
           match_confidence: "manual",
@@ -239,22 +249,41 @@ export function useBatchApproveMatches() {
         } else {
           updateData.matched_expense_id = s.matched_id;
         }
-        const { error } = await supabase
+        return supabase
           .from("bank_transactions")
           .update(updateData)
           .eq("id", s.transaction_id);
-        if (error) throw error;
+      });
+      
+      const updateResults = await Promise.all(updatePromises);
+      const updateErrors = updateResults.filter(r => r.error);
+      if (updateErrors.length > 0) {
+        throw new Error(`Erro ao atualizar ${updateErrors.length} transações: ${updateErrors[0].error?.message}`);
+      }
 
-        const { data: tx } = await supabase
-          .from("bank_transactions")
-          .select("posted_date")
-          .eq("id", s.transaction_id)
-          .maybeSingle();
+      // Batch update invoices and expenses separately
+      const invoiceSuggestions = suggestions.filter(s => s.matched_type === "invoice");
+      const expenseSuggestions = suggestions.filter(s => s.matched_type === "expense");
 
-        if (s.matched_type === "invoice") {
-          await supabase.from("invoices").update({ status: "paid", payment_date: tx?.posted_date }).eq("id", s.matched_id);
-        } else {
-          await supabase.from("expenses").update({ status: "paid", payment_date: tx?.posted_date }).eq("id", s.matched_id);
+      if (invoiceSuggestions.length > 0) {
+        for (const s of invoiceSuggestions) {
+          const postedDate = txMap.get(s.transaction_id);
+          const { error } = await supabase
+            .from("invoices")
+            .update({ status: "paid", payment_date: postedDate })
+            .eq("id", s.matched_id);
+          if (error) throw error;
+        }
+      }
+
+      if (expenseSuggestions.length > 0) {
+        for (const s of expenseSuggestions) {
+          const postedDate = txMap.get(s.transaction_id);
+          const { error } = await supabase
+            .from("expenses")
+            .update({ status: "paid", payment_date: postedDate })
+            .eq("id", s.matched_id);
+          if (error) throw error;
         }
       }
     },
