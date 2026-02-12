@@ -65,7 +65,7 @@ Adicionar campo na tabela `profiles`:
 
 ---
 
-### FASE 2 -- Tarefas & Follow-up (Prioridade Alta)
+### FASE 2 -- Tarefas & Follow-up (Prioridade Alta) ✅ COMPLETA
 
 **2.1 Migration SQL**
 
@@ -133,7 +133,7 @@ Criar funcao SQL `calculate_monthly_kpis(p_date)` que calcula todos os KPIs a pa
 | `src/components/commissions/CommissionFormDialog.tsx` | Criar |
 | `src/components/commissions/SalesTargetManager.tsx` | Criar |
 | `src/components/tasks/TaskFormDialog.tsx` | Criar |
-| `src/components/tasks/TaskList.tsx` | Criar |
+| `src/components/tasks/TaskList.tsx` | ✅ Criar |
 | `src/components/leads/LeadFormDialog.tsx` | Refatorar (adicionar consultor + temperatura) |
 | `src/components/leads/LeadKanban.tsx` | Refatorar (badge de temperatura) |
 | `src/hooks/useLeads.ts` | Refatorar (converter auto-comissiona) |
