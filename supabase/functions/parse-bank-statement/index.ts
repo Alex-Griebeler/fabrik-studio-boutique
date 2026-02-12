@@ -183,12 +183,48 @@ function parseBRNumber(raw: string | undefined): number {
 
 // ── XLSX Parser ──
 
+const MONTH_ABBR: Record<string, string> = {
+  jan: "01", fev: "02", feb: "02", mar: "03", abr: "04", apr: "04",
+  mai: "05", may: "05", jun: "06", jul: "07", ago: "08", aug: "08",
+  set: "09", sep: "09", out: "10", oct: "10", nov: "11", dez: "12", dec: "12",
+};
+
+function parseXLSXDate(cell: string | number | null): { dd: string; mm: string; year: number | null } | null {
+  if (cell === null || cell === undefined) return null;
+
+  // Excel serial date
+  if (typeof cell === "number" && cell > 40000) {
+    const excelEpoch = new Date(1899, 11, 30);
+    const date = new Date(excelEpoch.getTime() + cell * 86400000);
+    return { dd: String(date.getDate()), mm: String(date.getMonth() + 1), year: date.getFullYear() };
+  }
+
+  const s = String(cell).trim();
+
+  // dd/mm/yyyy
+  const full = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (full) return { dd: full[1], mm: full[2], year: parseInt(full[3]) };
+
+  // dd/mm (short numeric)
+  const shortNum = s.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (shortNum) return { dd: shortNum[1], mm: shortNum[2], year: null };
+
+  // dd/Mon or dd/Mon (month abbreviation like 19/Mar, 04/Aug)
+  const abbr = s.match(/^(\d{1,2})[\/\-]([A-Za-zçã]+)$/i);
+  if (abbr) {
+    const monthKey = abbr[2].toLowerCase().substring(0, 3);
+    const mm = MONTH_ABBR[monthKey];
+    if (mm) return { dd: abbr[1], mm, year: null };
+  }
+
+  return null;
+}
+
 function parseXLSX(base64Content: string): ParsedResult {
   const result: ParsedResult = {
     bankId: null, accountId: null, periodStart: null, periodEnd: null, transactions: [],
   };
 
-  // Decode base64 to binary
   const binaryStr = atob(base64Content);
   const bytes = new Uint8Array(binaryStr.length);
   for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
@@ -200,173 +236,139 @@ function parseXLSX(base64Content: string): ParsedResult {
   const rows: (string | number | null)[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
 
   console.log(`XLSX: Total rows = ${rows.length}, sheet = ${workbook.SheetNames[0]}`);
-  // Log first 15 rows for debugging
-  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
     console.log(`Row ${i}: ${JSON.stringify(rows[i])}`);
   }
 
-  // Extract metadata from header rows
+  // Extract metadata
   let vencimento: string | null = null;
-  let dataStartRow = -1;
+  let bankDetected: string | null = null;
 
   for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i];
     if (!row || row.length === 0) continue;
-    
-    // Check all cells in the row for metadata
+    const rowStr = row.map(c => String(c ?? "").toLowerCase()).join(" ");
+
+    if (rowStr.includes("itau") || rowStr.includes("itaú")) bankDetected = "ITAU";
+    else if (rowStr.includes("banco do brasil") || rowStr.includes("ourocard")) bankDetected = "BB";
+
+    // Look for agência/conta
+    const agMatch = rowStr.match(/ag[eê]ncia\s*\/?\s*conta[:\s]*(\S+)/);
+    if (agMatch) result.accountId = agMatch[1];
+
+    // Look for card number patterns
+    const cardMatch = rowStr.match(/(\d{4}[\.\*xX]+[\.\*xX\d]+\d{4})/);
+    if (cardMatch && !result.accountId) result.accountId = cardMatch[1];
+
     for (let c = 0; c < row.length; c++) {
       const cellVal = String(row[c] ?? "").trim().toLowerCase();
-      const nextCell = String(row[c + 1] ?? "").trim();
-      
-      if ((cellVal.includes("cartao") || cellVal.includes("cartão")) && nextCell) {
-        result.accountId = nextCell;
+      if (cellVal.includes("vencimento")) {
+        // Check next cell or next-next cell for the date
+        for (let nc = c + 1; nc < Math.min(c + 3, row.length); nc++) {
+          const nextVal = String(row[nc] ?? "").trim();
+          if (nextVal && nextVal !== "null") {
+            vencimento = nextVal;
+            break;
+          }
+        }
+        // Also check the row below
+        if (!vencimento && i + 1 < rows.length) {
+          const belowRow = rows[i + 1];
+          if (belowRow) {
+            for (let nc = c; nc < Math.min(c + 2, belowRow.length); nc++) {
+              const belowVal = String(belowRow[nc] ?? "").trim();
+              if (belowVal && belowVal !== "null" && belowVal.match(/\d/)) {
+                vencimento = belowVal;
+                break;
+              }
+            }
+          }
+        }
+        if (vencimento) console.log(`Found vencimento: ${vencimento}`);
       }
-      if (cellVal.includes("vencimento") && nextCell) {
-        vencimento = nextCell;
-        console.log(`Found vencimento: ${vencimento}`);
-      }
-      if (cellVal.includes("centro de custo") && nextCell) {
-        result.accountId = result.accountId || nextCell;
-      }
-    }
-    
-    // Find the header row - look for "Data" in any cell
-    const firstCell = String(row[0] ?? "").trim().toLowerCase();
-    const secondCell = String(row[1] ?? "").trim().toLowerCase();
-    
-    if (firstCell === "data" && (secondCell.includes("lancamento") || secondCell.includes("lançamento"))) {
-      dataStartRow = i + 1;
-      console.log(`Found header row at ${i}, data starts at ${dataStartRow}`);
     }
   }
 
-  if (dataStartRow === -1) {
-    // Fallback: scan for first row with dd/mm date pattern
-    console.log("No header row found, scanning for date patterns...");
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row) continue;
-      const firstCell = String(row[0] ?? "").trim();
-      if (firstCell.match(/^\d{1,2}\/\d{1,2}$/)) {
-        dataStartRow = i;
-        console.log(`Fallback: found first date at row ${i}`);
-        break;
-      }
-    }
-    if (dataStartRow === -1) dataStartRow = 0;
-  }
-
-  // Determine the year from vencimento (e.g., "28/01/2026" → 2026)
+  // Determine base year from vencimento
   let baseYear = new Date().getFullYear();
   let vencMonth = 0;
   if (vencimento) {
-    // Try dd/mm/yyyy format
-    let match = vencimento.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-    if (!match) {
-      // Try Excel serial date or other formats
-      const num = parseFloat(vencimento);
-      if (!isNaN(num) && num > 40000) {
-        // Excel serial date
-        const excelEpoch = new Date(1899, 11, 30);
-        const date = new Date(excelEpoch.getTime() + num * 86400000);
-        baseYear = date.getFullYear();
-        vencMonth = date.getMonth() + 1;
-        result.periodEnd = `${baseYear}-${String(vencMonth).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-        console.log(`Vencimento from serial: ${result.periodEnd}`);
-      }
+    const parsed = parseXLSXDate(vencimento);
+    if (parsed && parsed.year) {
+      baseYear = parsed.year;
+      vencMonth = parseInt(parsed.mm);
+      result.periodEnd = `${baseYear}-${parsed.mm.padStart(2, "0")}-${parsed.dd.padStart(2, "0")}`;
     } else {
-      baseYear = parseInt(match[3]);
-      vencMonth = parseInt(match[2]);
-      result.periodEnd = `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
-      console.log(`Vencimento parsed: ${result.periodEnd}`);
+      // Try dd/mm/yyyy in string
+      const match = vencimento.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (match) {
+        baseYear = parseInt(match[3]);
+        vencMonth = parseInt(match[2]);
+        result.periodEnd = `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+      }
     }
+    console.log(`Base year: ${baseYear}, venc month: ${vencMonth}`);
   }
 
   let minDate: string | null = null;
   let maxDate: string | null = null;
   let txCount = 0;
-  let skippedCount = 0;
 
-  for (let i = dataStartRow; i < rows.length; i++) {
+  for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (!row) continue;
 
-    const dateCell = String(row[0] ?? "").trim();
-    
-    // Check for date pattern - support dd/mm and dd/mm/yyyy
-    let dd: string, mm: string, yearFromDate: number | null = null;
-    const fullDateMatch = dateCell.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    const shortDateMatch = dateCell.match(/^(\d{1,2})\/(\d{1,2})$/);
-    
-    if (fullDateMatch) {
-      dd = fullDateMatch[1];
-      mm = fullDateMatch[2];
-      yearFromDate = parseInt(fullDateMatch[3]);
-    } else if (shortDateMatch) {
-      dd = shortDateMatch[1];
-      mm = shortDateMatch[2];
-    } else {
-      // Also check if cell is a number (Excel serial date)
-      const numVal = typeof row[0] === "number" ? row[0] : null;
-      if (numVal && numVal > 40000) {
-        const excelEpoch = new Date(1899, 11, 30);
-        const date = new Date(excelEpoch.getTime() + numVal * 86400000);
-        dd = String(date.getDate());
-        mm = String(date.getMonth() + 1);
-        yearFromDate = date.getFullYear();
-      } else {
-        continue; // Skip non-date rows
-      }
-    }
-    
-    // Find description - check columns 1 and beyond
-    let descCell = "";
-    for (let c = 1; c < Math.min(row.length, 4); c++) {
-      const val = String(row[c] ?? "").trim();
-      if (val && val !== "R$" && val !== "US$" && !val.match(/^-?\d/)) {
-        descCell = val;
-        break;
-      }
-    }
-    if (!descCell) {
-      skippedCount++;
-      continue;
-    }
+    const dateInfo = parseXLSXDate(row[0]);
+    if (!dateInfo) continue;
 
-    // Skip subtotals and totals
+    // Find description - search non-numeric text columns
+    let descCell = "";
+    for (let c = 1; c < row.length; c++) {
+      const val = String(row[c] ?? "").trim();
+      if (!val || val === "null") continue;
+      // Skip currency labels and pure numbers
+      if (val === "R$" || val === "US$" || val === "BRL") continue;
+      if (val.match(/^-?\d[\d.,]*$/)) continue;
+      // Skip very short strings that look like currency codes
+      if (val.length <= 3 && val.match(/^[A-Z$]/)) continue;
+      descCell = val;
+      break;
+    }
+    if (!descCell) continue;
+
+    // Skip totals, subtotals, headers
     const descUpper = descCell.toUpperCase();
-    if (descUpper.includes("SUBTOTAL") || descUpper === "TOTAL") continue;
-    if (descUpper.includes("SALDO FATURA")) continue;
+    if (descUpper.includes("SUBTOTAL") || descUpper.startsWith("TOTAL")) continue;
+    if (descUpper.includes("SALDO FATURA") || descUpper.includes("SALDO DA FATURA")) continue;
+    if (descUpper === "DATA" || descUpper === "DESCRIÇÃO" || descUpper === "DESCRICAO") continue;
+    if (descUpper.includes("REPASSE DE IOF")) continue;
 
     // Calculate year
-    const month = parseInt(mm);
-    const day = parseInt(dd);
-    let year = yearFromDate ?? baseYear;
-    if (!yearFromDate && vencMonth > 0 && month > vencMonth) {
+    const month = parseInt(dateInfo.mm);
+    let year = dateInfo.year ?? baseYear;
+    if (!dateInfo.year && vencMonth > 0 && month > vencMonth) {
       year = baseYear - 1;
     }
-    const postedDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const postedDate = `${year}-${String(month).padStart(2, "0")}-${String(parseInt(dateInfo.dd)).padStart(2, "0")}`;
 
-    // Find the value - check all columns from col 2 onwards
+    // Find amount - scan from the end for the last numeric value
     let amount = 0;
-    for (let c = 2; c < (row.length ?? 0); c++) {
+    for (let c = row.length - 1; c >= 1; c--) {
       const cell = row[c];
       if (cell === null || cell === undefined) continue;
       const cellStr = String(cell).trim();
-      if (cellStr === "R$" || cellStr === "US$" || cellStr === "" || cellStr === "0,00") continue;
+      if (!cellStr || cellStr === "null" || cellStr === "0" || cellStr === "0,00") continue;
+      if (cellStr === "R$" || cellStr === "US$" || cellStr === "BRL") continue;
       const val = typeof cell === "number" ? cell : parseBRNumber(cellStr);
       if (val !== 0) { amount = val; break; }
     }
 
-    if (amount === 0) {
-      skippedCount++;
-      continue;
-    }
+    if (amount === 0) continue;
 
     if (!minDate || postedDate < minDate) minDate = postedDate;
     if (!maxDate || postedDate > maxDate) maxDate = postedDate;
 
-    // Credit card statements: positive = expense (debit), negative = payment/credit
+    // Credit card: positive = expense (debit), negative = payment/credit
     const trnType = amount < 0 ? "CREDIT" : "DEBIT";
     const fitId = `xlsx_${postedDate}_${i}_${Math.abs(Math.round(amount * 100))}`;
 
@@ -374,11 +376,11 @@ function parseXLSX(base64Content: string): ParsedResult {
     txCount++;
   }
 
-  console.log(`XLSX parsed: ${txCount} transactions, ${skippedCount} skipped, period ${minDate} to ${maxDate}`);
+  console.log(`XLSX parsed: ${txCount} transactions, period ${minDate} to ${maxDate}`);
 
   result.periodStart = minDate ?? result.periodStart;
   result.periodEnd = maxDate ?? result.periodEnd;
-  result.bankId = "BB";
+  result.bankId = bankDetected ?? "UNKNOWN";
   return result;
 }
 
