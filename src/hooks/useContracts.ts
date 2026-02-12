@@ -75,6 +75,7 @@ export function useContracts(statusFilter: "all" | ContractStatus = "all") {
       if (error) throw error;
       return data as unknown as Contract[];
     },
+    staleTime: 5 * 60 * 1000, // 5 min
   });
 }
 
