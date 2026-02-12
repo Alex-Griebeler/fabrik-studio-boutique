@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUserRoles, type AppRole } from "@/hooks/useUserRoles";
 import logoFabrik from "@/assets/logo-fabrik.png";
 import {
   Sidebar,
@@ -35,60 +36,74 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-const mainItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+interface MenuItem {
+  title: string;
+  url: string;
+  icon: React.ComponentType<{ className?: string }>;
+  roles?: AppRole[];
+}
+
+const mainItems: MenuItem[] = [
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["admin", "manager", "reception"] },
 ];
 
-const managementItems = [
-  { title: "Alunos", url: "/students", icon: Users },
-  { title: "Leads", url: "/leads", icon: UserPlus },
-  { title: "Tarefas", url: "/tasks", icon: ListTodo },
-  { title: "Planos", url: "/plans", icon: Package },
+const managementItems: MenuItem[] = [
+  { title: "Alunos", url: "/students", icon: Users, roles: ["admin", "manager", "reception"] as AppRole[] },
+  { title: "Leads", url: "/leads", icon: UserPlus, roles: ["admin", "manager", "reception"] as AppRole[] },
+  { title: "Tarefas", url: "/tasks", icon: ListTodo, roles: ["admin", "manager", "reception"] as AppRole[] },
+  { title: "Planos", url: "/plans", icon: Package, roles: ["admin", "manager"] as AppRole[] },
 ];
 
-const financeItems = [
-  { title: "Financeiro", url: "/finance", icon: DollarSign },
-  { title: "Despesas", url: "/expenses", icon: Receipt },
-  { title: "Comissões", url: "/commissions", icon: Percent },
-  { title: "Folha Pagto", url: "/payroll", icon: Banknote },
-  { title: "Minha Folha", url: "/trainer/payroll", icon: ClipboardList },
-  { title: "Conciliação", url: "/bank-reconciliation", icon: Landmark },
+const financeItems: MenuItem[] = [
+  { title: "Financeiro", url: "/finance", icon: DollarSign, roles: ["admin", "manager"] },
+  { title: "Despesas", url: "/expenses", icon: Receipt, roles: ["admin"] },
+  { title: "Comissões", url: "/commissions", icon: Percent, roles: ["admin", "manager"] },
+  { title: "Folha Pagto", url: "/payroll", icon: Banknote, roles: ["admin", "manager"] },
+  { title: "Minha Folha", url: "/trainer/payroll", icon: ClipboardList, roles: ["admin", "instructor"] },
+  { title: "Conciliação", url: "/bank-reconciliation", icon: Landmark, roles: ["admin", "manager"] },
 ];
 
-const operationalItems = [
-  { title: "Agenda", url: "/schedule", icon: CalendarDays },
-  { title: "Instrutores", url: "/instructors", icon: GraduationCap },
-  { title: "Trainer App", url: "/trainer-app", icon: Smartphone },
-  { title: "Student App", url: "/student-app", icon: Users },
-  { title: "Analytics", url: "/analytics", icon: TrendingUp },
-  { title: "Relatórios", url: "/reports", icon: BarChart3 },
-  { title: "Marketing IA", url: "/marketing-ai", icon: Zap },
+const operationalItems: MenuItem[] = [
+  { title: "Agenda", url: "/schedule", icon: CalendarDays, roles: ["admin", "manager", "instructor", "reception"] },
+  { title: "Instrutores", url: "/instructors", icon: GraduationCap, roles: ["admin", "manager"] },
+  { title: "Trainer App", url: "/trainer-app", icon: Smartphone, roles: ["admin", "instructor"] },
+  { title: "Student App", url: "/student-app", icon: Users, roles: ["admin", "student"] },
+  { title: "Analytics", url: "/analytics", icon: TrendingUp, roles: ["admin", "manager"] },
+  { title: "Relatórios", url: "/reports", icon: BarChart3, roles: ["admin", "manager"] },
+  { title: "Marketing IA", url: "/marketing-ai", icon: Zap, roles: ["admin", "reception"] },
 ];
 
-const settingsItems = [
-  { title: "Configurações", url: "/settings", icon: Settings },
+const settingsItems: MenuItem[] = [
+  { title: "Configurações", url: "/settings", icon: Settings, roles: ["admin"] },
 ];
+
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { signOut } = useAuth();
+  const { hasAnyRole } = useUserRoles();
 
-  const renderItems = (items: typeof mainItems) =>
-    items.map((item) => (
-      <SidebarMenuItem key={item.title}>
-        <SidebarMenuButton asChild>
-          <NavLink
-            to={item.url}
-            className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-sidebar-accent"
-            activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold"
-          >
-            <item.icon className="h-[18px] w-[18px] shrink-0" />
-            {!collapsed && <span className="text-sm">{item.title}</span>}
-          </NavLink>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    ));
+  const renderItems = (items: MenuItem[]) =>
+    items
+      .filter((item) => !item.roles || hasAnyRole(item.roles))
+      .map((item) => (
+        <SidebarMenuItem key={item.title}>
+          <SidebarMenuButton asChild>
+            <NavLink
+              to={item.url}
+              className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-sidebar-accent"
+              activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold"
+            >
+              <item.icon className="h-[18px] w-[18px] shrink-0" />
+              {!collapsed && <span className="text-sm">{item.title}</span>}
+            </NavLink>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ));
+
+  const hasAnyInGroup = (items: MenuItem[]) =>
+    items.some((item) => !item.roles || hasAnyRole(item.roles));
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
@@ -101,40 +116,50 @@ export function AppSidebar() {
       </div>
 
       <SidebarContent className="px-2 pt-4">
-        <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Principal</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu>{renderItems(mainItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {hasAnyInGroup(mainItems) && (
+          <SidebarGroup>
+            {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Principal</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>{renderItems(mainItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Gestão</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu>{renderItems(managementItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {hasAnyInGroup(managementItems) && (
+          <SidebarGroup>
+            {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Gestão</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>{renderItems(managementItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Financeiro</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu>{renderItems(financeItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {hasAnyInGroup(financeItems) && (
+          <SidebarGroup>
+            {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Financeiro</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>{renderItems(financeItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Operacional</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu>{renderItems(operationalItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {hasAnyInGroup(operationalItems) && (
+          <SidebarGroup>
+            {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Operacional</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>{renderItems(operationalItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Sistema</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu>{renderItems(settingsItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {hasAnyInGroup(settingsItems) && (
+          <SidebarGroup>
+            {!collapsed && <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">Sistema</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>{renderItems(settingsItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-2">

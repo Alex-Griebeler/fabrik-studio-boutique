@@ -10,10 +10,31 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    // Authenticate user
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await authClient.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -68,13 +89,13 @@ serve(async (req) => {
       .limit(20);
 
     // Build lead context
-    const lead = conv?.leads as any;
+    const lead = conv?.leads as Record<string, unknown> | null;
     const leadContext = lead
-      ? `\n\nContexto do Lead:\n- Nome: ${lead.name}\n- Status: ${lead.status}\n- Score: ${lead.qualification_score}\n- Temperatura: ${lead.temperature || "não definida"}\n- Tags: ${(lead.tags || []).join(", ") || "nenhuma"}\n- Telefone: ${lead.phone || "não informado"}\n- Email: ${lead.email || "não informado"}`
+      ? `\n\nContexto do Lead:\n- Nome: ${lead.name}\n- Status: ${lead.status}\n- Score: ${lead.qualification_score}\n- Temperatura: ${lead.temperature || "não definida"}\n- Tags: ${(Array.isArray(lead.tags) ? lead.tags : []).join(", ") || "nenhuma"}\n- Telefone: ${lead.phone || "não informado"}\n- Email: ${lead.email || "não informado"}`
       : "";
 
     // Build knowledge base context
-    const kb = agent.knowledge_base as Record<string, any> || {};
+    const kb = (agent.knowledge_base as Record<string, unknown>) || {};
     let kbContext = "";
     if (Object.keys(kb).length > 0) {
       kbContext = "\n\nBase de Conhecimento do Studio:";
@@ -92,7 +113,7 @@ serve(async (req) => {
 
     const messages = [
       { role: "system", content: systemPrompt },
-      ...(history || []).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      ...(history || []).map((m: { role: string; content: string }) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
     ];
 
     // Call Lovable AI Gateway
@@ -145,14 +166,14 @@ serve(async (req) => {
       model: agent.model || "google/gemini-3-flash-preview",
       input_tokens: usage.prompt_tokens || 0,
       output_tokens: usage.completion_tokens || 0,
-      cost_cents: 0, // Lovable AI handles billing
+      cost_cents: 0,
     });
 
     // Update conversation last_message_at
     await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversation_id);
 
     // Check handoff rules
-    const handoffRules = (agent.handoff_rules as any[]) || [];
+    const handoffRules = (agent.handoff_rules as Array<{ enabled?: boolean; keywords?: string }>) || [];
     let needsHandoff = false;
     const lowerContent = message.toLowerCase();
     for (const rule of handoffRules) {
