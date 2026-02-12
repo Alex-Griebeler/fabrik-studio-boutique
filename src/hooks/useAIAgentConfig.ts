@@ -39,7 +39,7 @@ export function useAIAgentConfig() {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      setAgents((data as any) || []);
+      setAgents((data as AIAgent[]) || []);
       if (data && data.length > 0 && !selectedAgentId) setSelectedAgentId(data[0].id);
     } catch (error) {
       toast({ title: "Erro ao carregar agentes", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
@@ -89,17 +89,17 @@ export function useAIAgentConfig() {
       const { error } = await supabase
         .from("ai_agent_config")
         .update({
-          name: editForm.name,
-          description: editForm.description,
-          system_prompt: editForm.system_prompt,
-          temperature: editForm.temperature,
-          max_tokens: editForm.max_tokens,
-          model: editForm.model,
-          is_active: editForm.is_active,
-          knowledge_base: editForm.knowledge_base as any,
-          handoff_rules: editForm.handoff_rules as any,
-          behavior_config: editForm.behavior_config as any,
-        })
+           name: editForm.name,
+           description: editForm.description,
+           system_prompt: editForm.system_prompt,
+           temperature: editForm.temperature,
+           max_tokens: editForm.max_tokens,
+           model: editForm.model,
+           is_active: editForm.is_active,
+           knowledge_base: (editForm.knowledge_base || {}) as Record<string, any>,
+           handoff_rules: (editForm.handoff_rules || []) as any[],
+           behavior_config: (editForm.behavior_config || {}) as Record<string, any>,
+         })
         .eq("id", selectedAgentId);
       if (error) throw error;
       loadAgents();

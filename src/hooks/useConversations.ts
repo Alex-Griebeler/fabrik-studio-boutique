@@ -54,7 +54,7 @@ export function useConversations() {
         .order("last_message_at", { ascending: false });
 
       if (error) throw error;
-      setConversations((data as any) || []);
+      setConversations((data as Conversation[]) || []);
     } catch (error) {
       toast({ title: "Erro ao carregar conversas", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
     } finally {
@@ -71,7 +71,7 @@ export function useConversations() {
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      setMessages((data as any) || []);
+      setMessages((data as ConversationMessage[]) || []);
     } catch (error) {
       toast({ title: "Erro ao carregar mensagens", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
     }

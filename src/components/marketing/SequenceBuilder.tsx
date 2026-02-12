@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Trash2, Save, ArrowDown, Clock, MessageSquare, Smartphone, Mail, BarChart3, List } from "lucide-react";
-import { useNurturingSequences } from "@/hooks/useNurturingSequences";
+import { useNurturingSequences, NurturingSequence } from "@/hooks/useNurturingSequences";
 import { KPICard } from "@/components/shared/KPICard";
 
 const channelOptions = [
@@ -44,10 +44,10 @@ export function SequenceBuilder() {
     setEditForm({});
   };
 
-  const handleSave = () => {
-    saveSequence({ ...selectedSequence, ...editForm } as any);
-    setEditForm({});
-  };
+   const handleSave = () => {
+     saveSequence({ ...selectedSequence, ...editForm } as Partial<NurturingSequence>);
+     setEditForm({});
+   };
 
   const runningCount = executions.filter(e => e.status === "running").length;
   const completedCount = executions.filter(e => e.status === "completed").length;
