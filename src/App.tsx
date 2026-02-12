@@ -30,6 +30,7 @@ import StudentApp from "@/pages/StudentApp";
 import MarketingAI from "@/pages/MarketingAI";
 import NotFound from "@/pages/NotFound";
 import ResetPassword from "@/pages/ResetPassword";
+import Import from "@/pages/Import";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -211,6 +212,14 @@ const App = () => (
                  element={
                    <ProtectedRoute allowedRoles={["admin", "reception"]}>
                      <AppLayout><MarketingAI /></AppLayout>
+                   </ProtectedRoute>
+                 }
+               />
+               <Route
+                 path="/import"
+                 element={
+                   <ProtectedRoute allowedRoles={["admin"]}>
+                     <AppLayout><Import /></AppLayout>
                    </ProtectedRoute>
                  }
                />
