@@ -70,6 +70,7 @@ export function useStudents(search: string, statusFilter: StudentStatusFilter) {
       if (error) throw error;
       return data as unknown as Student[];
     },
+    staleTime: 5 * 60 * 1000, // 5 min
   });
 }
 

@@ -150,6 +150,7 @@ export function useLeads(filters?: LeadFilters) {
       if (error) throw error;
       return data as unknown as Lead[];
     },
+    staleTime: 5 * 60 * 1000, // 5 min
   });
 }
 
@@ -314,6 +315,7 @@ export function useInteractions(leadId: string) {
       if (error) throw error;
       return data as unknown as Interaction[];
     },
+    staleTime: 2 * 60 * 1000, // 2 min
   });
 }
 

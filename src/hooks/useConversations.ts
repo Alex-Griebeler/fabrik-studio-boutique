@@ -111,7 +111,12 @@ export function useConversations() {
       if (response.data?.error) throw new Error(response.data.error);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      // Selective invalidation: only invalidate current conversation's messages, not all conversations
+      queryClient.invalidateQueries({ queryKey: ["conversation_messages", selectedConvId] });
+      // Also update conversations list timestamp without refetching everything
+      queryClient.setQueryData(["conversations"], (prev: Conversation[] = []) => {
+        return prev.map(c => c.id === selectedConvId ? { ...c, last_message_at: new Date().toISOString() } : c);
+      });
     },
     onError: (error) => {
       const errorMessage = error instanceof Error ? error.message : "Erro ao enviar mensagem";
