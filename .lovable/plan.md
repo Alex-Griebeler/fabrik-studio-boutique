@@ -1,185 +1,125 @@
 
-# Sprint 6: Marketing IA - Plano de Implementacao Completo
+# Plano de Auditoria Completa do Sistema Fabrik
 
-## Visao Geral
-
-Implementar o modulo completo de Marketing IA em 3 fases, evoluindo os componentes skeleton existentes (ConversationManager, AIAgentConfig, SequenceBuilder) para versoes completas com integracao real ao Lovable AI Gateway.
-
----
-
-## Fase 6.1: Conversas AI - Layout Completo + Edge Function
-
-### Database: Migracoes necessarias
-
-1. Adicionar colunas faltantes nas tabelas existentes:
-   - `conversations`: adicionar `channel` (text, default 'whatsapp'), `context` (jsonb, default '{}'), `taken_over_by` (uuid, nullable), `taken_over_at` (timestamptz, nullable)
-   - `conversation_messages`: adicionar `metadata` (jsonb, default '{}')
-
-2. Criar tabela `ai_conversation_logs` para tracking de custo/uso:
-   - `id` uuid PK
-   - `conversation_id` uuid FK
-   - `model` text
-   - `input_tokens` int
-   - `output_tokens` int
-   - `cost_cents` int
-   - `created_at` timestamptz
-
-3. Habilitar Realtime na tabela `conversation_messages` para atualizacao em tempo real do chat.
-
-4. RLS para `ai_conversation_logs`: admin full, reception select.
-
-### Edge Function: `process-conversation-message`
-
-- Recebe `conversation_id` e `message` (do usuario/lead)
-- Busca o agente ativo em `ai_agent_config`
-- Carrega historico de mensagens da conversa
-- Carrega dados do lead vinculado (nome, status, score, tags)
-- Monta o system prompt com context do lead
-- Chama o Lovable AI Gateway (streaming desabilitado para simplicidade inicial)
-- Salva a resposta como mensagem `role: 'assistant'`, `ai_generated: true`
-- Registra log em `ai_conversation_logs`
-- Verifica regras de handoff (se configuradas) e marca conversa como `needs_handoff` se necessario
-- Retorna a resposta
-
-### Frontend: ConversationManager refatorado
-
-**Layout 3 colunas:**
-
-- **Coluna esquerda (1/4)**: Lista de conversas com filtros por status/canal, avatar do lead, preview da ultima mensagem, badge de canal, timestamp relativo
-- **Coluna central (2/4)**: Chat timeline com bolhas diferenciadas (user direita azul, assistant esquerda cinza, system centralizado), input de mensagem com botao enviar, toggle "Assumir Conversa" (Take Control), indicador de typing enquanto IA processa
-- **Coluna direita (1/4)**: Painel de contexto do lead (nome, telefone, email, score, status pipeline, tags), acoes rapidas (Agendar Trial, Encerrar Conversa)
-
-**Realtime**: Subscription no channel `conversation_messages` para mostrar respostas da IA sem refresh.
-
-### Novos componentes:
-- `src/components/marketing/ConversationList.tsx` - Lista lateral com filtros
-- `src/components/marketing/ChatTimeline.tsx` - Timeline de mensagens
-- `src/components/marketing/ChatInput.tsx` - Input com envio e takeover
-- `src/components/marketing/LeadContextPanel.tsx` - Painel direito de contexto
-
-### Hook:
-- `src/hooks/useConversations.ts` - CRUD + realtime subscription + envio de mensagem via edge function
+## Objetivo
+Revisao sistematica de todo o codigo em busca de erros, bugs, violacoes de padroes de qualidade e melhorias, dividida em 6 etapas para execucao progressiva sem sobrecarregar o sistema.
 
 ---
 
-## Fase 6.2: Configuracao do AI Agent - Versao Completa
+## Etapa 1: Tipagem e Qualidade de Codigo
 
-### Database: Migracoes
+**Problema identificado**: O padrao do projeto exige "100% TypeScript, zero `as any`", mas foram encontradas **42 instancias de `as any`** em 4 arquivos:
 
-1. Adicionar colunas em `ai_agent_config`:
-   - `knowledge_base` (jsonb, default '{}') - Base de conhecimento estruturada
-   - `handoff_rules` (jsonb, default '[]') - Regras de transferencia para humano
-   - `behavior_config` (jsonb, default '{}') - Configuracoes de comportamento (auto-respond, delay, max messages, etc.)
+| Arquivo | Qtd | Descricao |
+|---------|-----|-----------|
+| `useConversations.ts` | 2 | `setConversations((data as any))`, `setMessages((data as any))` |
+| `useAIAgentConfig.ts` | 4 | `setAgents((data as any))`, `knowledge_base as any`, `handoff_rules as any`, `behavior_config as any` |
+| `useNurturingSequences.ts` | 3 | `setSteps((data as any))`, `setExecutions((data as any))`, `update(updates as any)` |
+| `SequenceBuilder.tsx` | 1 | `saveSequence({...} as any)` |
 
-### Frontend: AIAgentConfig refatorado
+**Acao**: Substituir todos os `as any` por tipagens corretas usando os tipos gerados em `types.ts` ou interfaces proprias.
 
-Organizar em abas (Tabs):
-
-1. **System Prompt**: Textarea grande, lista de variaveis disponiveis ({studio_name}, {lead.name}, etc.), botao "Testar Prompt" que abre dialog simulando conversa
-2. **Knowledge Base**: Formulario estruturado para dados do studio (nome, coordenador, modalidades, duracao sessao, faixa etaria, horarios), salva como JSON
-3. **Comportamento**: Toggles (auto-respond, human timing simulation, auto-schedule trials), Sliders (delay min/max, max messages before handoff, qualification threshold)
-4. **Handoff Rules**: Lista de checkboxes (insiste em preco, pede desconto, questoes clinicas, alta intencao), campo de regex customizado para palavras-chave, template de mensagem ao transferir
-5. **Custo e Uso**: Cards com total gasto no mes, total mensagens processadas, custo medio por conversa (dados de `ai_conversation_logs`), grafico de uso diario (Recharts)
-
-### Hook:
-- `src/hooks/useAIAgentConfig.ts` - CRUD completo com React Query
+**Bonus**: Tambem ha ~19 arquivos com `as unknown as`, que e um padrao mais aceitavel mas poderia ser melhorado com generics do Supabase.
 
 ---
 
-## Fase 6.3: Sequencias de Nurturing - Visual Builder
+## Etapa 2: Seguranca e Autenticacao
 
-### Database: Migracoes
+**Problemas identificados**:
 
-1. Adicionar colunas em `sequence_steps`:
-   - `channel` (text, default 'whatsapp') - Canal de envio
-   - `condition` (jsonb, nullable) - Condicao para executar o step
+1. **ProtectedRoute nao filtra por role**: Qualquer usuario autenticado acessa TODAS as rotas (finance, payroll, analytics, marketing-ai). Um usuario com role `instructor` pode acessar `/expenses` ou `/bank-reconciliation` que tem RLS bloqueando os dados, mas o frontend nao impede a navegacao, resultando em telas vazias ou confusas.
 
-2. Criar tabela `sequence_executions`:
-   - `id` uuid PK
-   - `sequence_id` uuid FK
-   - `lead_id` uuid FK
-   - `current_step` int
-   - `status` text (running, completed, paused, failed)
-   - `started_at` timestamptz
-   - `completed_at` timestamptz nullable
-   - `next_step_at` timestamptz nullable
+2. **Sidebar mostra todos os menus para todos**: `AppSidebar.tsx` renderiza todos os links sem verificar a role do usuario. Um instrutor ve "Folha Pagto", "Conciliacao", "Comissoes" etc.
 
-3. Criar tabela `sequence_step_events`:
-   - `id` uuid PK
-   - `execution_id` uuid FK
-   - `step_id` uuid FK
-   - `event_type` text (sent, delivered, opened, clicked, failed)
-   - `created_at` timestamptz
+3. **Leaked Password Protection desabilitado**: O linter identificou que a protecao contra senhas vazadas esta desabilitada.
 
-4. RLS: admin full access em ambas, reception select.
+4. **Edge functions com `verify_jwt = false`**: Todas as 4 edge functions estao sem verificacao JWT. `process-conversation-message` e `execute-nurturing-step` deveriam exigir autenticacao.
 
-### Edge Function: `execute-nurturing-step`
-
-- Busca execucoes com `next_step_at <= now()` e status `running`
-- Para cada execucao, busca o step correspondente
-- Substitui variaveis no template ({{lead.name}}, {{trial.date}}, etc.)
-- Envia via canal configurado (whatsapp via `send-whatsapp` existente, ou email futuro)
-- Registra evento em `sequence_step_events`
-- Atualiza `current_step` e calcula `next_step_at`
-- Se ultimo step, marca como `completed`
-
-### Frontend: SequenceBuilder refatorado
-
-- **Lista**: Cards de sequencias com nome, trigger, numero de steps, status (active/paused), taxa de abertura/conversao (quando houver dados)
-- **Visual Builder**: Timeline vertical com cards para cada step, botao "+" entre steps para inserir novo, cada step mostra: numero, delay (ex: "2h apos anterior"), canal (badge whatsapp/email/sms), condicao (se houver), preview da mensagem, botoes editar/deletar
-- **Editor de Step** (Dialog): Delay (input numerico + select horas/dias), canal (select), condicao opcional (dropdown: "Nao respondeu", "Nao agendou trial", etc.), editor de mensagem com suporte a variaveis ({{lead.name}}, {{trial.date}}), preview com dados de exemplo
-- **Analytics por Sequencia**: Cards (enviados, abertos, cliques, conversoes), performance por step
-- **Sequencias Pre-configuradas**: Botao "Criar a partir de Template" com opcoes: Instagram Captured, Post-Trial, Reengagement
-
-### Novos componentes:
-- `src/components/marketing/SequenceList.tsx` - Lista de sequencias
-- `src/components/marketing/SequenceTimeline.tsx` - Visual builder vertical
-- `src/components/marketing/StepEditor.tsx` - Dialog de edicao de step
-- `src/components/marketing/SequenceAnalytics.tsx` - Analytics por sequencia
-
-### Hook:
-- `src/hooks/useNurturingSequences.ts` - CRUD sequencias + steps + executions
+**Acao**: 
+- Adicionar prop `allowedRoles` ao `ProtectedRoute` e filtrar rotas por role.
+- Filtrar itens do sidebar conforme role do usuario.
+- Habilitar leaked password protection.
+- Ativar `verify_jwt = true` para edge functions que nao sao webhooks externos.
 
 ---
 
-## Rota e Navegacao
+## Etapa 3: Hooks do Sprint 6 (Marketing IA) - Padrao e Consistencia
 
-Manter a rota atual `/marketing-ai` com abas (Conversas, Agente IA, Sequencias) conforme ja esta no `MarketingAI.tsx`. Nao criar rotas separadas.
+**Problemas identificados**:
 
----
+1. **Inconsistencia de pattern**: Os hooks `useAIAgentConfig`, `useConversations` e `useNurturingSequences` usam `useState + useEffect + useCallback` manualmente, enquanto TODO o resto do projeto usa **React Query** (`useQuery + useMutation`). Isso cria:
+   - Falta de cache automatico e deduplicacao de requests
+   - Falta de `staleTime` e refetch automatico
+   - Sem loading/error states padronizados
+   - Re-renders desnecessarios por conta de `useCallback` com deps de `toast`
 
-## Resumo Tecnico de Arquivos
+2. **`loadSequences` depende de `selectedSeqId`**: O `useCallback` de `loadSequences` inclui `selectedSeqId` nas dependencias, causando reload infinito sempre que a selecao muda.
 
-| Acao | Arquivo |
-|------|---------|
-| Nova edge function | `supabase/functions/process-conversation-message/index.ts` |
-| Nova edge function | `supabase/functions/execute-nurturing-step/index.ts` |
-| Atualizar config | `supabase/config.toml` (adicionar 2 functions) |
-| Refatorar | `src/components/marketing/ConversationManager.tsx` |
-| Refatorar | `src/components/marketing/AIAgentConfig.tsx` |
-| Refatorar | `src/components/marketing/SequenceBuilder.tsx` |
-| Novo componente | `src/components/marketing/ConversationList.tsx` |
-| Novo componente | `src/components/marketing/ChatTimeline.tsx` |
-| Novo componente | `src/components/marketing/ChatInput.tsx` |
-| Novo componente | `src/components/marketing/LeadContextPanel.tsx` |
-| Novo componente | `src/components/marketing/SequenceList.tsx` |
-| Novo componente | `src/components/marketing/SequenceTimeline.tsx` |
-| Novo componente | `src/components/marketing/StepEditor.tsx` |
-| Novo componente | `src/components/marketing/SequenceAnalytics.tsx` |
-| Novo hook | `src/hooks/useConversations.ts` |
-| Novo hook | `src/hooks/useAIAgentConfig.ts` |
-| Novo hook | `src/hooks/useNurturingSequences.ts` |
-| Migracao SQL | Tabelas + colunas + RLS conforme descrito acima |
+3. **Silenciamento de erros**: `useNurturingSequences` tem `catch { /* silent */ }` em `loadSteps` e `loadExecutions`, engolindo erros sem feedback.
+
+**Acao**: Refatorar os 3 hooks do Sprint 6 para usar React Query, seguindo o padrao dos demais hooks (`useLeads`, `useExpenses`, `useTasks`, etc.).
 
 ---
 
-## Ordem de Implementacao
+## Etapa 4: Logica de Negocio e Bugs Funcionais
 
-1. **Migracoes SQL** (todas de uma vez)
-2. **Edge function `process-conversation-message`** + config.toml
-3. **Fase 6.1** - ConversationManager completo com 3 colunas + hooks + realtime
-4. **Fase 6.2** - AIAgentConfig completo com abas + knowledge base + handoff rules
-5. **Edge function `execute-nurturing-step`**
-6. **Fase 6.3** - SequenceBuilder completo com visual builder + analytics
+**Problemas identificados**:
 
-Devido ao volume, a implementacao sera dividida em 3 mensagens sequenciais (uma por fase).
+1. **Dashboard `useRecentLeads` busca da tabela `students`**: O hook busca de `students` filtrando `status = 'lead'`, mas o sistema de leads real usa a tabela `leads`. Os dados mostrados podem ser inconsistentes.
+
+2. **`useConvertLead` cria comissao com valores zerados**: Ao converter lead, cria comissao com `valor_base_cents: 0`, `percentual_comissao: 0`, `valor_comissao_cents: 0`. A comissao so fara sentido quando vinculada a um contrato com valor.
+
+3. **`useDashboardKPIs` - calculo de ocupacao**: Busca sessions do mes atual com status `scheduled`, mas sessions que ja aconteceram teriam status diferente (`completed`), potencialmente subestimando a ocupacao.
+
+4. **Conciliacao bancaria `useBatchApproveMatches`**: Loop sequencial `for...of` para aprovar matches em lote, sem usar batch insert. Se uma falhar no meio, as anteriores ja foram aplicadas sem rollback.
+
+5. **Edge function `execute-nurturing-step`**: Busca `step_number = current_step + 1`, mas se steps foram deletados e re-numerados, pode pular steps ou nao encontrar o correto.
+
+**Acao**: Corrigir cada bug individualmente conforme descrito.
+
+---
+
+## Etapa 5: Performance e Otimizacao
+
+**Problemas identificados**:
+
+1. **`useBankTransactions` com `.limit(5000)`**: Excede o limite padrao de 1000 do Supabase. Se houver mais de 1000 transacoes, o resultado sera truncado silenciosamente.
+
+2. **`useDashboardKPIs` faz N+1 query**: Busca sessions, depois faz uma query separada para bookings. Poderia ser um join ou query mais eficiente.
+
+3. **`useConversations` recarrega TODAS as conversas (`loadConversations`) apos cada mensagem enviada**: Deveria usar invalidacao seletiva ou update otimista.
+
+4. **Falta de `staleTime` em varias queries**: Hooks como `useStudents`, `useLeads`, `useContracts` nao definem `staleTime`, causando re-fetches desnecessarios a cada re-mount.
+
+5. **QueryClient sem configuracao global**: O `queryClient` em `App.tsx` e criado com defaults, sem `defaultOptions` para `staleTime`, `gcTime`, ou `retry`.
+
+**Acao**: Aplicar limites corretos, adicionar `staleTime` padrao, configurar QueryClient global e otimizar queries N+1.
+
+---
+
+## Etapa 6: UI/UX e Acessibilidade
+
+**Problemas identificados**:
+
+1. **Layout Marketing IA fixo em 4 colunas**: `ConversationManager`, `AIAgentConfig` e `SequenceBuilder` usam `grid-cols-4` que nao e responsivo. Em telas menores ficara quebrado.
+
+2. **Falta de empty states e error boundaries**: Nem todos os modulos tem tratamento visual para estados de erro ou listas vazias de forma consistente.
+
+3. **Falta de confirmacao em acoes destrutivas**: `deleteAgent`, `deleteSequence`, `deleteConversation` deletam diretamente sem dialog de confirmacao.
+
+4. **`resetPassword` redireciona para `/reset-password`**: Mas essa rota nao existe no `App.tsx`. O usuario que clicar no link de reset recebera 404.
+
+**Acao**: Adicionar responsividade, dialogs de confirmacao, rota de reset de senha e melhorar empty/error states.
+
+---
+
+## Ordem de Execucao Recomendada
+
+1. **Etapa 2** (Seguranca) - Prioridade critica
+2. **Etapa 4** (Bugs funcionais) - Impacto direto no usuario
+3. **Etapa 1** (Tipagem) - Qualidade de codigo
+4. **Etapa 3** (Refatoracao hooks Sprint 6) - Consistencia
+5. **Etapa 5** (Performance) - Otimizacao
+6. **Etapa 6** (UI/UX) - Polish
+
+Cada etapa sera implementada em uma mensagem separada para manter o controle e facilitar a revisao.
