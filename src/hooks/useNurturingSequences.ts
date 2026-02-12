@@ -58,7 +58,7 @@ export function useNurturingSequences() {
     try {
       const { data, error } = await supabase.from("sequence_steps").select("*").eq("sequence_id", seqId).order("step_number", { ascending: true });
       if (error) throw error;
-      setSteps((data as any) || []);
+      setSteps((data as SequenceStep[]) || []);
     } catch { /* silent */ }
   }, []);
 
@@ -66,7 +66,7 @@ export function useNurturingSequences() {
     try {
       const { data, error } = await supabase.from("sequence_executions").select("*").eq("sequence_id", seqId).order("started_at", { ascending: false }).limit(20);
       if (error) throw error;
-      setExecutions((data as any) || []);
+      setExecutions((data as SequenceExecution[]) || []);
     } catch { /* silent */ }
   }, []);
 
@@ -129,9 +129,9 @@ export function useNurturingSequences() {
     }
   }, [selectedSeqId, steps, toast, loadSteps]);
 
-  const updateStep = useCallback(async (stepId: string, updates: Partial<SequenceStep>) => {
-    try {
-      const { error } = await supabase.from("sequence_steps").update(updates as any).eq("id", stepId);
+   const updateStep = useCallback(async (stepId: string, updates: Partial<SequenceStep>) => {
+     try {
+       const { error } = await supabase.from("sequence_steps").update(updates).eq("id", stepId);
       if (error) throw error;
       if (selectedSeqId) loadSteps(selectedSeqId);
     } catch (error) {
