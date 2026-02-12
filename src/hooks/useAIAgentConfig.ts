@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -25,29 +26,30 @@ export interface AIUsageStats {
 }
 
 export function useAIAgentConfig() {
-  const [agents, setAgents] = useState<AIAgent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<AIAgent>>({});
-  const [usageStats, setUsageStats] = useState<AIUsageStats>({ total_messages: 0, total_cost_cents: 0, total_input_tokens: 0, total_output_tokens: 0 });
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const loadAgents = useCallback(async () => {
-    try {
+  // Query: Load all agents
+  const { data: agents = [], isLoading: agentsLoading } = useQuery({
+    queryKey: ["ai_agents"],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from("ai_agent_config")
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      setAgents((data as AIAgent[]) || []);
       if (data && data.length > 0 && !selectedAgentId) setSelectedAgentId(data[0].id);
-    } catch (error) {
-      toast({ title: "Erro ao carregar agentes", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    }
-  }, [toast, selectedAgentId]);
+      return (data as AIAgent[]) || [];
+    },
+    staleTime: 5000,
+  });
 
-  const loadUsageStats = useCallback(async () => {
-    try {
+  // Query: Load usage stats (monthly)
+  const { data: usageStats = { total_messages: 0, total_cost_cents: 0, total_input_tokens: 0, total_output_tokens: 0 } } = useQuery({
+    queryKey: ["ai_usage_stats"],
+    queryFn: async () => {
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
@@ -64,86 +66,98 @@ export function useAIAgentConfig() {
         total_input_tokens: acc.total_input_tokens + (log.input_tokens || 0),
         total_output_tokens: acc.total_output_tokens + (log.output_tokens || 0),
       }), { total_messages: 0, total_cost_cents: 0, total_input_tokens: 0, total_output_tokens: 0 });
-      setUsageStats(stats);
-    } catch {
-      // silently fail for stats
-    }
-  }, []);
+      return stats;
+    },
+    staleTime: 60000, // 1 minute for stats
+  });
 
-  useEffect(() => { loadAgents(); loadUsageStats(); }, [loadAgents, loadUsageStats]);
+  // Update form when selected agent changes
+  const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
+  if (selectedAgent && Object.keys(editForm).length === 0) {
+    setEditForm(selectedAgent);
+  }
 
-  useEffect(() => {
-    if (selectedAgentId) {
-      const agent = agents.find(a => a.id === selectedAgentId);
-      if (agent) setEditForm(agent);
-    }
-  }, [selectedAgentId, agents]);
-
-  const saveAgent = useCallback(async () => {
-    if (!selectedAgentId || !editForm.name) {
-      toast({ title: "Nome obrigatório", variant: "destructive" });
-      return;
-    }
-    setLoading(true);
-    try {
+  // Mutation: Save agent
+  const { mutate: saveAgent, isPending: isSaving } = useMutation({
+    mutationFn: async () => {
+      if (!selectedAgentId || !editForm.name) {
+        throw new Error("Nome obrigatório");
+      }
       const { error } = await supabase
         .from("ai_agent_config")
         .update({
-           name: editForm.name,
-           description: editForm.description,
-           system_prompt: editForm.system_prompt,
-           temperature: editForm.temperature,
-           max_tokens: editForm.max_tokens,
-           model: editForm.model,
-           is_active: editForm.is_active,
-           knowledge_base: (editForm.knowledge_base || {}) as Record<string, any>,
-           handoff_rules: (editForm.handoff_rules || []) as any[],
-           behavior_config: (editForm.behavior_config || {}) as Record<string, any>,
-         })
+          name: editForm.name,
+          description: editForm.description,
+          system_prompt: editForm.system_prompt,
+          temperature: editForm.temperature,
+          max_tokens: editForm.max_tokens,
+          model: editForm.model,
+          is_active: editForm.is_active,
+          knowledge_base: (editForm.knowledge_base || {}) as Record<string, any>,
+          handoff_rules: (editForm.handoff_rules || []) as any[],
+          behavior_config: (editForm.behavior_config || {}) as Record<string, any>,
+        })
         .eq("id", selectedAgentId);
       if (error) throw error;
-      loadAgents();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai_agents"] });
       toast({ title: "Agente atualizado" });
-    } catch (error) {
+    },
+    onError: (error) => {
       toast({ title: "Erro ao salvar", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedAgentId, editForm, toast, loadAgents]);
+    },
+  });
 
-  const createAgent = useCallback(async () => {
-    setLoading(true);
-    try {
+  // Mutation: Create agent
+  const { mutate: createAgent, isPending: isCreating } = useMutation({
+    mutationFn: async () => {
       const { data, error } = await supabase
         .from("ai_agent_config")
         .insert({ name: "Novo Agente", model: "google/gemini-3-flash-preview", temperature: 0.7, max_tokens: 2000, is_active: true })
         .select();
       if (error) throw error;
-      if (data?.[0]) { setSelectedAgentId(data[0].id); loadAgents(); toast({ title: "Agente criado" }); }
-    } catch (error) {
+      return data?.[0];
+    },
+    onSuccess: (newAgent) => {
+      if (newAgent) {
+        setSelectedAgentId(newAgent.id);
+        queryClient.invalidateQueries({ queryKey: ["ai_agents"] });
+        toast({ title: "Agente criado" });
+      }
+    },
+    onError: (error) => {
       toast({ title: "Erro ao criar", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast, loadAgents]);
+    },
+  });
 
-  const deleteAgent = useCallback(async (id: string) => {
-    try {
+  // Mutation: Delete agent
+  const { mutate: deleteAgent } = useMutation({
+    mutationFn: async (id: string) => {
       const { error } = await supabase.from("ai_agent_config").delete().eq("id", id);
       if (error) throw error;
-      if (selectedAgentId === id) setSelectedAgentId(null);
-      loadAgents();
+    },
+    onSuccess: (_, deletedId) => {
+      if (selectedAgentId === deletedId) setSelectedAgentId(null);
+      queryClient.invalidateQueries({ queryKey: ["ai_agents"] });
       toast({ title: "Agente deletado" });
-    } catch (error) {
+    },
+    onError: (error) => {
       toast({ title: "Erro ao deletar", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    }
-  }, [selectedAgentId, toast, loadAgents]);
-
-  const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
+    },
+  });
 
   return {
-    agents, selectedAgentId, setSelectedAgentId, selectedAgent,
-    editForm, setEditForm, usageStats, loading,
-    saveAgent, createAgent, deleteAgent,
+    agents,
+    selectedAgentId,
+    setSelectedAgentId,
+    selectedAgent,
+    editForm,
+    setEditForm,
+    usageStats,
+    loading: agentsLoading || isSaving || isCreating,
+    saveAgent: () => saveAgent(),
+    createAgent: () => createAgent(),
+    deleteAgent,
   };
 }

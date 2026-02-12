@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -38,53 +39,42 @@ export interface ConversationMessage {
 }
 
 export function useConversations() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [sending, setSending] = useState(false);
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const loadConversations = useCallback(async () => {
-    setLoading(true);
-    try {
+  // Query: Load all conversations
+  const { data: conversations = [], isLoading } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from("conversations")
         .select("*, leads:lead_id(name, phone, email, status, qualification_score, tags, temperature, source, trial_date)")
         .order("last_message_at", { ascending: false });
 
       if (error) throw error;
-      setConversations((data as Conversation[]) || []);
-    } catch (error) {
-      toast({ title: "Erro ao carregar conversas", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+      return (data as Conversation[]) || [];
+    },
+    staleTime: 5000,
+  });
 
-  const loadMessages = useCallback(async (convId: string) => {
-    try {
+  // Query: Load messages for selected conversation
+  const { data: messages = [] } = useQuery({
+    queryKey: ["conversation_messages", selectedConvId],
+    queryFn: async () => {
+      if (!selectedConvId) return [];
       const { data, error } = await supabase
         .from("conversation_messages")
         .select("*")
-        .eq("conversation_id", convId)
+        .eq("conversation_id", selectedConvId)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      setMessages((data as ConversationMessage[]) || []);
-    } catch (error) {
-      toast({ title: "Erro ao carregar mensagens", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    }
-  }, [toast]);
-
-  // Load conversations on mount
-  useEffect(() => { loadConversations(); }, [loadConversations]);
-
-  // Load messages when selected conversation changes
-  useEffect(() => {
-    if (selectedConvId) loadMessages(selectedConvId);
-    else setMessages([]);
-  }, [selectedConvId, loadMessages]);
+      return (data as ConversationMessage[]) || [];
+    },
+    enabled: !!selectedConvId,
+    staleTime: 1000,
+  });
 
   // Realtime subscription for messages
   useEffect(() => {
@@ -99,7 +89,7 @@ export function useConversations() {
         filter: `conversation_id=eq.${selectedConvId}`,
       }, (payload) => {
         const newMsg = payload.new as ConversationMessage;
-        setMessages((prev) => {
+        queryClient.setQueryData(["conversation_messages", selectedConvId], (prev: ConversationMessage[] = []) => {
           if (prev.some(m => m.id === newMsg.id)) return prev;
           return [...prev, newMsg];
         });
@@ -107,34 +97,32 @@ export function useConversations() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [selectedConvId]);
+  }, [selectedConvId, queryClient]);
 
-  const sendMessage = useCallback(async (message: string) => {
-    if (!selectedConvId || !message.trim()) return;
-    setSending(true);
-    try {
+  // Mutation: Send message
+  const { mutate: sendMessage, isPending: isSending } = useMutation({
+    mutationFn: async (message: string) => {
+      if (!selectedConvId || !message.trim()) throw new Error("Mensagem vazia");
       const response = await supabase.functions.invoke("process-conversation-message", {
         body: { conversation_id: selectedConvId, message },
       });
 
       if (response.error) throw new Error(response.error.message);
+      if (response.data?.error) throw new Error(response.data.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+    onError: (error) => {
+      const errorMessage = error instanceof Error ? error.message : "Erro ao enviar mensagem";
+      toast({ title: "Erro", description: errorMessage, variant: "destructive" });
+    },
+  });
 
-      const data = response.data;
-      if (data?.error) {
-        toast({ title: "Erro do Agente IA", description: data.error, variant: "destructive" });
-      }
-      // Realtime will update messages, but also refresh conversations list
-      loadConversations();
-    } catch (error) {
-      toast({ title: "Erro ao enviar mensagem", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    } finally {
-      setSending(false);
-    }
-  }, [selectedConvId, toast, loadConversations]);
-
-  const takeOverConversation = useCallback(async () => {
-    if (!selectedConvId) return;
-    try {
+  // Mutation: Take over conversation
+  const { mutate: takeOverConversation } = useMutation({
+    mutationFn: async () => {
+      if (!selectedConvId) throw new Error("Nenhuma conversa selecionada");
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Não autenticado");
 
@@ -144,40 +132,51 @@ export function useConversations() {
         .eq("id", selectedConvId);
 
       if (error) throw error;
-      loadConversations();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
       toast({ title: "Conversa assumida com sucesso" });
-    } catch (error) {
+    },
+    onError: (error) => {
       toast({ title: "Erro", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    }
-  }, [selectedConvId, toast, loadConversations]);
+    },
+  });
 
-  const releaseConversation = useCallback(async () => {
-    if (!selectedConvId) return;
-    try {
+  // Mutation: Release conversation
+  const { mutate: releaseConversation } = useMutation({
+    mutationFn: async () => {
+      if (!selectedConvId) throw new Error("Nenhuma conversa selecionada");
       const { error } = await supabase
         .from("conversations")
         .update({ taken_over_by: null, taken_over_at: null, status: "active" })
         .eq("id", selectedConvId);
 
       if (error) throw error;
-      loadConversations();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
       toast({ title: "Conversa devolvida ao agente IA" });
-    } catch (error) {
+    },
+    onError: (error) => {
       toast({ title: "Erro", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    }
-  }, [selectedConvId, toast, loadConversations]);
+    },
+  });
 
-  const deleteConversation = useCallback(async (convId: string) => {
-    try {
+  // Mutation: Delete conversation
+  const { mutate: deleteConversation } = useMutation({
+    mutationFn: async (convId: string) => {
       const { error } = await supabase.from("conversations").delete().eq("id", convId);
       if (error) throw error;
-      if (selectedConvId === convId) setSelectedConvId(null);
-      loadConversations();
+    },
+    onSuccess: (_, deletedId) => {
+      if (selectedConvId === deletedId) setSelectedConvId(null);
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
       toast({ title: "Conversa deletada" });
-    } catch (error) {
+    },
+    onError: (error) => {
       toast({ title: "Erro ao deletar", description: error instanceof Error ? error.message : "Erro", variant: "destructive" });
-    }
-  }, [selectedConvId, toast, loadConversations]);
+    },
+  });
 
   const selectedConversation = conversations.find(c => c.id === selectedConvId) || null;
 
@@ -187,12 +186,12 @@ export function useConversations() {
     setSelectedConvId,
     selectedConversation,
     messages,
-    loading,
-    sending,
+    loading: isLoading,
+    sending: isSending,
     sendMessage,
     takeOverConversation,
     releaseConversation,
     deleteConversation,
-    refreshConversations: loadConversations,
+    refreshConversations: () => queryClient.invalidateQueries({ queryKey: ["conversations"] }),
   };
 }

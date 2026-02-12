@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -36,126 +37,163 @@ export interface SequenceExecution {
 }
 
 export function useNurturingSequences() {
-  const [sequences, setSequences] = useState<NurturingSequence[]>([]);
   const [selectedSeqId, setSelectedSeqId] = useState<string | null>(null);
-  const [steps, setSteps] = useState<SequenceStep[]>([]);
-  const [executions, setExecutions] = useState<SequenceExecution[]>([]);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const loadSequences = useCallback(async () => {
-    try {
+  // Query: Load all sequences
+  const { data: sequences = [], isLoading } = useQuery({
+    queryKey: ["nurturing_sequences"],
+    queryFn: async () => {
       const { data, error } = await supabase.from("nurturing_sequences").select("*").order("created_at", { ascending: false });
       if (error) throw error;
-      setSequences(data || []);
       if (data && data.length > 0 && !selectedSeqId) setSelectedSeqId(data[0].id);
-    } catch (error) {
-      toast({ title: "Erro ao carregar sequências", variant: "destructive" });
-    }
-  }, [toast, selectedSeqId]);
+      return (data as NurturingSequence[]) || [];
+    },
+    staleTime: 5000,
+  });
 
-  const loadSteps = useCallback(async (seqId: string) => {
-    try {
-      const { data, error } = await supabase.from("sequence_steps").select("*").eq("sequence_id", seqId).order("step_number", { ascending: true });
+  // Query: Load steps for selected sequence
+  const { data: steps = [] } = useQuery({
+    queryKey: ["sequence_steps", selectedSeqId],
+    queryFn: async () => {
+      if (!selectedSeqId) return [];
+      const { data, error } = await supabase.from("sequence_steps").select("*").eq("sequence_id", selectedSeqId).order("step_number", { ascending: true });
       if (error) throw error;
-      setSteps((data as SequenceStep[]) || []);
-    } catch { /* silent */ }
-  }, []);
+      return (data as SequenceStep[]) || [];
+    },
+    enabled: !!selectedSeqId,
+    staleTime: 5000,
+  });
 
-  const loadExecutions = useCallback(async (seqId: string) => {
-    try {
-      const { data, error } = await supabase.from("sequence_executions").select("*").eq("sequence_id", seqId).order("started_at", { ascending: false }).limit(20);
+  // Query: Load executions for selected sequence
+  const { data: executions = [] } = useQuery({
+    queryKey: ["sequence_executions", selectedSeqId],
+    queryFn: async () => {
+      if (!selectedSeqId) return [];
+      const { data, error } = await supabase.from("sequence_executions").select("*").eq("sequence_id", selectedSeqId).order("started_at", { ascending: false }).limit(20);
       if (error) throw error;
-      setExecutions((data as SequenceExecution[]) || []);
-    } catch { /* silent */ }
-  }, []);
+      return (data as SequenceExecution[]) || [];
+    },
+    enabled: !!selectedSeqId,
+    staleTime: 5000,
+  });
 
-  useEffect(() => { loadSequences(); }, [loadSequences]);
-
-  useEffect(() => {
-    if (selectedSeqId) { loadSteps(selectedSeqId); loadExecutions(selectedSeqId); }
-    else { setSteps([]); setExecutions([]); }
-  }, [selectedSeqId, loadSteps, loadExecutions]);
-
-  const createSequence = useCallback(async () => {
-    setLoading(true);
-    try {
+  // Mutation: Create sequence
+  const { mutate: createSequence, isPending: isCreating } = useMutation({
+    mutationFn: async () => {
       const { data, error } = await supabase.from("nurturing_sequences").insert({ name: "Nova Sequência", is_active: true }).select();
       if (error) throw error;
-      if (data?.[0]) { setSelectedSeqId(data[0].id); loadSequences(); toast({ title: "Sequência criada" }); }
-    } catch (error) {
+      return data?.[0];
+    },
+    onSuccess: (newSeq) => {
+      if (newSeq) {
+        setSelectedSeqId(newSeq.id);
+        queryClient.invalidateQueries({ queryKey: ["nurturing_sequences"] });
+        toast({ title: "Sequência criada" });
+      }
+    },
+    onError: () => {
       toast({ title: "Erro ao criar", variant: "destructive" });
-    } finally { setLoading(false); }
-  }, [toast, loadSequences]);
+    },
+  });
 
-  const saveSequence = useCallback(async (form: Partial<NurturingSequence>) => {
-    if (!selectedSeqId) return;
-    setLoading(true);
-    try {
+  // Mutation: Save sequence
+  const { mutate: saveSequence, isPending: isSaving } = useMutation({
+    mutationFn: async (form: Partial<NurturingSequence>) => {
+      if (!selectedSeqId) throw new Error("Nenhuma sequência selecionada");
       const { error } = await supabase.from("nurturing_sequences")
         .update({ name: form.name, description: form.description, trigger_status: form.trigger_status, is_active: form.is_active })
         .eq("id", selectedSeqId);
       if (error) throw error;
-      loadSequences();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["nurturing_sequences"] });
       toast({ title: "Sequência salva" });
-    } catch (error) {
+    },
+    onError: () => {
       toast({ title: "Erro ao salvar", variant: "destructive" });
-    } finally { setLoading(false); }
-  }, [selectedSeqId, toast, loadSequences]);
+    },
+  });
 
-  const deleteSequence = useCallback(async (id: string) => {
-    try {
+  // Mutation: Delete sequence
+  const { mutate: deleteSequence } = useMutation({
+    mutationFn: async (id: string) => {
       const { error } = await supabase.from("nurturing_sequences").delete().eq("id", id);
       if (error) throw error;
-      if (selectedSeqId === id) setSelectedSeqId(null);
-      loadSequences();
+    },
+    onSuccess: (_, deletedId) => {
+      if (selectedSeqId === deletedId) setSelectedSeqId(null);
+      queryClient.invalidateQueries({ queryKey: ["nurturing_sequences"] });
       toast({ title: "Sequência deletada" });
-    } catch (error) {
+    },
+    onError: () => {
       toast({ title: "Erro ao deletar", variant: "destructive" });
-    }
-  }, [selectedSeqId, toast, loadSequences]);
+    },
+  });
 
-  const addStep = useCallback(async () => {
-    if (!selectedSeqId) return;
-    const nextNum = steps.length > 0 ? Math.max(...steps.map(s => s.step_number)) + 1 : 1;
-    try {
+  // Mutation: Add step
+  const { mutate: addStep } = useMutation({
+    mutationFn: async () => {
+      if (!selectedSeqId) throw new Error("Nenhuma sequência selecionada");
+      const nextNum = steps.length > 0 ? Math.max(...steps.map(s => s.step_number)) + 1 : 1;
       const { error } = await supabase.from("sequence_steps").insert({
         sequence_id: selectedSeqId, step_number: nextNum, delay_hours: 0, message_content: "", channel: "whatsapp",
       });
       if (error) throw error;
-      loadSteps(selectedSeqId);
-    } catch (error) {
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sequence_steps", selectedSeqId] });
+    },
+    onError: () => {
       toast({ title: "Erro ao adicionar passo", variant: "destructive" });
-    }
-  }, [selectedSeqId, steps, toast, loadSteps]);
+    },
+  });
 
-   const updateStep = useCallback(async (stepId: string, updates: Partial<SequenceStep>) => {
-     try {
-       const { error } = await supabase.from("sequence_steps").update(updates).eq("id", stepId);
+  // Mutation: Update step
+  const { mutate: updateStep } = useMutation({
+    mutationFn: async ({ stepId, updates }: { stepId: string; updates: Partial<SequenceStep> }) => {
+      const { error } = await supabase.from("sequence_steps").update(updates).eq("id", stepId);
       if (error) throw error;
-      if (selectedSeqId) loadSteps(selectedSeqId);
-    } catch (error) {
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sequence_steps", selectedSeqId] });
+    },
+    onError: () => {
       toast({ title: "Erro ao atualizar passo", variant: "destructive" });
-    }
-  }, [selectedSeqId, toast, loadSteps]);
+    },
+  });
 
-  const deleteStep = useCallback(async (stepId: string) => {
-    try {
+  // Mutation: Delete step
+  const { mutate: deleteStep } = useMutation({
+    mutationFn: async (stepId: string) => {
       const { error } = await supabase.from("sequence_steps").delete().eq("id", stepId);
       if (error) throw error;
-      if (selectedSeqId) loadSteps(selectedSeqId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sequence_steps", selectedSeqId] });
       toast({ title: "Passo removido" });
-    } catch (error) {
+    },
+    onError: () => {
       toast({ title: "Erro ao deletar passo", variant: "destructive" });
-    }
-  }, [selectedSeqId, toast, loadSteps]);
+    },
+  });
 
   const selectedSequence = sequences.find(s => s.id === selectedSeqId) || null;
 
   return {
-    sequences, selectedSeqId, setSelectedSeqId, selectedSequence,
-    steps, executions, loading,
-    createSequence, saveSequence, deleteSequence,
-    addStep, updateStep, deleteStep,
+    sequences,
+    selectedSeqId,
+    setSelectedSeqId,
+    selectedSequence,
+    steps,
+    executions,
+    loading: isLoading || isCreating || isSaving,
+    createSequence: () => createSequence(),
+    saveSequence,
+    deleteSequence,
+    addStep: () => addStep(),
+    updateStep: (stepId: string, updates: Partial<SequenceStep>) => updateStep({ stepId, updates }),
+    deleteStep,
   };
 }
