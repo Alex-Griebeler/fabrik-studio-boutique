@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { format, addDays, subDays, startOfWeek, endOfWeek } from "date-fns";
+import { format, addDays, subDays, startOfWeek, endOfWeek, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Settings2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -30,7 +30,17 @@ export default function Schedule() {
   const { data: sessions, isLoading } = useClassSessions(startStr, endStr);
   const { data: modalities } = useActiveModalities();
 
-  const goToday = () => { setCurrentDate(new Date()); setView("day"); };
+  const isViewingToday = isToday(currentDate) && view === "day";
+
+  const goToday = () => {
+    if (isViewingToday) {
+      setView("week");
+    } else {
+      setCurrentDate(new Date());
+      setView("day");
+    }
+  };
+
   const goPrev = () => setCurrentDate((d) => (view === "week" ? subDays(d, 7) : subDays(d, 1)));
   const goNext = () => setCurrentDate((d) => (view === "week" ? addDays(d, 7) : addDays(d, 1)));
 
@@ -50,7 +60,13 @@ export default function Schedule() {
       <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
         {/* Navigation Group */}
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" onClick={goToday}>Hoje</Button>
+          <Button
+            variant={isViewingToday ? "default" : "outline"}
+            size="sm"
+            onClick={goToday}
+          >
+            Hoje
+          </Button>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goPrev}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
