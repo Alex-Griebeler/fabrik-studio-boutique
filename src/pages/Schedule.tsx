@@ -16,7 +16,7 @@ import { ModalityFilterPopover } from "@/components/schedule/ModalityFilterPopov
 export default function Schedule() {
   const [view, setView] = useState<"week" | "day">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [modalityFilter, setModalityFilter] = useState<string[]>([]);
+  const [modalityFilter, setModalityFilter] = useState<string[] | null>(null);
   const [showNewSession, setShowNewSession] = useState(false);
 
   const weekStart = useMemo(() => startOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
@@ -31,7 +31,7 @@ export default function Schedule() {
   const { data: modalities } = useActiveModalities();
 
   useEffect(() => {
-    if (modalities && modalities.length > 0 && modalityFilter.length === 0) {
+    if (modalities && modalities.length > 0 && modalityFilter === null) {
       setModalityFilter(modalities.map((m) => m.slug));
     }
   }, [modalities]);
@@ -97,7 +97,7 @@ export default function Schedule() {
         <div className="flex items-center gap-2 sm:ml-auto">
           <ModalityFilterPopover
             modalities={modalities ?? []}
-            selected={modalityFilter}
+            selected={modalityFilter ?? []}
             onChange={setModalityFilter}
           />
 
@@ -133,9 +133,9 @@ export default function Schedule() {
           <span className="text-sm">Carregando agenda...</span>
         </div>
       ) : view === "week" ? (
-        <WeeklyCalendar sessions={sessions ?? []} weekStart={weekStart} modalityFilter={modalityFilter} />
+        <WeeklyCalendar sessions={sessions ?? []} weekStart={weekStart} modalityFilter={modalityFilter ?? []} />
       ) : (
-        <DailyList sessions={sessions ?? []} selectedDate={currentDate} modalityFilter={modalityFilter} />
+        <DailyList sessions={sessions ?? []} selectedDate={currentDate} modalityFilter={modalityFilter ?? []} />
       )}
 
       <SessionFormDialog
