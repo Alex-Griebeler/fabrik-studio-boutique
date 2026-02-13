@@ -104,7 +104,8 @@ export function useUploadBankStatement() {
       qc.invalidateQueries({ queryKey: ["bank-imports"] });
       qc.invalidateQueries({ queryKey: ["bank-transactions"] });
       const s = data?.summary;
-      toast.success(`Importação concluída! ${s?.total_transactions ?? 0} transações processadas.`);
+      const expMsg = s?.expenses_created ? ` | ${s.expenses_created} despesas criadas automaticamente` : "";
+      toast.success(`Importação concluída! ${s?.total_transactions ?? 0} transações processadas.${expMsg}`);
     },
     onError: (err: Error) => {
       toast.error(`Erro na importação: ${err.message}`);

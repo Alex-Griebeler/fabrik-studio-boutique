@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Receipt, TrendingDown, AlertTriangle, CheckCircle, Settings2 } from "lucide-react";
+import { Plus, Search, Receipt, TrendingDown, AlertTriangle, CheckCircle, Settings2, Zap } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ExpenseCategoryManager } from "@/components/finance/ExpenseCategoryManager";
+import { ExpenseCategoryRulesManager } from "@/components/finance/ExpenseCategoryRulesManager";
 import { KPICard } from "@/components/shared/KPICard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,7 @@ export default function Expenses() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [showCategories, setShowCategories] = useState(false);
+  const [showRules, setShowRules] = useState(false);
 
   const { data: allExpenses } = useExpenses("all");
   const { data: expenses, isLoading } = useExpenses(statusFilter);
@@ -94,7 +96,10 @@ export default function Expenses() {
           </Select>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => setShowCategories(!showCategories)}>
+          <Button size="sm" variant="outline" onClick={() => { setShowRules(!showRules); setShowCategories(false); }}>
+            <Zap className="h-4 w-4 mr-1" /> Regras
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => { setShowCategories(!showCategories); setShowRules(false); }}>
             <Settings2 className="h-4 w-4 mr-1" /> Categorias
           </Button>
           <Button size="sm" onClick={() => { setEditing(null); setDialogOpen(true); }}>
@@ -106,6 +111,12 @@ export default function Expenses() {
       {showCategories && (
         <div className="mb-6">
           <ExpenseCategoryManager />
+        </div>
+      )}
+
+      {showRules && (
+        <div className="mb-6">
+          <ExpenseCategoryRulesManager />
         </div>
       )}
 

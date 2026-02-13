@@ -513,6 +513,76 @@ Deno.serve(async (req) => {
     const totalCredits = valid.filter((t) => t.transaction_type === "credit").reduce((s, t) => s + t.amount_cents, 0);
     const totalDebits = valid.filter((t) => t.transaction_type === "debit").reduce((s, t) => s + Math.abs(t.amount_cents), 0);
 
+    // ── Auto-create expenses from DEBIT transactions ──
+    let expensesCreated = 0;
+    const debitTxns = valid.filter((t) => t.transaction_type === "debit");
+    if (debitTxns.length > 0) {
+      // Fetch category rules
+      const { data: rules } = await supabase
+        .from("expense_category_rules")
+        .select("keyword, category_id, priority")
+        .eq("is_active", true)
+        .order("priority", { ascending: false });
+
+      // Fetch a default category (first active one) as fallback
+      const { data: defaultCats } = await supabase
+        .from("expense_categories")
+        .select("id")
+        .eq("is_active", true)
+        .eq("slug", "geral")
+        .limit(1);
+
+      let defaultCategoryId = defaultCats?.[0]?.id;
+      if (!defaultCategoryId) {
+        // If no "geral" category, get any active category
+        const { data: anyCat } = await supabase
+          .from("expense_categories")
+          .select("id")
+          .eq("is_active", true)
+          .order("sort_order")
+          .limit(1);
+        defaultCategoryId = anyCat?.[0]?.id;
+      }
+
+      if (defaultCategoryId) {
+        const expensesToInsert = debitTxns.map((tx) => {
+          // Find matching rule by keyword in memo
+          let categoryId = defaultCategoryId!;
+          if (rules && rules.length > 0) {
+            const memoUpper = tx.memo.toUpperCase();
+            for (const rule of rules) {
+              if (memoUpper.includes(rule.keyword.toUpperCase())) {
+                categoryId = rule.category_id;
+                break;
+              }
+            }
+          }
+
+          return {
+            category_id: categoryId,
+            description: tx.memo,
+            amount_cents: Math.abs(tx.amount_cents),
+            due_date: tx.posted_date,
+            payment_date: tx.posted_date,
+            status: "paid" as const,
+            notes: `Auto-criada da importação bancária (${fileName})`,
+          };
+        });
+
+        const { data: createdExpenses, error: expErr } = await supabase
+          .from("expenses")
+          .insert(expensesToInsert)
+          .select("id");
+
+        if (!expErr && createdExpenses) {
+          expensesCreated = createdExpenses.length;
+          console.log(`Auto-created ${expensesCreated} expenses from ${debitTxns.length} debit transactions`);
+        } else if (expErr) {
+          console.error(`Error creating expenses: ${expErr.message}`);
+        }
+      }
+    }
+
     await supabase.from("bank_imports").update({
       status: "completed", total_transactions: count,
       total_credits_cents: totalCredits, total_debits_cents: totalDebits,
@@ -520,7 +590,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       success: true, import_id: importRec.id,
-      summary: { total_transactions: count, skipped_balance_entries: txns.length - valid.length, total_credits: totalCredits, total_debits: totalDebits, bank: parsed.bankId, account: parsed.accountId, period: { start: parsed.periodStart, end: parsed.periodEnd } },
+      summary: { total_transactions: count, skipped_balance_entries: txns.length - valid.length, total_credits: totalCredits, total_debits: totalDebits, bank: parsed.bankId, account: parsed.accountId, period: { start: parsed.periodStart, end: parsed.periodEnd }, expenses_created: expensesCreated },
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Error:", error);
