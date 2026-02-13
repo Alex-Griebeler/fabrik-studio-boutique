@@ -72,7 +72,8 @@ export default function Schedule() {
       />
 
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
+        {/* Navigation Group */}
         <div className="flex items-center gap-1.5">
           <Button variant="outline" size="sm" onClick={goToday}>Hoje</Button>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goPrev}>
@@ -82,8 +83,20 @@ export default function Schedule() {
             <ChevronRight className="h-4 w-4" />
           </Button>
           <span className="text-sm font-medium capitalize ml-1">{headerLabel}</span>
+
+          {/* View Toggle */}
+          <div className="ml-2 flex border rounded-md">
+            <Button variant={view === "week" ? "secondary" : "ghost"} size="icon" className="h-8 w-8 rounded-r-none"
+              onClick={() => setView("week")}><LayoutGrid className="h-4 w-4" /></Button>
+            <Button variant={view === "day" ? "secondary" : "ghost"} size="icon" className="h-8 w-8 rounded-l-none"
+              onClick={() => setView("day")}><List className="h-4 w-4" /></Button>
+          </div>
         </div>
 
+        {/* Separator */}
+        <div className="hidden sm:block h-6 w-px bg-border" />
+
+        {/* Filters & Actions Group */}
         <div className="flex items-center gap-2 sm:ml-auto">
           <ModalityFilterPopover
             modalities={modalities ?? []}
@@ -91,12 +104,28 @@ export default function Schedule() {
             onChange={setModalityFilter}
           />
 
-          <div className="flex border rounded-md">
-            <Button variant={view === "week" ? "secondary" : "ghost"} size="icon" className="h-8 w-8 rounded-r-none"
-              onClick={() => setView("week")}><LayoutGrid className="h-4 w-4" /></Button>
-            <Button variant={view === "day" ? "secondary" : "ghost"} size="icon" className="h-8 w-8 rounded-l-none"
-              onClick={() => setView("day")}><List className="h-4 w-4" /></Button>
-          </div>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button size="sm" variant="outline">
+                <Settings2 className="h-4 w-4 mr-1" /> Configurar
+              </Button>
+            </SheetTrigger>
+            <SheetContent className="overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Configurações da Agenda</SheetTitle>
+              </SheetHeader>
+              <div className="mt-4 space-y-6">
+                <TemplateManager />
+                <div className="border-t pt-4">
+                  <ModalitiesManager />
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Button size="sm" onClick={() => setShowNewSession(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Nova Sessão
+          </Button>
         </div>
       </div>
 
