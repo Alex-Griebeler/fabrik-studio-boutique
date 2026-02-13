@@ -17,41 +17,27 @@ interface Props {
 }
 
 export function ModalityFilterPopover({ modalities, selected, onChange }: Props) {
-  const allSelected = selected.length === 0;
   const total = modalities.length;
+  const allSelected = selected.length === total && total > 0;
 
   function toggleAll() {
     if (allSelected) {
-      // Se todas estão visíveis, marca todas explicitamente
-      onChange(modalities.map((m) => m.slug));
-    } else {
-      // Se tem seleções, desmarca todas
       onChange([]);
+    } else {
+      onChange(modalities.map((m) => m.slug));
     }
   }
 
   function toggle(slug: string) {
-    if (allSelected) {
-      onChange(modalities.filter((m) => m.slug !== slug).map((m) => m.slug));
-    } else if (selected.includes(slug)) {
-      const next = selected.filter((s) => s !== slug);
-      if (next.length === 0) {
-        onChange([]);
-      } else {
-        onChange(next);
-      }
+    if (selected.includes(slug)) {
+      onChange(selected.filter((s) => s !== slug));
     } else {
-      const next = [...selected, slug];
-      if (next.length === total) {
-        onChange([]);
-      } else {
-        onChange(next);
-      }
+      onChange([...selected, slug]);
     }
   }
 
   function isChecked(slug: string) {
-    return allSelected || selected.includes(slug);
+    return selected.includes(slug);
   }
 
   return (

@@ -15,10 +15,12 @@ const END_HOUR = 22;
 const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i);
 const DAY_LABELS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
 
+const TOP_PADDING = 12;
+
 function getTimePosition(timeStr: string): number {
   const h = parseInt(timeStr.slice(0, 2));
   const m = parseInt(timeStr.slice(3, 5));
-  return (h - START_HOUR + m / 60) * HOUR_HEIGHT;
+  return (h - START_HOUR + m / 60) * HOUR_HEIGHT + TOP_PADDING;
 }
 
 function getEventHeight(durationMinutes: number): number {
@@ -30,7 +32,7 @@ function CurrentTimeLine() {
   const h = now.getHours();
   const m = now.getMinutes();
   if (h < START_HOUR || h >= END_HOUR) return null;
-  const top = (h - START_HOUR + m / 60) * HOUR_HEIGHT;
+  const top = (h - START_HOUR + m / 60) * HOUR_HEIGHT + TOP_PADDING;
   return (
     <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top }}>
       <div className="flex items-center">
@@ -64,7 +66,7 @@ export function WeeklyCalendar({ sessions, weekStart, modalityFilter }: Props) {
     }
   }, []);
 
-  const totalHeight = HOURS.length * HOUR_HEIGHT;
+  const totalHeight = HOURS.length * HOUR_HEIGHT + TOP_PADDING;
 
   return (
     <div className="rounded-lg border bg-card overflow-hidden">
@@ -100,7 +102,7 @@ export function WeeklyCalendar({ sessions, weekStart, modalityFilter }: Props) {
             <div
               key={`line-${hour}`}
               className="absolute left-0 right-0 border-t border-border/40"
-              style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
+              style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + TOP_PADDING }}
             />
           ))}
 
@@ -111,7 +113,7 @@ export function WeeklyCalendar({ sessions, weekStart, modalityFilter }: Props) {
                 <div
                   key={hour}
                   className="absolute right-3 text-[11px] text-muted-foreground font-medium -translate-y-1/2"
-                  style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
+                  style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + TOP_PADDING }}
                 >
                   {`${String(hour).padStart(2, "0")}:00`}
                 </div>
