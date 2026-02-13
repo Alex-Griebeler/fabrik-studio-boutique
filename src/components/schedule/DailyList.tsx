@@ -7,7 +7,7 @@ import { SessionCard } from "./SessionCard";
 interface Props {
   sessions: Session[];
   selectedDate: Date;
-  modalityFilter: string;
+  modalityFilter: string[];
 }
 
 const HOUR_HEIGHT = 64;
@@ -32,7 +32,7 @@ export function DailyList({ sessions, selectedDate, modalityFilter }: Props) {
   const filtered = useMemo(() =>
     sessions
       .filter((s) => s.session_date === dateStr)
-      .filter((s) => modalityFilter === "all" || s.modality === modalityFilter)
+      .filter((s) => modalityFilter.length === 0 || modalityFilter.includes(s.modality))
       .sort((a, b) => a.start_time.localeCompare(b.start_time)),
     [sessions, dateStr, modalityFilter]
   );

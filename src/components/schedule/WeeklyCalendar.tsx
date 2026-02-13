@@ -6,7 +6,7 @@ import { SessionCard } from "./SessionCard";
 interface Props {
   sessions: Session[];
   weekStart: Date;
-  modalityFilter: string;
+  modalityFilter: string[];
 }
 
 const HOUR_HEIGHT = 56;
@@ -50,7 +50,7 @@ export function WeeklyCalendar({ sessions, weekStart, modalityFilter }: Props) {
       const dateStr = format(date, "yyyy-MM-dd");
       const daySessions = sessions
         .filter((s) => s.session_date === dateStr)
-        .filter((s) => modalityFilter === "all" || s.modality === modalityFilter)
+        .filter((s) => modalityFilter.length === 0 || modalityFilter.includes(s.modality))
         .sort((a, b) => a.start_time.localeCompare(b.start_time));
       return { date, dateStr, daySessions, dayIndex: i };
     });
