@@ -30,7 +30,7 @@ export default function Schedule() {
   const { data: sessions, isLoading } = useClassSessions(startStr, endStr);
   const { data: modalities } = useActiveModalities();
 
-  const goToday = () => setCurrentDate(new Date());
+  const goToday = () => { setCurrentDate(new Date()); setView("day"); };
   const goPrev = () => setCurrentDate((d) => (view === "week" ? subDays(d, 7) : subDays(d, 1)));
   const goNext = () => setCurrentDate((d) => (view === "week" ? addDays(d, 7) : addDays(d, 1)));
 
@@ -44,31 +44,6 @@ export default function Schedule() {
       <PageHeader
         title="Agenda"
         description="Grade horária e sessões"
-        actions={
-          <div className="flex gap-2">
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button size="sm" variant="outline">
-                  <Settings2 className="h-4 w-4 mr-1" /> Configurar
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="overflow-y-auto">
-                <SheetHeader>
-                  <SheetTitle>Configurações da Agenda</SheetTitle>
-                </SheetHeader>
-                <div className="mt-4 space-y-6">
-                  <TemplateManager />
-                  <div className="border-t pt-4">
-                    <ModalitiesManager />
-                  </div>
-                </div>
-              </SheetContent>
-            </Sheet>
-            <Button size="sm" onClick={() => setShowNewSession(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Nova Sessão
-            </Button>
-          </div>
-        }
       />
 
       {/* Toolbar */}
