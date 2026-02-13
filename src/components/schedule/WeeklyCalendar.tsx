@@ -30,7 +30,7 @@ function CurrentTimeLine() {
   const h = now.getHours();
   const m = now.getMinutes();
   if (h < START_HOUR || h >= END_HOUR) return null;
-  const top = (h - START_HOUR + m / 60) * HOUR_HEIGHT;
+  const top = (h - START_HOUR + m / 60) * HOUR_HEIGHT + 16;
   return (
     <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top }}>
       <div className="flex items-center">
@@ -58,10 +58,8 @@ export function WeeklyCalendar({ sessions, weekStart, modalityFilter }: Props) {
 
   useEffect(() => {
     if (scrollRef.current) {
-      const now = new Date();
-      const h = now.getHours();
-      const targetHour = Math.max(START_HOUR, h - 1);
-      scrollRef.current.scrollTop = (targetHour - START_HOUR) * HOUR_HEIGHT;
+      // Scroll to show 06:00 at top with padding visible
+      scrollRef.current.scrollTop = 0;
     }
   }, []);
 
@@ -85,11 +83,11 @@ export function WeeklyCalendar({ sessions, weekStart, modalityFilter }: Props) {
       </div>
 
       <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 260px)" }}>
-        <div className="grid relative" style={{ gridTemplateColumns: "48px repeat(7, 1fr)", height: totalHeight }}>
+        <div className="grid relative pt-4" style={{ gridTemplateColumns: "48px repeat(7, 1fr)", height: totalHeight + 16 }}>
           <div className="relative border-r">
             {HOURS.map((hour) => (
               <div key={hour} className="absolute right-2 text-[10px] text-muted-foreground font-medium -translate-y-1/2"
-                style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}>
+                style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + 16 }}>
                 {`${String(hour).padStart(2, "0")}:00`}
               </div>
             ))}
@@ -100,14 +98,14 @@ export function WeeklyCalendar({ sessions, weekStart, modalityFilter }: Props) {
             return (
               <div key={dateStr} className={`relative border-r last:border-r-0 ${today ? "bg-primary/[0.02]" : ""}`}>
                 {HOURS.map((hour) => (
-                  <div key={hour} className="absolute left-0 right-0 border-t border-border/50" style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }} />
+                  <div key={hour} className="absolute left-0 right-0 border-t border-border/50" style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + 16 }} />
                 ))}
                 {HOURS.map((hour) => (
                   <div key={`${hour}-half`} className="absolute left-0 right-0 border-t border-border/20 border-dashed"
-                    style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + HOUR_HEIGHT / 2 }} />
+                    style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + HOUR_HEIGHT / 2 + 16 }} />
                 ))}
                 {daySessions.map((session) => {
-                  const top = getTimePosition(session.start_time);
+                  const top = getTimePosition(session.start_time) + 16;
                   const height = Math.max(getEventHeight(session.duration_minutes), 22);
                   return (
                     <div key={session.id} className="absolute left-0.5 right-0.5 z-10" style={{ top, height }}>

@@ -22,7 +22,7 @@ export function ModalityFilterPopover({ modalities, selected, onChange }: Props)
   const count = selected.length;
   const total = modalities.length;
 
-  const label = allSelected ? "Todas" : `${count} de ${total}`;
+  const label = allSelected ? "Modalidades" : `${count} de ${total}`;
 
   function toggleAll() {
     onChange([]);
