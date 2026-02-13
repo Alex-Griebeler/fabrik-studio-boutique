@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { format, addDays, subDays, startOfWeek, endOfWeek, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Settings2 } from "lucide-react";
@@ -29,6 +29,12 @@ export default function Schedule() {
 
   const { data: sessions, isLoading } = useClassSessions(startStr, endStr);
   const { data: modalities } = useActiveModalities();
+
+  useEffect(() => {
+    if (modalities && modalities.length > 0 && modalityFilter.length === 0) {
+      setModalityFilter(modalities.map((m) => m.slug));
+    }
+  }, [modalities]);
 
   const isViewingToday = isToday(currentDate) && view === "day";
 
