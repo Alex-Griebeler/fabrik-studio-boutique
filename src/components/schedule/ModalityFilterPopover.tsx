@@ -21,7 +21,13 @@ export function ModalityFilterPopover({ modalities, selected, onChange }: Props)
   const total = modalities.length;
 
   function toggleAll() {
-    onChange([]);
+    if (allSelected) {
+      // Se todas estão visíveis, marca todas explicitamente
+      onChange(modalities.map((m) => m.slug));
+    } else {
+      // Se tem seleções, desmarca todas
+      onChange([]);
+    }
   }
 
   function toggle(slug: string) {
