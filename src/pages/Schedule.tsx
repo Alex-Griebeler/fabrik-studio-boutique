@@ -11,11 +11,12 @@ import { DailyList } from "@/components/schedule/DailyList";
 import { SessionFormDialog } from "@/components/schedule/SessionFormDialog";
 import { ModalitiesManager } from "@/components/schedule/ModalitiesManager";
 import { TemplateManager } from "@/components/schedule/TemplateManager";
+import { ModalityFilterPopover } from "@/components/schedule/ModalityFilterPopover";
 
 export default function Schedule() {
   const [view, setView] = useState<"week" | "day">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [modalityFilter, setModalityFilter] = useState("all");
+  const [modalityFilter, setModalityFilter] = useState<string[]>([]);
   const [showNewSession, setShowNewSession] = useState(false);
 
   const weekStart = useMemo(() => startOfWeek(currentDate, { weekStartsOn: 0 }), [currentDate]);
@@ -84,14 +85,11 @@ export default function Schedule() {
         </div>
 
         <div className="flex items-center gap-2 sm:ml-auto">
-          <div className="flex items-center gap-1 flex-wrap">
-            <Button variant={modalityFilter === "all" ? "default" : "outline"} size="sm" className="h-7 text-xs px-2"
-              onClick={() => setModalityFilter("all")}>Todas</Button>
-            {modalities?.map((m) => (
-              <Button key={m.id} variant={modalityFilter === m.slug ? "default" : "outline"} size="sm" className="h-7 text-xs px-2"
-                onClick={() => setModalityFilter(m.slug)}>{m.name}</Button>
-            ))}
-          </div>
+          <ModalityFilterPopover
+            modalities={modalities ?? []}
+            selected={modalityFilter}
+            onChange={setModalityFilter}
+          />
 
           <div className="flex border rounded-md">
             <Button variant={view === "week" ? "secondary" : "ghost"} size="icon" className="h-8 w-8 rounded-r-none"
