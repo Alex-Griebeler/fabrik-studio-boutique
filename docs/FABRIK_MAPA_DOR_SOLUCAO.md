@@ -5,10 +5,30 @@
 
 ---
 
-## 1. Emagrecimento / Estética
+## Pergunta de Triagem Universal
 
-**Pergunta de triagem**
-"Me conta um pouco mais — o que mais te incomoda hoje é mais a questão estética ou é mais sobre como você se sente no dia a dia?"
+> Esta é a **única** pergunta de abertura. Nunca enviesar mencionando uma dor específica antes do lead se manifestar.
+
+**Opção 1 (aberta):**
+"Me conta, o que te fez procurar a Fabrik? Qual é a sua maior dificuldade hoje em relação ao exercício?"
+
+**Opção 2 (com menu de opções):**
+"Pra eu entender melhor o que você busca, me diz: qual desses motivos mais tem a ver com você?
+• Emagrecimento / estética
+• Mais energia e disposição
+• Dor ou lesão que te limita
+• Dificuldade de manter a constância
+• Ganho de massa muscular
+• Melhorar performance (já treino)
+• Longevidade e qualidade de vida
+• Falta de motivação
+• Treino mas não vejo resultado"
+
+**Regra:** Após o lead responder, a Luciana identifica a dor e segue para o **aprofundamento específico** abaixo.
+
+---
+
+## 1. Emagrecimento / Estética
 
 **Pergunta de aprofundamento**
 "Você já tentou alguma coisa pra resolver isso antes? Dieta, academia, outro tipo de treino? O que sentiu que não funcionou?"
@@ -23,9 +43,6 @@
 
 ## 2. Energia / Disposição
 
-**Pergunta de triagem**
-"Você sente que a energia anda em falta? Tipo, acorda já cansada ou é mais no meio do dia que desliga?"
-
 **Pergunta de aprofundamento**
 "Sua rotina é corrida? Trabalho, filhos, tudo junto? Pergunto porque isso muda a forma como a gente pensa o treino pra você."
 
@@ -38,9 +55,6 @@
 ---
 
 ## 3. Dor / Lesão
-
-**Pergunta de triagem**
-"Você tem alguma dor ou lesão que te preocupa na hora de treinar? Joelho, coluna, ombro?"
 
 **Pergunta de aprofundamento**
 "Já aconteceu de você começar alguma atividade e ter que parar por causa da dor? Ou você tem medo de piorar?"
@@ -55,9 +69,6 @@
 
 ## 4. Falta de Constância
 
-**Pergunta de triagem**
-"Você é do tipo que começa empolgada mas depois de um tempo vai perdendo o ritmo? Isso acontece com frequência?"
-
 **Pergunta de aprofundamento**
 "O que normalmente faz você parar? Falta de tempo, desânimo, ou sente que não tá vendo resultado?"
 
@@ -70,9 +81,6 @@
 ---
 
 ## 5. Ganho de Massa Muscular
-
-**Pergunta de triagem**
-"Seu objetivo é mais ganhar massa, ficar mais firme? Ou é definir o que já tem?"
 
 **Pergunta de aprofundamento**
 "Você já treina ou tá começando agora? Pergunto porque a abordagem muda bastante."
@@ -87,9 +95,6 @@
 
 ## 6. Performance / Já Treina
 
-**Pergunta de triagem**
-"Você já treina, né? Me conta — o que sente que falta hoje pra chegar no próximo nível?"
-
 **Pergunta de aprofundamento**
 "Pratica algum esporte ou atividade específica? Corrida, ciclismo, alguma luta?"
 
@@ -102,9 +107,6 @@
 ---
 
 ## 7. Longevidade
-
-**Pergunta de triagem**
-"O que mais te motiva a querer treinar? É mais sobre se sentir bem a longo prazo, manter a saúde, envelhecer com autonomia?"
 
 **Pergunta de aprofundamento**
 "Tem alguém na família ou no seu convívio que te fez pensar mais nisso? Às vezes um exemplo próximo acende a ficha."
@@ -119,9 +121,6 @@
 
 ## 8. Motivação
 
-**Pergunta de triagem**
-"Sente que perdeu aquela vontade de treinar? Ou nunca achou algo que realmente te prendesse?"
-
 **Pergunta de aprofundamento**
 "O que te faz falta — é a energia pra ir, é o prazer durante o treino, ou é não ver resultado?"
 
@@ -134,9 +133,6 @@
 ---
 
 ## 9. Falta de Resultado
-
-**Pergunta de triagem**
-"Você treina mas sente que o corpo não responde? Que o resultado não aparece?"
 
 **Pergunta de aprofundamento**
 "Faz quanto tempo que treina? E o treino tem sido acompanhado por alguém ou você faz por conta?"
@@ -151,9 +147,10 @@
 
 ## Como usar este documento
 
-1. **Triagem**: Ao identificar a dor do lead na conversa, use a **pergunta de triagem** para confirmar.
-2. **Aprofundamento**: Se a conversa fluir, use a **pergunta de aprofundamento** para gerar conexão.
-3. **Solução**: Apresente a **resposta-solução** adaptando ao tom da conversa (mais formal ou informal conforme o lead).
-4. **Convite**: Use a **ponte para o convite** como transição natural para agendar a sessão de boas-vindas.
+1. **Triagem universal**: Use a **pergunta aberta** para deixar o lead revelar a dor — nunca induza.
+2. **Identificação**: A partir da resposta, identifique qual das 9 dores se encaixa.
+3. **Aprofundamento**: Use a **pergunta de aprofundamento** específica para gerar conexão.
+4. **Solução**: Apresente a **resposta-solução** adaptando ao tom da conversa.
+5. **Convite**: Use a **ponte para o convite** como transição natural para agendar a sessão de boas-vindas.
 
 > **Importante**: As respostas devem soar como uma conversa no WhatsApp, não como um script decorado. Adapte, reformule, use as palavras do próprio lead quando possível.
