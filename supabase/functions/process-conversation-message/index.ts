@@ -149,7 +149,9 @@ serve(async (req) => {
     }
 
     const aiData = await aiResponse.json();
-    const assistantContent = aiData.choices?.[0]?.message?.content || "Desculpe, não consegui gerar uma resposta.";
+    const rawContent = aiData.choices?.[0]?.message?.content || "Desculpe, não consegui gerar uma resposta.";
+    // Replace {lead_id} placeholder with actual lead ID
+    const assistantContent = conv?.lead_id ? rawContent.replace(/\{lead_id\}/g, conv.lead_id) : rawContent;
     const usage = aiData.usage || {};
 
     // Save assistant message
