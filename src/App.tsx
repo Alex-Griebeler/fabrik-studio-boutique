@@ -31,6 +31,7 @@ import MarketingAI from "@/pages/MarketingAI";
 import NotFound from "@/pages/NotFound";
 import ResetPassword from "@/pages/ResetPassword";
 import Import from "@/pages/Import";
+import Anamnese from "@/pages/Anamnese";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -223,6 +224,7 @@ const App = () => (
                    </ProtectedRoute>
                  }
                />
+               <Route path="/anamnese/:leadId" element={<Anamnese />} />
                <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
