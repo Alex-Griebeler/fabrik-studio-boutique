@@ -2457,6 +2457,16 @@ export type Database = {
       is_own_invoice: { Args: { _invoice_id: string }; Returns: boolean }
       is_own_profile: { Args: { _profile_id: string }; Returns: boolean }
       is_own_student: { Args: { _student_id: string }; Returns: boolean }
+      update_lead_anamnese: {
+        Args: {
+          p_email?: string
+          p_lead_id: string
+          p_name?: string
+          p_phone?: string
+          p_qualification_details: Json
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "instructor" | "student" | "manager" | "reception"
