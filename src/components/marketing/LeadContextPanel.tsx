@@ -1,7 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Phone, Mail, Thermometer, Target, Calendar, Tag } from "lucide-react";
+import { Phone, Mail, Thermometer, Target, Calendar, Tag, Globe, FileText } from "lucide-react";
 import type { Conversation } from "@/hooks/useConversations";
 
 interface LeadContextPanelProps {
@@ -12,6 +11,16 @@ const tempColors: Record<string, string> = {
   hot: "bg-red-500 text-white",
   warm: "bg-amber-500 text-white",
   cold: "bg-blue-500 text-white",
+};
+
+const sourceLabels: Record<string, string> = {
+  instagram: "Instagram",
+  google: "Google",
+  tiktok: "TikTok",
+  facebook: "Facebook",
+  site: "Site",
+  indicacao: "Indicação",
+  organico: "Orgânico",
 };
 
 export function LeadContextPanel({ conversation }: LeadContextPanelProps) {
@@ -45,6 +54,12 @@ export function LeadContextPanel({ conversation }: LeadContextPanelProps) {
           <div className="flex items-center gap-2 text-sm">
             <Mail className="h-4 w-4 text-muted-foreground" />
             <span className="truncate">{lead.email}</span>
+          </div>
+        )}
+        {lead.source && (
+          <div className="flex items-center gap-2 text-sm">
+            <Globe className="h-4 w-4 text-muted-foreground" />
+            <span>{sourceLabels[lead.source] || lead.source}</span>
           </div>
         )}
       </div>
@@ -100,7 +115,7 @@ export function LeadContextPanel({ conversation }: LeadContextPanelProps) {
 
       <Separator />
 
-      <div className="text-xs text-muted-foreground">
+      <div className="text-xs text-muted-foreground space-y-1">
         <p>Canal: {conversation.channel}</p>
         <p>Status conversa: {conversation.status}</p>
         {conversation.taken_over_by && <p className="text-blue-600 font-medium">Controlada por humano</p>}

@@ -11,3 +11,12 @@ verify_jwt = false
 
 [functions.execute-nurturing-step]
 verify_jwt = false
+
+[functions.match-bank-transactions]
+verify_jwt = false
+
+[functions.parse-bank-statement]
+verify_jwt = false
+
+[functions.receive-whatsapp]
+verify_jwt = false
