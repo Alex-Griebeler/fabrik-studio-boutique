@@ -130,8 +130,9 @@ export function useUpdateStudent() {
       }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["students"] });
+      qc.invalidateQueries({ queryKey: ["student", variables.id] });
       toast.success("Aluno atualizado com sucesso!");
     },
     onError: () => {
