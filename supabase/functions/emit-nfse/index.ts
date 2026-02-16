@@ -125,11 +125,15 @@ Deno.serve(async (req) => {
         data_emissao: new Date().toISOString(),
         natureza_operacao: "1",
         optante_simples_nacional: true,
-        prestador: {
-          cnpj: "",
-          inscricao_municipal: "",
-          codigo_municipio: "",
-        },
+        prestador: (() => {
+          const cnpj = Deno.env.get("FOCUSNFE_CNPJ_PRESTADOR") || "";
+          const inscricao_municipal = Deno.env.get("FOCUSNFE_INSCRICAO_MUNICIPAL") || "";
+          const codigo_municipio = Deno.env.get("FOCUSNFE_CODIGO_MUNICIPIO") || "";
+          if (!cnpj || !inscricao_municipal || !codigo_municipio) {
+            throw new Error("Dados do prestador não configurados. Configure FOCUSNFE_CNPJ_PRESTADOR, FOCUSNFE_INSCRICAO_MUNICIPAL e FOCUSNFE_CODIGO_MUNICIPIO.");
+          }
+          return { cnpj, inscricao_municipal, codigo_municipio };
+        })(),
         tomador: {
           cpf: tomadorCpf,
           razao_social: tomadorNome,

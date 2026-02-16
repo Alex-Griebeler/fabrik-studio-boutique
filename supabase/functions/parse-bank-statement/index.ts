@@ -473,11 +473,35 @@ Deno.serve(async (req) => {
     else if (fileType === "csv") parsed = parseCSV(fileContent);
     else parsed = parseXLSX(fileContent);
 
+    // Calculate file hash for duplicate detection
+    const encoder = new TextEncoder();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(fileContent));
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const fileHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+
+    // Check for duplicate import
+    const { data: existingImport } = await supabase
+      .from("bank_imports")
+      .select("id, file_name, created_at")
+      .eq("file_hash", fileHash)
+      .eq("status", "completed")
+      .limit(1);
+
+    if (existingImport && existingImport.length > 0) {
+      return new Response(JSON.stringify({
+        error: "Arquivo duplicado",
+        details: `Este arquivo já foi importado em ${existingImport[0].created_at} (${existingImport[0].file_name})`,
+      }), {
+        status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: importRec, error: impErr } = await supabase.from("bank_imports").insert({
       file_name: fileName, file_type: fileType,
       bank_id: parsed.bankId, account_id: parsed.accountId,
       period_start: parsed.periodStart, period_end: parsed.periodEnd,
       status: "processing", imported_by: user.id,
+      file_hash: fileHash,
     }).select().single();
 
     if (impErr) {

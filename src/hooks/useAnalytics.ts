@@ -131,13 +131,17 @@ export function useOperationsAnalytics(range: DateRange) {
       const scheduledOrCompleted = all.filter((s) => ["scheduled", "completed"].includes(s.status));
       const totalCapacity = scheduledOrCompleted.reduce((sum, s) => sum + s.capacity, 0);
 
-      // get bookings for these sessions
+      // get bookings for these sessions from class_bookings
       let totalBooked = 0;
       if (scheduledOrCompleted.length > 0) {
-        // Also check class_sessions bookings
         const sessionIds = scheduledOrCompleted.map((s) => s.id);
-        // sessions table doesn't have bookings, it's 1:1 student
-        totalBooked = scheduledOrCompleted.filter((s) => s.status === "completed").length;
+        // Query real bookings count (non-cancelled)
+        const { count } = await supabase
+          .from("class_bookings")
+          .select("id", { count: "exact", head: true })
+          .in("session_id", sessionIds)
+          .neq("status", "cancelled");
+        totalBooked = count ?? 0;
       }
 
       const occupancyRate = totalCapacity > 0 ? Math.round((totalBooked / totalCapacity) * 100) : 0;

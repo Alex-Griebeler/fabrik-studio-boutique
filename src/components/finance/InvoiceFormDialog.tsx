@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,9 +6,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Upload, FileCheck, Loader2 } from "lucide-react";
 import { useUpdateInvoice, invoiceStatusLabels, invoiceStatusColors, paymentTypeLabels, type Invoice } from "@/hooks/useInvoices";
 import { paymentMethodLabels, activePaymentMethods } from "@/hooks/useContracts";
 import { formatCents } from "@/hooks/usePlans";
+import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
 type PaymentMethod = Database["public"]["Enums"]["payment_method"];
@@ -21,11 +23,15 @@ interface Props {
 
 export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
   const updateInvoice = useUpdateInvoice();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [paymentDate, setPaymentDate] = useState("");
   const [paidAmountCents, setPaidAmountCents] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">("");
   const [notes, setNotes] = useState("");
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [existingProofUrl, setExistingProofUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (invoice) {
@@ -33,6 +39,8 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
       setPaidAmountCents(invoice.paid_amount_cents || invoice.amount_cents);
       setPaymentMethod(invoice.payment_method || "");
       setNotes(invoice.notes || "");
+      setProofFile(null);
+      setExistingProofUrl(invoice.payment_proof_url || null);
     }
   }, [invoice, open]);
 
@@ -40,8 +48,32 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
 
   const canRegisterPayment = invoice.status === "pending" || invoice.status === "overdue" || invoice.status === "scheduled";
   const totalWithPenalties = invoice.amount_cents + (invoice.fine_amount_cents || 0) + (invoice.interest_amount_cents || 0);
+  const showProofUpload = paymentMethod === "pix" || paymentMethod === "cash";
 
-  const handleRegisterPayment = () => {
+  const uploadProof = async (): Promise<string | null> => {
+    if (!proofFile || !invoice) return null;
+    setUploading(true);
+    try {
+      const ext = proofFile.name.split(".").pop() || "jpg";
+      const path = `${invoice.id}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from("payment-proofs").upload(path, proofFile);
+      if (error) throw error;
+      const { data: { publicUrl } } = supabase.storage.from("payment-proofs").getPublicUrl(path);
+      return publicUrl;
+    } catch (err) {
+      console.error("Upload error:", err);
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRegisterPayment = async () => {
+    let proofUrl = existingProofUrl;
+    if (proofFile) {
+      proofUrl = await uploadProof();
+    }
+
     updateInvoice.mutate(
       {
         id: invoice.id,
@@ -51,6 +83,7 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
           paid_amount_cents: paidAmountCents,
           payment_method: paymentMethod as PaymentMethod || undefined,
           notes: notes || undefined,
+          payment_proof_url: proofUrl || undefined,
         },
       },
       { onSuccess: () => onOpenChange(false) }
@@ -162,33 +195,85 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
                 </Select>
               </div>
 
+              {/* Payment proof upload for PIX/Cash */}
+              {showProofUpload && (
+                <div className="space-y-1.5">
+                  <Label>Comprovante de Pagamento</Label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,.pdf"
+                    className="hidden"
+                    onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                  />
+                  {proofFile ? (
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/30 p-2.5 text-sm">
+                      <FileCheck className="h-4 w-4 text-green-600 shrink-0" />
+                      <span className="truncate flex-1">{proofFile.name}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => { setProofFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                      >
+                        Remover
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full gap-2"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-4 w-4" />
+                      Anexar comprovante
+                    </Button>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <Label>Observações</Label>
                 <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
               </div>
 
               <div className="flex justify-between pt-2">
-                <Button type="button" variant="destructive" size="sm" onClick={handleCancel} disabled={updateInvoice.isPending}>
+                <Button type="button" variant="destructive" size="sm" onClick={handleCancel} disabled={updateInvoice.isPending || uploading}>
                   Cancelar Cobrança
                 </Button>
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                     Fechar
                   </Button>
-                  <Button onClick={handleRegisterPayment} disabled={updateInvoice.isPending}>
-                    {updateInvoice.isPending ? "Salvando..." : "Confirmar Pagamento"}
+                  <Button onClick={handleRegisterPayment} disabled={updateInvoice.isPending || uploading}>
+                    {uploading ? (
+                      <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Enviando...</>
+                    ) : updateInvoice.isPending ? "Salvando..." : "Confirmar Pagamento"}
                   </Button>
                 </div>
               </div>
             </>
           )}
 
-          {/* Read-only for paid/cancelled */}
+          {/* Read-only for paid/cancelled - show proof if exists */}
           {!canRegisterPayment && (
-            <div className="flex justify-end pt-2">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Fechar
-              </Button>
+            <div className="space-y-3">
+              {existingProofUrl && (
+                <div className="flex items-center gap-2 text-sm">
+                  <FileCheck className="h-4 w-4 text-green-600" />
+                  <a href={existingProofUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                    Ver comprovante
+                  </a>
+                </div>
+              )}
+              <div className="flex justify-end pt-2">
+                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                  Fechar
+                </Button>
+              </div>
             </div>
           )}
         </div>
