@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ScrollText, FileText, Receipt, TrendingUp, AlertTriangle, CheckCircle } from "lucide-react";
+import { ScrollText, FileText, Receipt, TrendingUp, AlertTriangle, CheckCircle, Truck, Building2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { KPICard } from "@/components/shared/KPICard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +11,8 @@ import { InvoicesTab } from "@/components/finance/InvoicesTab";
 import { ContractFormDialog } from "@/components/finance/ContractFormDialog";
 import { InvoiceFormDialog } from "@/components/finance/InvoiceFormDialog";
 import { NfseTab } from "@/components/finance/NfseTab";
+import { SuppliersTab } from "@/components/finance/SuppliersTab";
+import { BankAccountManager } from "@/components/finance/BankAccountManager";
 
 export default function Finance() {
   const [tab, setTab] = useState("contracts");
@@ -48,7 +50,7 @@ export default function Finance() {
 
   return (
     <div>
-      <PageHeader title="Financeiro" description="Contratos, faturas e pagamentos" />
+      <PageHeader title="Financeiro" description="Contratos, faturas, fornecedores e contas bancárias" />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard title="Contratos Ativos" value={String(kpis.activeContracts)} icon={ScrollText} />
@@ -63,7 +65,7 @@ export default function Finance() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="contracts" className="gap-1.5">
             <ScrollText className="h-4 w-4" /> Contratos
           </TabsTrigger>
@@ -72,6 +74,12 @@ export default function Finance() {
           </TabsTrigger>
           <TabsTrigger value="nfse" className="gap-1.5">
             <Receipt className="h-4 w-4" /> NF-e
+          </TabsTrigger>
+          <TabsTrigger value="suppliers" className="gap-1.5">
+            <Truck className="h-4 w-4" /> Fornecedores
+          </TabsTrigger>
+          <TabsTrigger value="bank-accounts" className="gap-1.5">
+            <Building2 className="h-4 w-4" /> Contas
           </TabsTrigger>
         </TabsList>
 
@@ -95,6 +103,14 @@ export default function Finance() {
 
         <TabsContent value="nfse">
           <NfseTab />
+        </TabsContent>
+
+        <TabsContent value="suppliers">
+          <SuppliersTab />
+        </TabsContent>
+
+        <TabsContent value="bank-accounts">
+          <BankAccountManager />
         </TabsContent>
       </Tabs>
 

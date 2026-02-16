@@ -60,7 +60,8 @@ export default function Expenses() {
 
   const filtered = expenses?.filter((e) =>
     !search.trim() || e.description.toLowerCase().includes(search.toLowerCase()) ||
-    e.category?.name?.toLowerCase().includes(search.toLowerCase())
+    e.category?.name?.toLowerCase().includes(search.toLowerCase()) ||
+    (e as any).supplier?.name?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -126,6 +127,7 @@ export default function Expenses() {
             <TableRow>
               <TableHead>Descrição</TableHead>
               <TableHead>Categoria</TableHead>
+              <TableHead>Fornecedor</TableHead>
               <TableHead>Valor</TableHead>
               <TableHead>Vencimento</TableHead>
               <TableHead>Pagamento</TableHead>
@@ -136,15 +138,16 @@ export default function Expenses() {
           <TableBody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}><TableCell colSpan={7}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
+                <TableRow key={i}><TableCell colSpan={8}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
               ))
             ) : !filtered?.length ? (
-              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma despesa encontrada</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhuma despesa encontrada</TableCell></TableRow>
             ) : (
               filtered.map((exp) => (
                 <TableRow key={exp.id}>
                   <TableCell className="font-medium">{exp.description}</TableCell>
                   <TableCell>{exp.category?.name || "—"}</TableCell>
+                  <TableCell>{(exp as any).supplier?.name || "—"}</TableCell>
                   <TableCell>{formatCents(exp.amount_cents)}</TableCell>
                   <TableCell>{formatDate(exp.due_date)}</TableCell>
                   <TableCell>{exp.payment_date ? formatDate(exp.payment_date) : "—"}</TableCell>
