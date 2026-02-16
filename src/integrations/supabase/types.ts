@@ -184,6 +184,7 @@ export type Database = {
           bank_id: string | null
           created_at: string
           error_message: string | null
+          file_hash: string | null
           file_name: string
           file_type: string
           file_url: string | null
@@ -202,6 +203,7 @@ export type Database = {
           bank_id?: string | null
           created_at?: string
           error_message?: string | null
+          file_hash?: string | null
           file_name: string
           file_type: string
           file_url?: string | null
@@ -220,6 +222,7 @@ export type Database = {
           bank_id?: string | null
           created_at?: string
           error_message?: string | null
+          file_hash?: string | null
           file_name?: string
           file_type?: string
           file_url?: string | null

@@ -134,12 +134,31 @@ export function useCancelSession() {
       if (error) throw error;
 
       if (withinCutoff && session.session_type === "personal" && session.student_id) {
-        await supabase.from("makeup_credits").insert({
-          student_id: session.student_id,
-          contract_id: session.contract_id,
-          original_session_id: session.id,
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        });
+        // Validate: check contract is active
+        let contractActive = true;
+        if (session.contract_id) {
+          const { data: contract } = await supabase
+            .from("contracts")
+            .select("status")
+            .eq("id", session.contract_id)
+            .single();
+          contractActive = contract?.status === "active";
+        }
+
+        // Validate: no duplicate credit for this session
+        const { count: existingCredits } = await supabase
+          .from("makeup_credits")
+          .select("id", { count: "exact", head: true })
+          .eq("original_session_id", session.id);
+
+        if (contractActive && (existingCredits ?? 0) === 0) {
+          await supabase.from("makeup_credits").insert({
+            student_id: session.student_id,
+            contract_id: session.contract_id,
+            original_session_id: session.id,
+            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          });
+        }
       }
 
       return { status: newStatus, withinCutoff };

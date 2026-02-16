@@ -45,6 +45,7 @@ export interface InvoiceFormData {
   paid_amount_cents?: number;
   payment_method?: PaymentMethod;
   notes?: string;
+  payment_proof_url?: string;
 }
 
 export const invoiceStatusLabels: Record<InvoiceStatus, string> = {
