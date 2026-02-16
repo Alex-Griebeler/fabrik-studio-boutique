@@ -128,7 +128,7 @@ export function LeadKanban({ leads, onSelectLead, onNewInteraction }: Props) {
                           <div className="flex items-start justify-between">
                             <button
                               onClick={() => onSelectLead(lead)}
-                              className="text-sm font-medium text-foreground hover:text-primary text-left transition-colors"
+                              className="text-sm font-medium text-foreground hover:text-primary text-left transition-colors truncate max-w-[180px]"
                             >
                               {lead.name}
                             </button>

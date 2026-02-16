@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,36 @@ serve(async (req) => {
   }
 
   try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    // --- JWT Validation (allows user JWT or service_role key) ---
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+
+    // Allow internal calls using service_role key
+    if (token !== serviceRoleKey) {
+      const supabaseAuth = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
+      if (claimsError || !claimsData?.claims) {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+    // --- End JWT Validation ---
+
     const { to, message } = await req.json();
 
     if (!to || !message) {
@@ -32,14 +63,9 @@ serve(async (req) => {
       );
     }
 
-    // Format the "to" number for WhatsApp
     const cleanFrom = fromNumber.trim().replace(/^whatsapp:/, "");
     const toWhatsApp = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
     const fromWhatsApp = `whatsapp:${cleanFrom}`;
-    
-    console.log("DEBUG - From number raw:", JSON.stringify(fromNumber));
-    console.log("DEBUG - From formatted:", fromWhatsApp);
-    console.log("DEBUG - To formatted:", toWhatsApp);
 
     const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
 
@@ -75,7 +101,7 @@ serve(async (req) => {
   } catch (error) {
     console.error("Error:", error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: (error as Error).message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

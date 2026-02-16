@@ -17,7 +17,31 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    // --- JWT Validation ---
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    // --- End JWT Validation ---
+
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const { invoice_id } = (await req.json()) as EmitNfsePayload;
@@ -58,11 +82,11 @@ Deno.serve(async (req) => {
       );
     }
 
-    const student = invoice.student as any;
-    const tomadorNome = student?.full_name ?? "Cliente";
-    const tomadorCpf = student?.cpf ?? null;
-    const tomadorEmail = student?.email ?? null;
-    const tomadorEndereco = student?.address ?? null;
+    const student = invoice.student as Record<string, unknown>;
+    const tomadorNome = (student?.full_name as string) ?? "Cliente";
+    const tomadorCpf = (student?.cpf as string) ?? null;
+    const tomadorEmail = (student?.email as string) ?? null;
+    const tomadorEndereco = (student?.address as Record<string, string>) ?? null;
 
     // 3. Verificar se temos API key da Focusnfe
     const focusNfeToken = Deno.env.get("FOCUSNFE_API_KEY");
@@ -71,8 +95,6 @@ Deno.serve(async (req) => {
     let nfseData: Record<string, unknown>;
 
     if (isMock) {
-      // ============ MODO MOCK ============
-      // Simula a resposta da API Focusnfe
       const mockNumber = `MOCK-${Date.now().toString(36).toUpperCase()}`;
       const mockExternalId = `mock_${crypto.randomUUID().slice(0, 8)}`;
 
@@ -88,7 +110,7 @@ Deno.serve(async (req) => {
         tomador_endereco: tomadorEndereco,
         nfse_number: mockNumber,
         external_id: mockExternalId,
-        status: "authorized", // Mock: autoriza direto
+        status: "authorized",
         authorization_date: new Date().toISOString(),
         pdf_url: `https://mock-nfse.example.com/pdf/${mockExternalId}`,
         xml_url: `https://mock-nfse.example.com/xml/${mockExternalId}`,
@@ -99,14 +121,11 @@ Deno.serve(async (req) => {
         },
       };
     } else {
-      // ============ MODO REAL (Focusnfe) ============
-      // Preparar payload Focusnfe
       const focusPayload = {
         data_emissao: new Date().toISOString(),
-        natureza_operacao: "1", // Tributação no município
+        natureza_operacao: "1",
         optante_simples_nacional: true,
         prestador: {
-          // TODO: Configurar dados do prestador via policies/settings
           cnpj: "",
           inscricao_municipal: "",
           codigo_municipio: "",
@@ -130,8 +149,8 @@ Deno.serve(async (req) => {
         servico: {
           valor_servicos: (invoice.amount_cents / 100).toFixed(2),
           discriminacao: "Serviços de treinamento funcional",
-          codigo_tributario_municipio: "", // TODO: Configurar
-          aliquota: 0, // TODO: Configurar
+          codigo_tributario_municipio: "",
+          aliquota: 0,
           iss_retido: false,
         },
       };
@@ -151,7 +170,6 @@ Deno.serve(async (req) => {
       const focusData = await focusResponse.json();
 
       if (!focusResponse.ok) {
-        // Salvar NF-e com erro
         nfseData = {
           invoice_id,
           student_id: invoice.student_id,
