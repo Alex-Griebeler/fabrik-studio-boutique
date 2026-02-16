@@ -58,8 +58,12 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
       const path = `${invoice.id}/${Date.now()}.${ext}`;
       const { error } = await supabase.storage.from("payment-proofs").upload(path, proofFile);
       if (error) throw error;
-      const { data: { publicUrl } } = supabase.storage.from("payment-proofs").getPublicUrl(path);
-      return publicUrl;
+      // Use signed URL for private bucket (valid for 1 hour)
+      const { data, error: signError } = await supabase.storage
+        .from("payment-proofs")
+        .createSignedUrl(path, 3600);
+      if (signError) throw signError;
+      return data?.signedUrl || null;
     } catch (err) {
       console.error("Upload error:", err);
       return null;

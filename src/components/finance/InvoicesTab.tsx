@@ -112,11 +112,11 @@ export function InvoicesTab({ invoices, isLoading, onEdit }: Props) {
                       {invoiceStatusLabels[inv.status]}
                     </Badge>
                   </TableCell>
-                  <TableCell>
-                    <Button size="sm" variant="ghost" onClick={() => onEdit(inv)}>
-                      {inv.status === "pending" || inv.status === "overdue" ? "Registrar Pgto" : "Ver"}
-                    </Button>
-                  </TableCell>
+                   <TableCell>
+                     <Button size="sm" variant="ghost" onClick={() => onEdit(inv)}>
+                       {inv.status === "pending" || inv.status === "overdue" || inv.status === "scheduled" ? "Registrar Pgto" : "Ver"}
+                     </Button>
+                   </TableCell>
                 </TableRow>
               ))
             )}

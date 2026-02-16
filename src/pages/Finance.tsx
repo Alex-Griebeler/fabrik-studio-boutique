@@ -17,10 +17,12 @@ import { BankAccountManager } from "@/components/finance/BankAccountManager";
 export default function Finance() {
   const [tab, setTab] = useState("contracts");
 
-  const { data: allContracts } = useContracts("all");
-  const { data: allInvoices } = useInvoices("all");
   const { data: contracts, isLoading: loadingContracts } = useContracts("all");
   const { data: invoices, isLoading: loadingInvoices } = useInvoices("all");
+  
+  // Use the same data for KPIs calculations
+  const allContracts = contracts;
+  const allInvoices = invoices;
 
   const [contractDialogOpen, setContractDialogOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
