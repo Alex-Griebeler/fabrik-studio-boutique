@@ -6,14 +6,11 @@ const corsHeaders = {
 };
 
 /**
- * Gera faturas mensais automaticamente a partir de contratos ativos.
- * Executada via Cron no dia 1 de cada mês (ou manualmente).
+ * Gera cobranças para contratos.
  *
- * - Busca contratos ativos
- * - Calcula valor líquido (mensal - desconto)
- * - Usa payment_day do contrato como dia de vencimento
- * - Verifica duplicidade por contract_id + competence_date
- * - Gera invoice_number sequencial: FAT-YYYY-NNNNN
+ * Dois modos de operação:
+ * 1. "contract-created": recebe contract_id e gera cobranças conforme payment_method
+ * 2. "cron" (default): verifica cobranças scheduled cuja data chegou + despesas recorrentes
  */
 
 Deno.serve(async (req) => {
@@ -24,7 +21,6 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: accept service role (cron) or authenticated user
     const authHeader = req.headers.get("Authorization");
     const isServiceCall = authHeader?.includes(serviceKey);
 
@@ -37,103 +33,162 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
-    const targetMonth = body.target_month; // optional: "YYYY-MM-DD"
+    const mode = body.mode || "cron";
 
-    const now = new Date();
-    const competenceDate = targetMonth
-      ? new Date(targetMonth + "T00:00:00")
-      : new Date(now.getFullYear(), now.getMonth(), 1);
+    // ─── MODE: CONTRACT-CREATED ───
+    if (mode === "contract-created") {
+      const contractId = body.contract_id;
+      if (!contractId) return json({ error: "contract_id é obrigatório" }, 400);
 
-    const competenceStr = competenceDate.toISOString().substring(0, 10);
-    const year = competenceDate.getFullYear();
-    const month = competenceDate.getMonth() + 1;
+      const { data: contract, error: cErr } = await supabase
+        .from("contracts")
+        .select("*, plan:plans(name, duration, price_cents)")
+        .eq("id", contractId)
+        .single();
 
-    console.log(`Generating invoices for competence: ${competenceStr}`);
+      if (cErr || !contract) return json({ error: "Contrato não encontrado", details: cErr?.message }, 404);
 
-    // 1. Fetch active contracts with plan info
-    const { data: contracts, error: cErr } = await supabase
-      .from("contracts")
-      .select("id, student_id, plan_id, monthly_value_cents, discount_cents, payment_day, start_date, end_date")
-      .eq("status", "active");
+      const paymentMethod = contract.payment_method;
+      const installments = contract.installments || 1;
+      const totalValueCents = contract.total_value_cents || contract.monthly_value_cents || 0;
+      const discountCents = contract.discount_cents || 0;
+      const netValue = totalValueCents - discountCents;
 
-    if (cErr) return json({ error: "Erro ao buscar contratos", details: cErr.message }, 500);
-    if (!contracts || contracts.length === 0) {
-      return json({ success: true, message: "Nenhum contrato ativo", created: 0 });
-    }
+      if (netValue <= 0) return json({ success: true, message: "Valor líquido zerado", created: 0 });
 
-    // 2. Check existing invoices for this competence to avoid duplicates
-    const contractIds = contracts.map(c => c.id);
-    const { data: existing } = await supabase
-      .from("invoices")
-      .select("contract_id")
-      .eq("competence_date", competenceStr)
-      .in("contract_id", contractIds);
+      const installmentDates: string[] = body.installment_dates || [];
+      const startDate = new Date(contract.start_date + "T00:00:00");
 
-    const existingSet = new Set((existing ?? []).map(e => e.contract_id));
+      // Get next invoice number
+      const year = startDate.getFullYear();
+      const { data: lastInv } = await supabase
+        .from("invoices")
+        .select("invoice_number")
+        .like("invoice_number", `FAT-${year}-%`)
+        .order("invoice_number", { ascending: false })
+        .limit(1);
 
-    // 3. Get last invoice number for sequential numbering
-    const { data: lastInv } = await supabase
-      .from("invoices")
-      .select("invoice_number")
-      .like("invoice_number", `FAT-${year}-%`)
-      .order("invoice_number", { ascending: false })
-      .limit(1);
+      let seq = 1;
+      if (lastInv && lastInv.length > 0 && lastInv[0].invoice_number) {
+        const parts = lastInv[0].invoice_number.split("-");
+        const lastNum = parseInt(parts[2]);
+        if (!isNaN(lastNum)) seq = lastNum + 1;
+      }
 
-    let seq = 1;
-    if (lastInv && lastInv.length > 0 && lastInv[0].invoice_number) {
-      const parts = lastInv[0].invoice_number.split("-");
-      const lastNum = parseInt(parts[2]);
-      if (!isNaN(lastNum)) seq = lastNum + 1;
-    }
+      let paymentType = "cash";
+      if (paymentMethod === "dcc") paymentType = "dcc";
+      else if (paymentMethod === "card_machine") paymentType = "card_machine";
+      else if (paymentMethod === "pix") paymentType = "pix";
+      else if (paymentMethod === "cash") paymentType = "cash";
 
-    // 4. Generate invoices
-    const invoicesToCreate = [];
-    for (const contract of contracts) {
-      if (existingSet.has(contract.id)) continue;
+      const invoicesToCreate = [];
 
-      // Skip if contract hasn't started yet
-      if (contract.start_date && new Date(contract.start_date) > competenceDate) continue;
+      if ((paymentMethod === "dcc" || paymentMethod === "pix") && installments > 1) {
+        // Multiple installments
+        const baseAmount = Math.round(netValue / installments);
+        
+        for (let i = 0; i < installments; i++) {
+          // Last installment absorbs rounding difference
+          const amount = i === installments - 1 
+            ? netValue - baseAmount * (installments - 1) 
+            : baseAmount;
 
-      // Skip if contract has ended
-      if (contract.end_date && new Date(contract.end_date) < competenceDate) continue;
+          let dueDate: string;
+          if (installmentDates[i]) {
+            dueDate = installmentDates[i];
+          } else {
+            const d = new Date(startDate);
+            d.setDate(d.getDate() + i * 30);
+            dueDate = d.toISOString().substring(0, 10);
+          }
 
-      const amountCents = (contract.monthly_value_cents ?? 0) - (contract.discount_cents ?? 0);
-      if (amountCents <= 0) continue;
+          const invoiceNumber = `FAT-${year}-${String(seq).padStart(5, "0")}`;
+          const status = paymentMethod === "dcc" ? "scheduled" : "pending";
 
-      const paymentDay = contract.payment_day ?? 10;
-      const dueDate = `${year}-${String(month).padStart(2, "0")}-${String(Math.min(paymentDay, 28)).padStart(2, "0")}`;
-      const invoiceNumber = `FAT-${year}-${String(seq).padStart(5, "0")}`;
+          invoicesToCreate.push({
+            contract_id: contractId,
+            student_id: contract.student_id,
+            amount_cents: amount,
+            due_date: dueDate,
+            scheduled_date: paymentMethod === "dcc" ? dueDate : null,
+            status,
+            payment_type: paymentType,
+            installment_number: i + 1,
+            total_installments: installments,
+            invoice_number: invoiceNumber,
+            reference_month: dueDate.substring(0, 7),
+          });
+          seq++;
+        }
+      } else {
+        // Single charge (card_machine, cash, single PIX)
+        const dueDate = installmentDates[0] || contract.start_date;
+        const invoiceNumber = `FAT-${year}-${String(seq).padStart(5, "0")}`;
 
-      invoicesToCreate.push({
-        contract_id: contract.id,
-        student_id: contract.student_id,
-        amount_cents: amountCents,
-        due_date: dueDate,
-        competence_date: competenceStr,
-        invoice_number: invoiceNumber,
-        status: "pending",
-        reference_month: `${year}-${String(month).padStart(2, "0")}`,
-      });
-      seq++;
-    }
+        invoicesToCreate.push({
+          contract_id: contractId,
+          student_id: contract.student_id,
+          amount_cents: netValue,
+          due_date: dueDate,
+          scheduled_date: null,
+          status: "pending",
+          payment_type: paymentType,
+          installment_number: 1,
+          total_installments: 1,
+          invoice_number: invoiceNumber,
+          reference_month: dueDate.substring(0, 7),
+        });
+      }
 
-    let created = 0;
-    if (invoicesToCreate.length > 0) {
-      const { data: ins, error: iErr } = await supabase
+      const { data: created, error: iErr } = await supabase
         .from("invoices")
         .insert(invoicesToCreate)
         .select("id");
 
       if (iErr) {
-        console.error("Error creating invoices:", iErr.message);
-        return json({ error: "Erro ao criar faturas", details: iErr.message }, 500);
+        console.error("Error creating charges:", iErr.message);
+        return json({ error: "Erro ao criar cobranças", details: iErr.message }, 500);
       }
-      created = ins?.length ?? 0;
+
+      console.log(`Created ${created?.length ?? 0} charges for contract ${contractId}`);
+
+      return json({
+        success: true,
+        mode: "contract-created",
+        contract_id: contractId,
+        charges_created: created?.length ?? 0,
+        payment_type: paymentType,
+      });
     }
 
-    console.log(`Created ${created} invoices for ${competenceStr}`);
+    // ─── MODE: CRON (daily) ───
+    const today = new Date().toISOString().substring(0, 10);
 
-    // 5. Generate recurring expenses
+    // 1. Activate scheduled DCC charges whose date has arrived
+    const { data: scheduledCharges } = await supabase
+      .from("invoices")
+      .select("id")
+      .eq("status", "scheduled")
+      .lte("scheduled_date", today);
+
+    let activated = 0;
+    if (scheduledCharges && scheduledCharges.length > 0) {
+      const ids = scheduledCharges.map(c => c.id);
+      const { error: actErr } = await supabase
+        .from("invoices")
+        .update({ status: "pending" })
+        .in("id", ids);
+      if (!actErr) activated = ids.length;
+      else console.error("Error activating scheduled charges:", actErr.message);
+    }
+
+    // 2. Generate recurring expenses (monthly cron)
+    const now = new Date();
+    const competenceDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    const competenceStr = competenceDate.toISOString().substring(0, 10);
+    const year = competenceDate.getFullYear();
+    const month = competenceDate.getMonth() + 1;
+
     let recurringCreated = 0;
     const { data: recurringExpenses } = await supabase
       .from("expenses")
@@ -144,7 +199,6 @@ Deno.serve(async (req) => {
     if (recurringExpenses && recurringExpenses.length > 0) {
       const expensesToCreate = [];
       for (const exp of recurringExpenses) {
-        // Check if already generated for this month
         const { data: existingExp } = await supabase
           .from("expenses")
           .select("id")
@@ -179,12 +233,13 @@ Deno.serve(async (req) => {
       }
     }
 
+    console.log(`Cron: ${activated} charges activated, ${recurringCreated} recurring expenses created`);
+
     return json({
       success: true,
-      competence: competenceStr,
-      invoices_created: created,
+      mode: "cron",
+      scheduled_activated: activated,
       recurring_expenses_created: recurringCreated,
-      skipped_duplicates: existingSet.size,
     });
   } catch (error) {
     console.error("Error:", error);

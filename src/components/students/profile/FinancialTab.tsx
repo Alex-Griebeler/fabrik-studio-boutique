@@ -11,12 +11,15 @@ function formatCurrency(cents: number | null): string {
 
 interface Invoice {
   id: string;
-  status: "pending" | "paid" | "overdue" | "cancelled";
+  status: "pending" | "paid" | "overdue" | "cancelled" | "scheduled";
   amount_cents: number;
   paid_amount_cents: number | null;
   due_date: string;
   payment_date: string | null;
   reference_month: string | null;
+  payment_type?: string | null;
+  installment_number?: number | null;
+  total_installments?: number | null;
 }
 
 interface Props {

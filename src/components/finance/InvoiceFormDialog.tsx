@@ -5,14 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useCreateInvoice, useUpdateInvoice, invoiceStatusLabels, type Invoice, type InvoiceFormData } from "@/hooks/useInvoices";
-import { useContracts, paymentMethodLabels } from "@/hooks/useContracts";
+import { Badge } from "@/components/ui/badge";
+import { useUpdateInvoice, invoiceStatusLabels, invoiceStatusColors, paymentTypeLabels, type Invoice } from "@/hooks/useInvoices";
+import { paymentMethodLabels, activePaymentMethods } from "@/hooks/useContracts";
+import { formatCents } from "@/hooks/usePlans";
 import type { Database } from "@/integrations/supabase/types";
 
-type InvoiceStatus = Database["public"]["Enums"]["invoice_status"];
 type PaymentMethod = Database["public"]["Enums"]["payment_method"];
-const paymentMethods: PaymentMethod[] = ["pix", "credit_card", "debit_card", "boleto", "cash", "transfer"];
-const statuses: InvoiceStatus[] = ["pending", "paid", "overdue", "cancelled"];
 
 interface Props {
   open: boolean;
@@ -21,170 +20,178 @@ interface Props {
 }
 
 export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
-  const { data: contracts } = useContracts("active");
-  const createInvoice = useCreateInvoice();
   const updateInvoice = useUpdateInvoice();
 
-  const [form, setForm] = useState<InvoiceFormData>({
-    contract_id: "",
-    amount_cents: 0,
-    due_date: new Date().toISOString().slice(0, 10),
-    status: "pending",
-    reference_month: "",
-    payment_date: "",
-    paid_amount_cents: undefined,
-    payment_method: undefined,
-    notes: "",
-  });
+  const [paymentDate, setPaymentDate] = useState("");
+  const [paidAmountCents, setPaidAmountCents] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">("");
+  const [notes, setNotes] = useState("");
 
   useEffect(() => {
     if (invoice) {
-      setForm({
-        contract_id: invoice.contract_id,
-        student_id: invoice.student_id || undefined,
-        amount_cents: invoice.amount_cents,
-        due_date: invoice.due_date,
-        status: invoice.status,
-        reference_month: invoice.reference_month || "",
-        payment_date: invoice.payment_date || "",
-        paid_amount_cents: invoice.paid_amount_cents || undefined,
-        payment_method: invoice.payment_method || undefined,
-        notes: invoice.notes || "",
-      });
-    } else {
-      setForm({
-        contract_id: "",
-        amount_cents: 0,
-        due_date: new Date().toISOString().slice(0, 10),
-        status: "pending",
-        reference_month: "",
-        payment_date: "",
-        paid_amount_cents: undefined,
-        payment_method: undefined,
-        notes: "",
-      });
+      setPaymentDate(invoice.payment_date || new Date().toISOString().slice(0, 10));
+      setPaidAmountCents(invoice.paid_amount_cents || invoice.amount_cents);
+      setPaymentMethod(invoice.payment_method || "");
+      setNotes(invoice.notes || "");
     }
   }, [invoice, open]);
 
-  // Auto-fill student_id and amount when contract changes
-  useEffect(() => {
-    if (form.contract_id && contracts && !invoice) {
-      const c = contracts.find((ct) => ct.id === form.contract_id);
-      if (c) {
-        setForm((prev) => ({
-          ...prev,
-          student_id: c.student_id,
-          amount_cents: (c.monthly_value_cents || 0) - (c.discount_cents || 0),
-        }));
-      }
-    }
-  }, [form.contract_id, contracts, invoice]);
+  if (!invoice) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (invoice) {
-      updateInvoice.mutate({ id: invoice.id, data: form }, { onSuccess: () => onOpenChange(false) });
-    } else {
-      createInvoice.mutate(form, { onSuccess: () => onOpenChange(false) });
-    }
+  const canRegisterPayment = invoice.status === "pending" || invoice.status === "overdue" || invoice.status === "scheduled";
+  const totalWithPenalties = invoice.amount_cents + (invoice.fine_amount_cents || 0) + (invoice.interest_amount_cents || 0);
+
+  const handleRegisterPayment = () => {
+    updateInvoice.mutate(
+      {
+        id: invoice.id,
+        data: {
+          status: "paid",
+          payment_date: paymentDate,
+          paid_amount_cents: paidAmountCents,
+          payment_method: paymentMethod as PaymentMethod || undefined,
+          notes: notes || undefined,
+        },
+      },
+      { onSuccess: () => onOpenChange(false) }
+    );
   };
 
-  const isPending = createInvoice.isPending || updateInvoice.isPending;
+  const handleCancel = () => {
+    updateInvoice.mutate(
+      {
+        id: invoice.id,
+        data: { status: "cancelled", notes: notes || undefined },
+      },
+      { onSuccess: () => onOpenChange(false) }
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{invoice ? "Editar Fatura" : "Nova Fatura"}</DialogTitle>
+          <DialogTitle>
+            {canRegisterPayment ? "Registrar Pagamento" : "Detalhes da Cobrança"}
+          </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Contract */}
-          <div className="space-y-1.5">
-            <Label>Contrato *</Label>
-            <Select value={form.contract_id} onValueChange={(v) => setForm({ ...form, contract_id: v })}>
-              <SelectTrigger><SelectValue placeholder="Selecione o contrato" /></SelectTrigger>
-              <SelectContent>
-                {contracts?.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.student?.full_name} — {c.plan?.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Valor (R$) *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={(form.amount_cents / 100).toFixed(2)}
-                onChange={(e) => setForm({ ...form, amount_cents: Math.round(parseFloat(e.target.value || "0") * 100) })}
-                required
-              />
+        <div className="space-y-4">
+          {/* Info summary */}
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Aluno</span>
+              <span className="font-medium">{invoice.student?.full_name || "—"}</span>
             </div>
-            <div className="space-y-1.5">
-              <Label>Mês Referência</Label>
-              <Input
-                type="month"
-                value={form.reference_month || ""}
-                onChange={(e) => setForm({ ...form, reference_month: e.target.value })}
-              />
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Tipo</span>
+              <span>{invoice.payment_type ? paymentTypeLabels[invoice.payment_type] || invoice.payment_type : "—"}</span>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Vencimento *</Label>
-              <Input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} required />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Status</Label>
-              <Select value={form.status || "pending"} onValueChange={(v) => setForm({ ...form, status: v as InvoiceStatus })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {statuses.map((s) => (
-                    <SelectItem key={s} value={s}>{invoiceStatusLabels[s]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Payment info (shown when marking as paid) */}
-          {form.status === "paid" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Data Pagamento</Label>
-                <Input type="date" value={form.payment_date || ""} onChange={(e) => setForm({ ...form, payment_date: e.target.value })} />
+            {invoice.installment_number && invoice.total_installments && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Parcela</span>
+                <span>{invoice.installment_number}/{invoice.total_installments}</span>
               </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Valor Original</span>
+              <span className="font-medium">{formatCents(invoice.amount_cents)}</span>
+            </div>
+            {(invoice.fine_amount_cents || 0) > 0 && (
+              <div className="flex justify-between text-destructive">
+                <span>Multa</span>
+                <span>{formatCents(invoice.fine_amount_cents || 0)}</span>
+              </div>
+            )}
+            {(invoice.interest_amount_cents || 0) > 0 && (
+              <div className="flex justify-between text-destructive">
+                <span>Juros</span>
+                <span>{formatCents(invoice.interest_amount_cents || 0)}</span>
+              </div>
+            )}
+            {totalWithPenalties !== invoice.amount_cents && (
+              <div className="flex justify-between font-semibold border-t pt-1">
+                <span>Total</span>
+                <span>{formatCents(totalWithPenalties)}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Vencimento</span>
+              <span>{invoice.due_date}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Status</span>
+              <Badge variant="outline" className={invoiceStatusColors[invoice.status]}>
+                {invoiceStatusLabels[invoice.status]}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Register payment form */}
+          {canRegisterPayment && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Data Pagamento</Label>
+                  <Input
+                    type="date"
+                    value={paymentDate}
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Valor Pago (R$)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={(paidAmountCents / 100).toFixed(2)}
+                    onChange={(e) => setPaidAmountCents(Math.round(parseFloat(e.target.value || "0") * 100))}
+                  />
+                </div>
+              </div>
+
               <div className="space-y-1.5">
-                <Label>Forma Pagamento</Label>
-                <Select value={form.payment_method || ""} onValueChange={(v) => setForm({ ...form, payment_method: v as PaymentMethod })}>
+                <Label>Forma de Pagamento</Label>
+                <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
                   <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
-                    {paymentMethods.map((m) => (
+                    {activePaymentMethods.map((m) => (
                       <SelectItem key={m} value={m}>{paymentMethodLabels[m]}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            </div>
+
+              <div className="space-y-1.5">
+                <Label>Observações</Label>
+                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+              </div>
+
+              <div className="flex justify-between pt-2">
+                <Button type="button" variant="destructive" size="sm" onClick={handleCancel} disabled={updateInvoice.isPending}>
+                  Cancelar Cobrança
+                </Button>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                    Fechar
+                  </Button>
+                  <Button onClick={handleRegisterPayment} disabled={updateInvoice.isPending}>
+                    {updateInvoice.isPending ? "Salvando..." : "Confirmar Pagamento"}
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
 
-          <div className="space-y-1.5">
-            <Label>Observações</Label>
-            <Textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button type="submit" disabled={isPending || !form.contract_id}>
-              {isPending ? "Salvando..." : invoice ? "Salvar" : "Criar Fatura"}
-            </Button>
-          </div>
-        </form>
+          {/* Read-only for paid/cancelled */}
+          {!canRegisterPayment && (
+            <div className="flex justify-end pt-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Fechar
+              </Button>
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
