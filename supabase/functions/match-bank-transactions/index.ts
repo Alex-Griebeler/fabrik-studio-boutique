@@ -10,12 +10,15 @@ const corsHeaders = {
  * com invoices (créditos) e expenses (débitos) pendentes.
  *
  * Critérios de match:
- *  - Valor exato (amount_cents)
+ *  - Valor exato ou aproximado (tolerância ±R$ 0,50 = 50 cents)
  *  - Data próxima (±5 dias entre posted_date e due_date)
  *  - Bonus: nome/documento na descrição
+ *  - Detecção especial de transações Rede (maquininha)
  *
  * Confiança: "high" (valor+data exata), "medium" (valor+data próxima), "low" (apenas valor)
  */
+
+const TOLERANCE_CENTS = 50; // ±R$ 0,50
 
 interface MatchSuggestion {
   transaction_id: string;
@@ -59,7 +62,7 @@ Deno.serve(async (req) => {
     const { data: transactions, error: txErr } = await txQuery;
     if (txErr) return json({ error: "Erro ao buscar transações", details: txErr.message }, 500);
     if (!transactions || transactions.length === 0) {
-      return json({ success: true, message: "Nenhuma transação não conciliada", matches: [], stats: { total: 0, matched: 0 } });
+      return json({ success: true, message: "Nenhuma transação não conciliada", matches: [], stats: { total_transactions: 0, total_matches: 0, high_confidence: 0, medium_confidence: 0, low_confidence: 0, auto_applied: 0 } });
     }
 
     // 2. Fetch pending invoices (for credit matching)
@@ -74,9 +77,9 @@ Deno.serve(async (req) => {
       .select("id, amount_cents, due_date, description, category_id")
       .eq("status", "pending");
 
-    // 4. Also fetch student names for better matching
+    // 4. Fetch student names for better matching
     const studentIds = [...new Set((invoices ?? []).map(i => i.student_id).filter(Boolean))];
-    let studentMap = new Map<string, string>();
+    const studentMap = new Map<string, string>();
     if (studentIds.length > 0) {
       const { data: students } = await supabase
         .from("students")
@@ -94,46 +97,77 @@ Deno.serve(async (req) => {
       const txDate = new Date(tx.posted_date + "T00:00:00");
       const memoUpper = (tx.memo ?? "").toUpperCase();
       const parsedNameUpper = (tx.parsed_name ?? "").toUpperCase();
+      const isRedeTransaction = memoUpper.includes("REDE") || memoUpper.includes("REDECARD") || tx.parsed_type?.startsWith("card_");
 
       if (tx.transaction_type === "credit" && invoices) {
-        // Match credits against invoices
-        let bestMatch: { id: string; confidence: "high" | "medium" | "low"; reason: string } | null = null;
+        let bestMatch: { id: string; confidence: "high" | "medium" | "low"; reason: string; feeCents: number } | null = null;
 
         for (const inv of invoices) {
           if (usedInvoices.has(inv.id)) continue;
-          if (inv.amount_cents !== absCents) continue;
 
-          // Value matches — check date proximity
+          // Check value match with tolerance
+          const valueDiff = Math.abs(inv.amount_cents - absCents);
+          const isExactMatch = valueDiff === 0;
+          const isApproxMatch = valueDiff > 0 && valueDiff <= TOLERANCE_CENTS;
+
+          // For Rede transactions, allow larger tolerance (processor fees)
+          const isRedeMatch = isRedeTransaction && absCents < inv.amount_cents && (inv.amount_cents - absCents) <= Math.round(inv.amount_cents * 0.05); // up to 5% fee
+
+          if (!isExactMatch && !isApproxMatch && !isRedeMatch) continue;
+
           const invDate = new Date(inv.due_date + "T00:00:00");
           const daysDiff = Math.abs((txDate.getTime() - invDate.getTime()) / (1000 * 60 * 60 * 24));
 
-          // Check if student name appears in memo
           const studentName = inv.student_id ? studentMap.get(inv.student_id) : null;
           const nameMatch = studentName && (memoUpper.includes(studentName) || parsedNameUpper.includes(studentName));
 
           let confidence: "high" | "medium" | "low";
           let reason: string;
+          let feeCents = 0;
 
-          if (daysDiff <= 1 && nameMatch) {
-            confidence = "high";
-            reason = `Valor exato (${fmtCents(absCents)}), data coincide, nome do aluno encontrado`;
-          } else if (daysDiff <= 1) {
-            confidence = "high";
-            reason = `Valor exato (${fmtCents(absCents)}) e data coincide (${tx.posted_date})`;
-          } else if (daysDiff <= 5) {
-            confidence = "medium";
-            reason = `Valor exato (${fmtCents(absCents)}), data próxima (${Math.round(daysDiff)} dias)`;
-          } else if (daysDiff <= 15) {
-            confidence = "low";
-            reason = `Valor exato (${fmtCents(absCents)}), data distante (${Math.round(daysDiff)} dias)`;
+          if (isRedeMatch) {
+            feeCents = inv.amount_cents - absCents;
+            if (daysDiff <= 5) {
+              confidence = "high";
+              reason = `Rede: valor líquido ${fmtCents(absCents)} (taxa ${fmtCents(feeCents)}), data próxima`;
+            } else if (daysDiff <= 15) {
+              confidence = "medium";
+              reason = `Rede: valor líquido ${fmtCents(absCents)} (taxa ${fmtCents(feeCents)}), ${Math.round(daysDiff)} dias`;
+            } else {
+              continue;
+            }
+          } else if (isExactMatch) {
+            if (daysDiff <= 1 && nameMatch) {
+              confidence = "high";
+              reason = `Valor exato (${fmtCents(absCents)}), data coincide, nome encontrado`;
+            } else if (daysDiff <= 1) {
+              confidence = "high";
+              reason = `Valor exato (${fmtCents(absCents)}) e data coincide`;
+            } else if (daysDiff <= 5) {
+              confidence = "medium";
+              reason = `Valor exato (${fmtCents(absCents)}), data próxima (${Math.round(daysDiff)} dias)`;
+            } else if (daysDiff <= 15) {
+              confidence = "low";
+              reason = `Valor exato (${fmtCents(absCents)}), data distante (${Math.round(daysDiff)} dias)`;
+            } else {
+              continue;
+            }
           } else {
-            continue; // too far apart
+            // Approximate match
+            if (daysDiff <= 3) {
+              confidence = "medium";
+              reason = `Valor aproximado (${fmtCents(absCents)} ≈ ${fmtCents(inv.amount_cents)}), data próxima`;
+            } else if (daysDiff <= 10) {
+              confidence = "low";
+              reason = `Valor aproximado (${fmtCents(absCents)} ≈ ${fmtCents(inv.amount_cents)}), ${Math.round(daysDiff)} dias`;
+            } else {
+              continue;
+            }
           }
 
-          // Pick best match (higher confidence wins, then closer date)
           if (!bestMatch || confScore(confidence) > confScore(bestMatch.confidence) ||
               (confScore(confidence) === confScore(bestMatch.confidence) && daysDiff < 5)) {
-            bestMatch = { id: inv.id, confidence, reason };
+            bestMatch = { id: inv.id, confidence, reason, feeCents };
           }
         }
 
@@ -146,38 +180,61 @@ Deno.serve(async (req) => {
             reason: bestMatch.reason,
           });
           usedInvoices.add(bestMatch.id);
+
+          // Record processor fee if Rede transaction
+          if (bestMatch.feeCents > 0) {
+            await supabase
+              .from("bank_transactions")
+              .update({ processor_fee_cents: bestMatch.feeCents })
+              .eq("id", tx.id);
+          }
         }
       } else if (tx.transaction_type === "debit" && expenses) {
-        // Match debits against expenses
         let bestMatch: { id: string; confidence: "high" | "medium" | "low"; reason: string } | null = null;
 
         for (const exp of expenses) {
           if (usedExpenses.has(exp.id)) continue;
-          if (exp.amount_cents !== absCents) continue;
+
+          const valueDiff = Math.abs(exp.amount_cents - absCents);
+          const isExactMatch = valueDiff === 0;
+          const isApproxMatch = valueDiff > 0 && valueDiff <= TOLERANCE_CENTS;
+
+          if (!isExactMatch && !isApproxMatch) continue;
 
           const expDate = new Date(exp.due_date + "T00:00:00");
           const daysDiff = Math.abs((txDate.getTime() - expDate.getTime()) / (1000 * 60 * 60 * 24));
 
-          // Check if expense description appears in memo
           const descMatch = exp.description && memoUpper.includes(exp.description.toUpperCase().substring(0, 10));
 
           let confidence: "high" | "medium" | "low";
           let reason: string;
 
-          if (daysDiff <= 1 && descMatch) {
-            confidence = "high";
-            reason = `Valor exato (${fmtCents(absCents)}), data coincide, descrição encontrada`;
-          } else if (daysDiff <= 1) {
-            confidence = "high";
-            reason = `Valor exato (${fmtCents(absCents)}) e data coincide`;
-          } else if (daysDiff <= 5) {
-            confidence = "medium";
-            reason = `Valor exato (${fmtCents(absCents)}), data próxima (${Math.round(daysDiff)} dias)`;
-          } else if (daysDiff <= 15) {
-            confidence = "low";
-            reason = `Valor exato (${fmtCents(absCents)}), data distante (${Math.round(daysDiff)} dias)`;
+          if (isExactMatch) {
+            if (daysDiff <= 1 && descMatch) {
+              confidence = "high";
+              reason = `Valor exato (${fmtCents(absCents)}), data coincide, descrição encontrada`;
+            } else if (daysDiff <= 1) {
+              confidence = "high";
+              reason = `Valor exato (${fmtCents(absCents)}) e data coincide`;
+            } else if (daysDiff <= 5) {
+              confidence = "medium";
+              reason = `Valor exato (${fmtCents(absCents)}), data próxima (${Math.round(daysDiff)} dias)`;
+            } else if (daysDiff <= 15) {
+              confidence = "low";
+              reason = `Valor exato (${fmtCents(absCents)}), data distante (${Math.round(daysDiff)} dias)`;
+            } else {
+              continue;
+            }
           } else {
-            continue;
+            if (daysDiff <= 3) {
+              confidence = "medium";
+              reason = `Valor aproximado (${fmtCents(absCents)} ≈ ${fmtCents(exp.amount_cents)}), data próxima`;
+            } else if (daysDiff <= 10) {
+              confidence = "low";
+              reason = `Valor aproximado (${fmtCents(absCents)} ≈ ${fmtCents(exp.amount_cents)}), ${Math.round(daysDiff)} dias`;
+            } else {
+              continue;
+            }
           }
 
           if (!bestMatch || confScore(confidence) > confScore(bestMatch.confidence)) {
@@ -218,10 +275,9 @@ Deno.serve(async (req) => {
           .from("bank_transactions")
           .update(updateData)
           .eq("id", m.transaction_id);
-        
+
         if (!error) {
           applied++;
-          // Also update the matched record status
           if (m.matched_type === "invoice") {
             await supabase.from("invoices").update({
               status: "paid",
@@ -233,6 +289,42 @@ Deno.serve(async (req) => {
               payment_date: transactions.find(t => t.id === m.transaction_id)?.posted_date,
             }).eq("id", m.matched_id);
           }
+        }
+      }
+    }
+
+    // 6. Auto-create fee expenses for Rede transactions with processor_fee_cents > 0
+    if (autoApply) {
+      const redeMatches = suggestions.filter(s => s.reason.includes("Rede:"));
+      for (const m of redeMatches) {
+        const tx = transactions.find(t => t.id === m.transaction_id);
+        if (!tx || !tx.processor_fee_cents || tx.processor_fee_cents <= 0) continue;
+
+        // Find or create "Taxas Maquininha" category
+        let { data: taxaCat } = await supabase
+          .from("expense_categories")
+          .select("id")
+          .eq("slug", "taxas-maquininha")
+          .limit(1);
+
+        if (!taxaCat || taxaCat.length === 0) {
+          const { data: newCat } = await supabase
+            .from("expense_categories")
+            .insert({ name: "Taxas Maquininha", slug: "taxas-maquininha", color: "orange", sort_order: 99 })
+            .select("id");
+          taxaCat = newCat;
+        }
+
+        if (taxaCat && taxaCat.length > 0) {
+          await supabase.from("expenses").insert({
+            category_id: taxaCat[0].id,
+            description: `Taxa Rede - ${tx.memo}`,
+            amount_cents: tx.processor_fee_cents,
+            due_date: tx.posted_date,
+            payment_date: tx.posted_date,
+            status: "paid",
+            notes: `Taxa da maquininha Rede detectada automaticamente na conciliação`,
+          });
         }
       }
     }
@@ -266,9 +358,6 @@ function fmtCents(cents: number): string {
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json",
-    },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }

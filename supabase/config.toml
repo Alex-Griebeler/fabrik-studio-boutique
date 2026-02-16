@@ -20,3 +20,9 @@ verify_jwt = false
 
 [functions.receive-whatsapp]
 verify_jwt = false
+
+[functions.generate-monthly-invoices]
+verify_jwt = false
+
+[functions.calculate-invoice-penalties]
+verify_jwt = false
