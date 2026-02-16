@@ -10,8 +10,37 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    // Validate caller: require Authorization header with valid service key or cron token
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    // Validate the token: either a valid user JWT or the anon key (used by cron)
+    const token = authHeader.replace("Bearer ", "");
+    const isAnonKey = token === SUPABASE_ANON_KEY;
+
+    if (!isAnonKey) {
+      // Validate as user JWT
+      const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: claimsData, error: claimsError } = await authClient.auth.getClaims(token);
+      if (claimsError || !claimsData?.claims) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Find executions ready to run
@@ -27,7 +56,7 @@ serve(async (req) => {
 
     for (const execution of (readyExecutions || [])) {
       try {
-        // Get the next step by order, not by step_number (in case steps were deleted/renumbered)
+        // Get the next step by order
         const { data: steps } = await supabase
           .from("sequence_steps")
           .select("*")
@@ -37,7 +66,6 @@ serve(async (req) => {
         const step = steps?.[execution.current_step] || null;
 
         if (!step) {
-          // No more steps, mark as completed
           await supabase.from("sequence_executions")
             .update({ status: "completed", completed_at: new Date().toISOString() })
             .eq("id", execution.id);
@@ -46,7 +74,7 @@ serve(async (req) => {
         }
 
         // Substitute variables in message
-        const lead = execution.leads as any;
+        const lead = execution.leads as Record<string, string | null>;
         let messageContent = step.message_content || "";
         messageContent = messageContent
           .replace(/\{\{lead\.name\}\}/g, lead?.name || "")
@@ -71,7 +99,7 @@ serve(async (req) => {
           event_type: "sent",
         });
 
-        // Check if there are more steps (by using all fetched steps array)
+        // Check if there are more steps
         const nextStep = steps?.[execution.current_step + 1];
 
         if (nextStep) {

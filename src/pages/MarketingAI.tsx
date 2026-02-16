@@ -37,11 +37,11 @@ export default function MarketingAI() {
         </TabsContent>
 
         <TabsContent value="ai-agent">
-          <AIAgentConfig />
+          <div><AIAgentConfig /></div>
         </TabsContent>
 
         <TabsContent value="sequences">
-          <SequenceBuilder />
+          <div><SequenceBuilder /></div>
         </TabsContent>
       </Tabs>
     </div>

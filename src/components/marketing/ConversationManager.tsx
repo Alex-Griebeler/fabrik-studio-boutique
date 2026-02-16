@@ -1,5 +1,7 @@
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
 import { useConversations } from "@/hooks/useConversations";
 import { ConversationList } from "./ConversationList";
 import { ChatTimeline } from "./ChatTimeline";
@@ -17,6 +19,7 @@ export function ConversationManager() {
     sendMessage,
     takeOverConversation,
     releaseConversation,
+    deleteConversation,
   } = useConversations();
 
   const isTakenOver = selectedConversation?.status === "human_control";
@@ -32,6 +35,7 @@ export function ConversationManager() {
           conversations={conversations}
           selectedId={selectedConvId}
           onSelect={setSelectedConvId}
+          onDelete={(id) => deleteConversation(id)}
         />
       </Card>
 
@@ -40,9 +44,23 @@ export function ConversationManager() {
         {selectedConvId ? (
           <>
             <CardHeader className="py-3 px-4 border-b shrink-0">
-              <CardTitle className="text-sm font-semibold">
-                {selectedConversation?.leads?.name || "Chat"}
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">
+                  {selectedConversation?.leads?.name || "Chat"}
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => {
+                    if (selectedConvId && confirm("Deletar esta conversa?")) {
+                      deleteConversation(selectedConvId);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </CardHeader>
             <ScrollArea className="flex-1">
               <ChatTimeline messages={messages} />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
@@ -47,11 +47,17 @@ export function useNurturingSequences() {
     queryFn: async () => {
       const { data, error } = await supabase.from("nurturing_sequences").select("*").order("created_at", { ascending: false });
       if (error) throw error;
-      if (data && data.length > 0 && !selectedSeqId) setSelectedSeqId(data[0].id);
       return (data as NurturingSequence[]) || [];
     },
     staleTime: 5000,
   });
+
+  // Auto-select first sequence (moved out of queryFn)
+  useEffect(() => {
+    if (sequences.length > 0 && !selectedSeqId) {
+      setSelectedSeqId(sequences[0].id);
+    }
+  }, [sequences, selectedSeqId]);
 
   // Query: Load steps for selected sequence
   const { data: steps = [] } = useQuery({

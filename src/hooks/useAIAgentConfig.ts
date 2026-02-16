@@ -1,7 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
+import type { Json } from "@/integrations/supabase/types";
 
 export interface AIAgent {
   id: string;
@@ -12,9 +13,9 @@ export interface AIAgent {
   max_tokens: number;
   is_active: boolean;
   model: string;
-  knowledge_base: Record<string, any>;
-  handoff_rules: any[];
-  behavior_config: Record<string, any>;
+  knowledge_base: Record<string, Json | undefined>;
+  handoff_rules: Json[];
+  behavior_config: Record<string, Json | undefined>;
   created_at: string;
 }
 
@@ -40,11 +41,17 @@ export function useAIAgentConfig() {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      if (data && data.length > 0 && !selectedAgentId) setSelectedAgentId(data[0].id);
       return (data as AIAgent[]) || [];
     },
     staleTime: 5000,
   });
+
+  // Auto-select first agent (moved out of queryFn)
+  useEffect(() => {
+    if (agents.length > 0 && !selectedAgentId) {
+      setSelectedAgentId(agents[0].id);
+    }
+  }, [agents, selectedAgentId]);
 
   // Query: Load usage stats (monthly)
   const { data: usageStats = { total_messages: 0, total_cost_cents: 0, total_input_tokens: 0, total_output_tokens: 0 } } = useQuery({
@@ -68,14 +75,17 @@ export function useAIAgentConfig() {
       }), { total_messages: 0, total_cost_cents: 0, total_input_tokens: 0, total_output_tokens: 0 });
       return stats;
     },
-    staleTime: 60000, // 1 minute for stats
+    staleTime: 60000,
   });
 
-  // Update form when selected agent changes
+  // Update form when selected agent changes (moved to useEffect)
   const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
-  if (selectedAgent && Object.keys(editForm).length === 0) {
-    setEditForm(selectedAgent);
-  }
+
+  useEffect(() => {
+    if (selectedAgent && Object.keys(editForm).length === 0) {
+      setEditForm(selectedAgent);
+    }
+  }, [selectedAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mutation: Save agent
   const { mutate: saveAgent, isPending: isSaving } = useMutation({
@@ -93,9 +103,9 @@ export function useAIAgentConfig() {
           max_tokens: editForm.max_tokens,
           model: editForm.model,
           is_active: editForm.is_active,
-          knowledge_base: (editForm.knowledge_base || {}) as Record<string, any>,
-          handoff_rules: (editForm.handoff_rules || []) as any[],
-          behavior_config: (editForm.behavior_config || {}) as Record<string, any>,
+          knowledge_base: (editForm.knowledge_base || {}) as Json,
+          handoff_rules: (editForm.handoff_rules || []) as Json,
+          behavior_config: (editForm.behavior_config || {}) as Json,
         })
         .eq("id", selectedAgentId);
       if (error) throw error;
