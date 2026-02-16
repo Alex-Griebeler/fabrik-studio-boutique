@@ -100,6 +100,84 @@ export type Database = {
           },
         ]
       }
+      audit_log: {
+        Row: {
+          action: string
+          changed_at: string
+          changed_by: string | null
+          id: string
+          new_data: Json | null
+          old_data: Json | null
+          record_id: string
+          table_name: string
+        }
+        Insert: {
+          action: string
+          changed_at?: string
+          changed_by?: string | null
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          record_id: string
+          table_name: string
+        }
+        Update: {
+          action?: string
+          changed_at?: string
+          changed_by?: string | null
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          record_id?: string
+          table_name?: string
+        }
+        Relationships: []
+      }
+      bank_accounts: {
+        Row: {
+          account_number: string | null
+          bank_code: string | null
+          bank_name: string | null
+          branch: string | null
+          created_at: string
+          current_balance_cents: number
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          pix_key: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_number?: string | null
+          bank_code?: string | null
+          bank_name?: string | null
+          branch?: string | null
+          created_at?: string
+          current_balance_cents?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          pix_key?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_number?: string | null
+          bank_code?: string | null
+          bank_name?: string | null
+          branch?: string | null
+          created_at?: string
+          current_balance_cents?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          pix_key?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       bank_imports: {
         Row: {
           account_id: string | null
@@ -176,6 +254,7 @@ export type Database = {
           parsed_name: string | null
           parsed_type: string | null
           posted_date: string
+          processor_fee_cents: number | null
           transaction_type: string
         }
         Insert: {
@@ -196,6 +275,7 @@ export type Database = {
           parsed_name?: string | null
           parsed_type?: string | null
           posted_date: string
+          processor_fee_cents?: number | null
           transaction_type: string
         }
         Update: {
@@ -216,6 +296,7 @@ export type Database = {
           parsed_name?: string | null
           parsed_type?: string | null
           posted_date?: string
+          processor_fee_cents?: number | null
           transaction_type?: string
         }
         Relationships: [
@@ -768,43 +849,61 @@ export type Database = {
         Row: {
           amount_cents: number
           category_id: string
+          competence_date: string | null
           created_at: string
           description: string
           due_date: string
           id: string
+          is_recurring: boolean
           notes: string | null
+          parent_expense_id: string | null
           payment_date: string | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
           recurrence: string | null
+          recurring_frequency: string | null
+          recurring_until: string | null
           status: Database["public"]["Enums"]["expense_status"]
+          supplier_id: string | null
           updated_at: string
         }
         Insert: {
           amount_cents: number
           category_id: string
+          competence_date?: string | null
           created_at?: string
           description: string
           due_date: string
           id?: string
+          is_recurring?: boolean
           notes?: string | null
+          parent_expense_id?: string | null
           payment_date?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           recurrence?: string | null
+          recurring_frequency?: string | null
+          recurring_until?: string | null
           status?: Database["public"]["Enums"]["expense_status"]
+          supplier_id?: string | null
           updated_at?: string
         }
         Update: {
           amount_cents?: number
           category_id?: string
+          competence_date?: string | null
           created_at?: string
           description?: string
           due_date?: string
           id?: string
+          is_recurring?: boolean
           notes?: string | null
+          parent_expense_id?: string | null
           payment_date?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           recurrence?: string | null
+          recurring_frequency?: string | null
+          recurring_until?: string | null
           status?: Database["public"]["Enums"]["expense_status"]
+          supplier_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -813,6 +912,20 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_parent_expense_id_fkey"
+            columns: ["parent_expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
             referencedColumns: ["id"]
           },
         ]
@@ -874,10 +987,14 @@ export type Database = {
       invoices: {
         Row: {
           amount_cents: number
+          competence_date: string | null
           contract_id: string
           created_at: string
           due_date: string
+          fine_amount_cents: number | null
           id: string
+          interest_amount_cents: number | null
+          invoice_number: string | null
           notes: string | null
           paid_amount_cents: number | null
           payment_date: string | null
@@ -890,10 +1007,14 @@ export type Database = {
         }
         Insert: {
           amount_cents: number
+          competence_date?: string | null
           contract_id: string
           created_at?: string
           due_date: string
+          fine_amount_cents?: number | null
           id?: string
+          interest_amount_cents?: number | null
+          invoice_number?: string | null
           notes?: string | null
           paid_amount_cents?: number | null
           payment_date?: string | null
@@ -906,10 +1027,14 @@ export type Database = {
         }
         Update: {
           amount_cents?: number
+          competence_date?: string | null
           contract_id?: string
           created_at?: string
           due_date?: string
+          fine_amount_cents?: number | null
           id?: string
+          interest_amount_cents?: number | null
+          invoice_number?: string | null
           notes?: string | null
           paid_amount_cents?: number | null
           payment_date?: string | null
@@ -2139,6 +2264,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      suppliers: {
+        Row: {
+          bank_account: string | null
+          bank_branch: string | null
+          bank_name: string | null
+          cnpj: string | null
+          contact_name: string | null
+          created_at: string
+          email: string | null
+          id: string
+          is_active: boolean
+          legal_name: string | null
+          name: string
+          notes: string | null
+          payment_terms: string | null
+          phone: string | null
+          pix_key: string | null
+          updated_at: string
+        }
+        Insert: {
+          bank_account?: string | null
+          bank_branch?: string | null
+          bank_name?: string | null
+          cnpj?: string | null
+          contact_name?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          legal_name?: string | null
+          name: string
+          notes?: string | null
+          payment_terms?: string | null
+          phone?: string | null
+          pix_key?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bank_account?: string | null
+          bank_branch?: string | null
+          bank_name?: string | null
+          cnpj?: string | null
+          contact_name?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          legal_name?: string | null
+          name?: string
+          notes?: string | null
+          payment_terms?: string | null
+          phone?: string | null
+          pix_key?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       tasks: {
         Row: {
