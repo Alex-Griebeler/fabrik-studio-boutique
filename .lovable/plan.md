@@ -1,215 +1,134 @@
 
-# Reestruturar Sistema de Cobrancas - Modelo Real do Studio
+# Finalizar Modulo Financeiro - Analise da Auditoria e Plano de Acao
 
-## Resumo
+## Analise da Auditoria: O que faz sentido vs. o que nao se aplica
 
-Substituir o conceito de "faturas mensais automaticas" por **cobrancas geradas no momento da criacao do contrato**, com parcelas editaveis para DCC e PIX, e registro manual simplificado para Maquina da Rede e Dinheiro.
+### O que JA ESTA IMPLEMENTADO (a auditoria nao reflete o estado atual)
 
----
+A auditoria foi feita sobre uma versao anterior do codigo. Varias das criticas ja foram resolvidas na reestruturacao recente:
 
-## Regras de Negocio por Forma de Pagamento
+1. **Modelo de cobrancas**: A auditoria critica o modelo de "faturas mensais automaticas". Isso ja foi substituido pelo modelo de cobrancas geradas no ato da criacao do contrato (DCC, Maquina, PIX, Dinheiro) -- implementado na sessao anterior.
+2. **Edge Function generate-monthly-invoices**: Ja foi reescrita com os modos `contract-created` e `cron`.
+3. **Enums payment_method**: `dcc` e `card_machine` ja foram adicionados.
+4. **Status scheduled**: Ja existe no enum `invoice_status`.
+5. **Campos installments, total_paid_cents, card_last_four, card_brand**: Ja existem na tabela `contracts`.
+6. **Campos payment_type, installment_number, total_installments, scheduled_date**: Ja existem na tabela `invoices`.
+7. **Tab "Cobrancas"**: Ja renomeada na interface.
+8. **ContractFormDialog**: Ja possui campos condicionais por forma de pagamento com preview de parcelas editaveis.
 
-### 1. DCC (Debito Recorrente no Cartao)
-- Ao criar contrato, gerar **N cobrancas** com status `scheduled`
-- N = parcelas pre-preenchidas pela duracao do plano (anual=12, semestral=6, trimestral=3, mensal=1), **editavel**
-- Valor de cada parcela = valor total liquido / N
-- Datas: primeira na data de inicio, demais a cada 30 dias, **todas editaveis**
-- Campos extras: ultimos 4 digitos do cartao, bandeira
+### O que FAZ SENTIDO corrigir agora (para finalizar o modulo)
 
-### 2. Maquina da Rede (Cartao de Credito)
-- Gerar **1 unica cobranca** com o valor total do plano
-- Parcelamento e controlado pela maquina fisica, nao pelo sistema
-- Numero de parcelas da maquina registrado apenas como informativo
-- **Fluxo manual**: operador clica "Registrar Pagamento" apos passar na maquina
-- **Fluxo automatico**: credito da Rede no extrato e conciliado automaticamente com essa cobranca
+**Prioridade 1 - Bugs reais no codigo atual:**
 
-### 3. PIX
-- Default: **1 cobranca** com o valor total
-- **Editavel** para ate N parcelas (ex: plano anual em 3x)
-- Se parcelado: datas em +0, +30, +60 dias a partir do inicio, **todas editaveis**
-- Valor de cada parcela = valor total liquido / N
+1. **Calculo de ocupacao incorreto (useAnalytics.ts linhas 135-141)**: O bug e real. O codigo conta `sessions.filter(completed).length` em vez de contar bookings reais da tabela `class_bookings`. Isso distorce os KPIs de operacoes.
 
-### 4. Dinheiro
-- **1 cobranca** com o valor total
-- Sem parcelamento
+2. **Dados do prestador NF-e vazios (emit-nfse linhas 129-131)**: Confirmado. Os campos `cnpj`, `inscricao_municipal` e `codigo_municipio` estao vazios (""). A emissao real via FocusNFe vai falhar. Solucao: usar variaveis de ambiente `FOCUSNFE_CNPJ_PRESTADOR`, `FOCUSNFE_INSCRICAO_MUNICIPAL`, `FOCUSNFE_CODIGO_MUNICIPIO`.
 
----
+3. **Dados de cartao em texto plano (card_last_four, card_brand)**: A auditoria aponta risco PCI-DSS. Contudo, armazenar apenas os ultimos 4 digitos e a bandeira NAO e uma violacao PCI-DSS (isso e considerado informacao nao sensivel). Todos os gateways e recibos exibem esses dados. A recomendacao de remover essas colunas NAO faz sentido. O que seria proibido e armazenar o numero completo do cartao ou CVV.
 
-## Mudancas no Banco de Dados
+**Prioridade 2 - Melhorias importantes para o modulo funcionar completo:**
 
-### Migration: novos enums e campos
+4. **Deteccao de duplicatas na importacao de extratos**: Faz sentido. Adicionar campo `file_hash` na tabela `bank_imports` e verificar antes de importar.
 
-**Enums:**
-- `payment_method`: adicionar `dcc` e `card_machine`
-- `invoice_status`: adicionar `scheduled`
+5. **Validacao no generateMakeupCredit**: Faz sentido. Validar contrato ativo e nao permitir credito duplicado para a mesma sessao.
 
-**Tabela `contracts` - novos campos:**
-- `installments` (integer) -- numero de parcelas
-- `total_paid_cents` (integer, default 0) -- valor total ja pago
-- `card_last_four` (text) -- ultimos 4 digitos (DCC)
-- `card_brand` (text) -- bandeira do cartao (DCC)
+6. **Upload de comprovante de pagamento**: O campo `payment_proof_url` ja existe na tabela `invoices` mas a UI nao implementa o upload. Isso e util para PIX e Dinheiro.
 
-**Tabela `invoices` - novos campos:**
-- `payment_type` (text) -- dcc, card_machine, pix, cash
-- `installment_number` (integer) -- qual parcela (1, 2, 3...)
-- `total_installments` (integer) -- total de parcelas
-- `scheduled_date` (date) -- data programada para cobranca
+### O que NAO faz sentido ou e prematuro
+
+7. **Remover card_last_four e card_brand**: Como explicado acima, ultimos 4 digitos e bandeira NAO sao dados sensiveis segundo PCI-DSS. Manter.
+
+8. **Integracoes Itau (CNAB, PIX API, Open Banking)**: Prematuro. Requer credenciamento, certificado digital, ambiente de homologacao. Nao e algo para implementar agora.
+
+9. **Integracao API e-Rede**: Prematuro. Requer credenciamento PCI e PV ativo. O fluxo atual (maquina fisica + conciliacao bancaria) funciona.
+
+10. **Calculo automatico de comissoes**: A logica depende de regras de negocio que variam por studio. Melhor manter manual por enquanto.
+
+11. **Geracao de PDF/holerite**: Feature secundaria, nao bloqueia o modulo financeiro.
+
+12. **Race conditions em useTrialWaitlist e useSessionQueries**: Validos tecnicamente mas de baixo impacto pratico (o studio tem poucos usuarios simultaneos). Podem ser tratados depois.
 
 ---
 
-## Frontend: ContractFormDialog (reescrita)
+## Plano de Implementacao
 
-O formulario de contrato sera reorganizado com campos condicionais:
+### Etapa 1: Corrigir bug do calculo de ocupacao
 
-### Campos base (todos os metodos)
-- Aluno, Plano, Data Inicio, Data Fim, Valor Total, Desconto, Observacoes
+**Arquivo:** `src/hooks/useAnalytics.ts` (linhas 135-141)
 
-### Campos condicionais por forma de pagamento:
-
-**DCC:**
-- Numero de parcelas (pre-preenchido pela duracao do plano, editavel)
-- Valor por parcela (calculado automaticamente)
-- Ultimos 4 digitos do cartao
-- Bandeira do cartao
-- Preview de todas as parcelas com datas editaveis
-
-**PIX:**
-- Numero de parcelas (default: 1, editavel)
-- Valor por parcela (calculado automaticamente)
-- Preview de todas as parcelas com datas editaveis (0, 30, 60 dias...)
-
-**Maquina da Rede:**
-- Numero de parcelas da maquina (informativo apenas)
-- Nenhum campo extra de parcelamento no sistema
-
-**Dinheiro:**
-- Nenhum campo extra
-
-### Preview de parcelas (DCC e PIX)
-Uma lista editavel mostrando:
-```text
-Parcela 1/12 - R$ 250,00 - 16/02/2026 [campo date editavel]
-Parcela 2/12 - R$ 250,00 - 18/03/2026 [campo date editavel]
-Parcela 3/12 - R$ 250,00 - 17/04/2026 [campo date editavel]
-...
-```
-
-Ao salvar o contrato, o sistema gera automaticamente todas as cobrancas na tabela `invoices`.
-
----
-
-## Frontend: InvoicesTab vira "Cobrancas"
-
-### Renomear conceito
-- Tab "Faturas" vira "Cobrancas"
-- Botao "Nova Fatura" removido (cobrancas sao geradas pelo contrato)
-
-### Novas colunas na tabela
-- **Parcela**: ex: "3/12"
-- **Tipo**: DCC, Maquina, PIX, Dinheiro
-- **Status**: adicionar "Agendada" (amarelo claro, para cobrancas DCC futuras)
-
-### Filtro por tipo de pagamento
-
----
-
-## Frontend: InvoiceFormDialog vira "Registrar Pagamento"
-
-Quando editando uma cobranca existente:
-- Foco em registrar que o pagamento foi feito
-- Campos: Data Pagamento, Valor Pago, Forma de Pagamento, Observacoes
-- Nao permitir criar cobranca avulsa (cobrancas vem do contrato)
-
----
-
-## Frontend: Finance.tsx
-
-- Tab "Faturas" renomeada para "Cobrancas"
-- KPI "Inadimplencia" atualizado para considerar cobrancas vencidas (DCC que falhou ou PIX nao pago)
-
----
-
-## Hooks
-
-### useContracts.ts
-- Adicionar campos: `installments`, `total_paid_cents`, `card_last_four`, `card_brand`
-- Atualizar `paymentMethodLabels`: adicionar `dcc: "DCC (Recorrente)"`, `card_machine: "Maquina (Rede)"`
-- Remover opcoes nao utilizadas: `boleto`, `debit_card`, `transfer`
-- Ao criar contrato: chamar Edge Function `generate-monthly-invoices` com `contract_id` para gerar cobrancas
-
-### useInvoices.ts
-- Adicionar campos: `payment_type`, `installment_number`, `total_installments`, `scheduled_date`
-- Adicionar `scheduled: "Agendada"` aos labels e cores de status
-
----
-
-## Edge Function: generate-monthly-invoices (reescrita)
-
-Dois modos de operacao:
-
-### Modo "contract-created" (chamado ao criar contrato)
-Recebe `{ contract_id }` no body e gera cobrancas conforme o tipo de pagamento:
-
-- **DCC**: N cobrancas com status `scheduled`, datas a cada 30 dias
-- **PIX parcelado**: N cobrancas com status `pending`, com datas customizadas recebidas no body
-- **Maquina/Dinheiro/PIX a vista**: 1 cobranca com status `pending`
-
-O body tambem pode incluir `installment_dates` (array de datas) para DCC e PIX parcelado.
-
-### Modo "cron" (diario, mantido)
-- Verifica cobrancas `scheduled` cuja `scheduled_date <= hoje` e muda para `pending`
-- Mantem logica de despesas recorrentes
-
----
-
-## Edge Function: calculate-invoice-penalties (ajuste)
-
-Aplicar penalidades apenas em cobrancas DCC vencidas (status `pending` ou `overdue` com `payment_type = 'dcc'`), nao em outros tipos.
-
----
-
-## Sequencia de Implementacao
-
-1. **Migration**: novos enums (`dcc`, `card_machine`, `scheduled`) e campos nas tabelas
-2. **Edge Function**: reescrever `generate-monthly-invoices` com modo contract-created
-3. **Edge Function**: ajustar `calculate-invoice-penalties` para filtrar por tipo DCC
-4. **Hook**: atualizar `useContracts.ts` (novos campos + chamada da Edge Function ao criar)
-5. **Hook**: atualizar `useInvoices.ts` (novos campos + novo status)
-6. **UI**: reescrever `ContractFormDialog` com campos condicionais e preview de parcelas
-7. **UI**: reescrever `InvoicesTab` como "CobrancasTab" com novas colunas
-8. **UI**: atualizar `InvoiceFormDialog` para foco em "Registrar Pagamento"
-9. **UI**: atualizar `Finance.tsx` (labels, remover botao nova fatura)
-
----
-
-## Arquivos a criar/modificar
-
-- **Migration**: 1 novo arquivo SQL
-- **Modificar**: `supabase/functions/generate-monthly-invoices/index.ts`
-- **Modificar**: `supabase/functions/calculate-invoice-penalties/index.ts`
-- **Modificar**: `src/hooks/useContracts.ts`
-- **Modificar**: `src/hooks/useInvoices.ts`
-- **Reescrever**: `src/components/finance/ContractFormDialog.tsx`
-- **Reescrever**: `src/components/finance/InvoicesTab.tsx`
-- **Modificar**: `src/components/finance/InvoiceFormDialog.tsx`
-- **Modificar**: `src/pages/Finance.tsx`
-
-## Logica de calculo
+Substituir a contagem de sessoes completadas por uma query real na tabela `class_bookings`:
 
 ```text
-valor_total = price_cents do plano (conforme duracao)
-valor_liquido = valor_total - discount_cents
-valor_parcela = Math.round(valor_liquido / numero_parcelas)
-ultima_parcela = valor_liquido - (valor_parcela * (N - 1))  // absorve arredondamento
+// Atual (errado): conta 1 por sessao completada
+totalBooked = scheduledOrCompleted.filter(s => s.status === "completed").length;
+
+// Correto: contar bookings reais
+const { count } = await supabase
+  .from("class_bookings")
+  .select("id", { count: "exact", head: true })
+  .in("session_id", sessionIds)
+  .neq("status", "cancelled");
+totalBooked = count ?? 0;
 ```
 
-## Mapeamento duracao -> parcelas default (DCC)
+### Etapa 2: Corrigir dados do prestador no emit-nfse
+
+**Arquivo:** `supabase/functions/emit-nfse/index.ts` (linhas 129-131)
+
+Substituir strings vazias por leitura de variaveis de ambiente e adicionar validacao:
 
 ```text
-anual    -> 12
-semestral -> 6
-trimestral -> 3
-mensal   -> 1
-avulso   -> 1
-unico    -> 1
+const cnpj = Deno.env.get("FOCUSNFE_CNPJ_PRESTADOR") || "";
+const inscricao = Deno.env.get("FOCUSNFE_INSCRICAO_MUNICIPAL") || "";
+const codigoMun = Deno.env.get("FOCUSNFE_CODIGO_MUNICIPIO") || "";
+
+if (!cnpj || !inscricao || !codigoMun) {
+  // retornar erro claro em vez de enviar payload invalido
+}
+
+prestador: { cnpj, inscricao_municipal: inscricao, codigo_municipio: codigoMun }
 ```
+
+Sera necessario solicitar ao usuario as 3 variaveis de ambiente.
+
+### Etapa 3: Deteccao de duplicatas na importacao bancaria
+
+**Migration:** Adicionar coluna `file_hash` na tabela `bank_imports`.
+
+**Arquivo:** `supabase/functions/parse-bank-statement/index.ts`
+
+Calcular hash SHA-256 do conteudo do arquivo antes de processar e verificar se ja existe no banco.
+
+### Etapa 4: Validacao no makeup credit
+
+**Arquivo:** `src/hooks/schedule/useSessionMutations.ts`
+
+Antes de inserir credito de reposicao, validar:
+- Contrato do aluno esta ativo
+- Sessao nao possui credito de reposicao ja gerado
+
+### Etapa 5: Upload de comprovante de pagamento
+
+**Arquivo:** `src/components/finance/InvoiceFormDialog.tsx`
+
+Adicionar campo de upload de arquivo ao registrar pagamento (PIX/Dinheiro), salvando no storage e atualizando `payment_proof_url`.
+
+**Migration/Storage:** Criar bucket `payment-proofs` (privado).
+
+---
+
+## Arquivos a modificar
+
+- `src/hooks/useAnalytics.ts` -- corrigir occupancyRate
+- `supabase/functions/emit-nfse/index.ts` -- usar env vars do prestador
+- `supabase/functions/parse-bank-statement/index.ts` -- hash de duplicatas
+- `src/hooks/schedule/useSessionMutations.ts` -- validacao makeup credit
+- `src/components/finance/InvoiceFormDialog.tsx` -- upload de comprovante
+- 1 migration SQL (file_hash + storage bucket)
+
+## O que NAO sera alterado (justificativa)
+
+- `card_last_four` e `card_brand`: NAO sao dados sensiveis PCI, manter
+- Integracoes Itau/Rede: prematuras, requerem credenciamento externo
+- Calculo automatico de comissoes: regras de negocio indefinidas
+- Race conditions em waitlist/sessions: baixo impacto pratico
