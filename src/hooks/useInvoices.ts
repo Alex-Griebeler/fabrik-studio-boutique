@@ -23,6 +23,10 @@ export interface Invoice {
   interest_amount_cents: number | null;
   competence_date: string | null;
   notes: string | null;
+  payment_type: string | null;
+  installment_number: number | null;
+  total_installments: number | null;
+  scheduled_date: string | null;
   created_at: string;
   updated_at: string;
   // joined
@@ -44,6 +48,7 @@ export interface InvoiceFormData {
 }
 
 export const invoiceStatusLabels: Record<InvoiceStatus, string> = {
+  scheduled: "Agendada",
   pending: "Pendente",
   paid: "Pago",
   overdue: "Vencido",
@@ -51,10 +56,18 @@ export const invoiceStatusLabels: Record<InvoiceStatus, string> = {
 };
 
 export const invoiceStatusColors: Record<InvoiceStatus, string> = {
+  scheduled: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
   paid: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
   overdue: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
   cancelled: "bg-muted text-muted-foreground",
+};
+
+export const paymentTypeLabels: Record<string, string> = {
+  dcc: "DCC",
+  card_machine: "Máquina",
+  pix: "PIX",
+  cash: "Dinheiro",
 };
 
 export function useInvoices(statusFilter: "all" | InvoiceStatus = "all") {
@@ -96,9 +109,9 @@ export function useCreateInvoice() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
-      toast.success("Fatura criada com sucesso!");
+      toast.success("Cobrança criada com sucesso!");
     },
-    onError: () => toast.error("Erro ao criar fatura."),
+    onError: () => toast.error("Erro ao criar cobrança."),
   });
 }
 
@@ -127,11 +140,11 @@ export function useUpdateInvoice() {
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["nfse"] });
       if (variables.data.status === "paid") {
-        toast.success("Fatura paga! NF-e sendo emitida automaticamente.");
+        toast.success("Pagamento registrado! NF-e sendo emitida automaticamente.");
       } else {
-        toast.success("Fatura atualizada!");
+        toast.success("Cobrança atualizada!");
       }
     },
-    onError: () => toast.error("Erro ao atualizar fatura."),
+    onError: () => toast.error("Erro ao atualizar cobrança."),
   });
 }

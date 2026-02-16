@@ -592,10 +592,13 @@ export type Database = {
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
+          card_brand: string | null
+          card_last_four: string | null
           created_at: string
           discount_cents: number | null
           end_date: string | null
           id: string
+          installments: number | null
           monthly_value_cents: number | null
           notes: string | null
           payment_day: number | null
@@ -604,6 +607,7 @@ export type Database = {
           start_date: string
           status: Database["public"]["Enums"]["contract_status"]
           student_id: string
+          total_paid_cents: number | null
           total_value_cents: number | null
           updated_at: string
         }
@@ -611,10 +615,13 @@ export type Database = {
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
+          card_brand?: string | null
+          card_last_four?: string | null
           created_at?: string
           discount_cents?: number | null
           end_date?: string | null
           id?: string
+          installments?: number | null
           monthly_value_cents?: number | null
           notes?: string | null
           payment_day?: number | null
@@ -623,6 +630,7 @@ export type Database = {
           start_date: string
           status?: Database["public"]["Enums"]["contract_status"]
           student_id: string
+          total_paid_cents?: number | null
           total_value_cents?: number | null
           updated_at?: string
         }
@@ -630,10 +638,13 @@ export type Database = {
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
+          card_brand?: string | null
+          card_last_four?: string | null
           created_at?: string
           discount_cents?: number | null
           end_date?: string | null
           id?: string
+          installments?: number | null
           monthly_value_cents?: number | null
           notes?: string | null
           payment_day?: number | null
@@ -642,6 +653,7 @@ export type Database = {
           start_date?: string
           status?: Database["public"]["Enums"]["contract_status"]
           student_id?: string
+          total_paid_cents?: number | null
           total_value_cents?: number | null
           updated_at?: string
         }
@@ -993,6 +1005,7 @@ export type Database = {
           due_date: string
           fine_amount_cents: number | null
           id: string
+          installment_number: number | null
           interest_amount_cents: number | null
           invoice_number: string | null
           notes: string | null
@@ -1000,9 +1013,12 @@ export type Database = {
           payment_date: string | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
           payment_proof_url: string | null
+          payment_type: string | null
           reference_month: string | null
+          scheduled_date: string | null
           status: Database["public"]["Enums"]["invoice_status"]
           student_id: string | null
+          total_installments: number | null
           updated_at: string
         }
         Insert: {
@@ -1013,6 +1029,7 @@ export type Database = {
           due_date: string
           fine_amount_cents?: number | null
           id?: string
+          installment_number?: number | null
           interest_amount_cents?: number | null
           invoice_number?: string | null
           notes?: string | null
@@ -1020,9 +1037,12 @@ export type Database = {
           payment_date?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           payment_proof_url?: string | null
+          payment_type?: string | null
           reference_month?: string | null
+          scheduled_date?: string | null
           status?: Database["public"]["Enums"]["invoice_status"]
           student_id?: string | null
+          total_installments?: number | null
           updated_at?: string
         }
         Update: {
@@ -1033,6 +1053,7 @@ export type Database = {
           due_date?: string
           fine_amount_cents?: number | null
           id?: string
+          installment_number?: number | null
           interest_amount_cents?: number | null
           invoice_number?: string | null
           notes?: string | null
@@ -1040,9 +1061,12 @@ export type Database = {
           payment_date?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           payment_proof_url?: string | null
+          payment_type?: string | null
           reference_month?: string | null
+          scheduled_date?: string | null
           status?: Database["public"]["Enums"]["invoice_status"]
           student_id?: string | null
+          total_installments?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -2675,7 +2699,7 @@ export type Database = {
         | "trial_class"
         | "follow_up"
         | "note"
-      invoice_status: "pending" | "paid" | "overdue" | "cancelled"
+      invoice_status: "pending" | "paid" | "overdue" | "cancelled" | "scheduled"
       makeup_credit_status: "available" | "used" | "expired"
       payment_method:
         | "pix"
@@ -2684,6 +2708,8 @@ export type Database = {
         | "boleto"
         | "cash"
         | "transfer"
+        | "dcc"
+        | "card_machine"
       plan_category:
         | "grupos_adultos"
         | "renovacao_grupos_adultos"
@@ -2869,7 +2895,7 @@ export const Constants = {
         "follow_up",
         "note",
       ],
-      invoice_status: ["pending", "paid", "overdue", "cancelled"],
+      invoice_status: ["pending", "paid", "overdue", "cancelled", "scheduled"],
       makeup_credit_status: ["available", "used", "expired"],
       payment_method: [
         "pix",
@@ -2878,6 +2904,8 @@ export const Constants = {
         "boleto",
         "cash",
         "transfer",
+        "dcc",
+        "card_machine",
       ],
       plan_category: [
         "grupos_adultos",
