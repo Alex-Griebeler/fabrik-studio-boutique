@@ -1,78 +1,57 @@
 
 
-# Correcoes da Auditoria Externa -- Itens Pendentes
+# Calendario com selecao de ano/mes para Data de Nascimento
 
-## Escopo
+## Problema
 
-Dos 2 problemas criticos e 1 problema de UX apontados, a maioria ja foi tratada na remediacao anterior. Restam 3 itens concretos a implementar:
+O calendario atual so permite navegar mes a mes. Para selecionar uma data de nascimento (ex: 1973), o usuario precisaria clicar na seta "voltar" mais de 600 vezes.
 
----
+## Solucao
 
-## 1. Adicionar validacao de JWT em `emit-nfse`
+Utilizar o recurso nativo do `react-day-picker` (v8) que ja suporta dropdowns de mes e ano no cabecalho do calendario, sem precisar instalar nenhuma dependencia nova.
 
-**Arquivo**: `supabase/functions/emit-nfse/index.ts`
+## Alteracoes
 
-Atualmente a funcao usa `SERVICE_ROLE_KEY` diretamente sem validar quem esta chamando. Qualquer request com qualquer header seria processado.
+### 1. `src/components/students/StudentFormDialog.tsx`
 
-**Correcao**: Adicionar o padrao de validacao de JWT (mesmo utilizado em `execute-nurturing-step` e `process-conversation-message`) antes de processar o request -- validando via `getClaims` que o chamador e um usuario autenticado.
+Adicionar as props `captionLayout="dropdown-buttons"`, `fromYear={1920}` e `toYear={new Date().getFullYear()}` ao componente `<Calendar>` do campo Data de Nascimento. Isso substitui o label "February 2026" por dois selects (mes + ano) com setas de navegacao.
 
----
+### 2. `src/components/ui/calendar.tsx`
 
-## 2. Adicionar validacao de JWT em `send-whatsapp`
+Adicionar estilos para os novos elementos de dropdown que aparecem no cabecalho:
+- `caption_dropdowns`: layout flex para os selects de mes/ano
+- `vhidden`: classe para o label acessivel oculto visualmente
 
-**Arquivo**: `supabase/functions/send-whatsapp/index.ts`
-
-Mesma situacao: a funcao aceita qualquer chamada sem verificar autenticacao. Alguem com a URL poderia enviar mensagens WhatsApp arbitrarias.
-
-**Correcao**: Adicionar validacao de JWT via `getClaims`. Permitir tambem chamadas internas (quando invocada por outras Edge Functions com service role key).
+Esses estilos garantem que os dropdowns fiquem alinhados e com aparencia consistente com o design system.
 
 ---
 
-## 3. Fix de textos truncados no Kanban de Leads
+### Secao tecnica
 
-**Arquivo**: `src/components/leads/LeadKanban.tsx`
-
-O nome do lead no card nao tem protecao de overflow -- nomes longos podem quebrar o layout do card de 260px.
-
-**Correcao**: Adicionar `truncate max-w-[180px]` no botao do nome do lead para garantir que nomes longos nao estourem o card.
-
----
-
-## Itens da auditoria que JA FORAM corrigidos
-
-| Item | Status |
-|------|--------|
-| CORS inconsistente | Corrigido na remediacao anterior |
-| config.toml incompleto | Corrigido |
-| setState durante render | Corrigido |
-| Dashboard labels desincronizados | Corrigido |
-| execute-nurturing-step sem auth | Corrigido |
-| deleteConversation nao exposta | Corrigido |
-
-## Secao Tecnica
-
-### Padrao de validacao JWT para Edge Functions
+No `StudentFormDialog.tsx`, a linha do Calendar muda de:
 
 ```text
-const authHeader = req.headers.get("Authorization");
-if (!authHeader?.startsWith("Bearer ")) {
-  return 401 Unauthorized;
-}
-
-const supabaseAuth = createClient(URL, ANON_KEY, {
-  global: { headers: { Authorization: authHeader } }
-});
-const { data, error } = await supabaseAuth.auth.getClaims(token);
-if (error) return 401;
-
-// Prosseguir com SERVICE_ROLE_KEY para operacoes privilegiadas
-const supabase = createClient(URL, SERVICE_ROLE_KEY);
+<Calendar mode="single" selected={field.value} onSelect={field.onChange}
+  disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
+  initialFocus className="p-3 pointer-events-auto" />
 ```
 
-### Fix Kanban truncate
+Para:
 
 ```text
-// No botao do nome do lead (linha 129-134):
-className="text-sm font-medium ... truncate max-w-[180px]"
+<Calendar mode="single" selected={field.value} onSelect={field.onChange}
+  captionLayout="dropdown-buttons"
+  fromYear={1920} toYear={new Date().getFullYear()}
+  disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
+  initialFocus className="p-3 pointer-events-auto" />
 ```
+
+No `calendar.tsx`, adicionar nas classNames:
+
+```text
+caption_dropdowns: "flex gap-1 items-center"
+vhidden: "hidden"
+```
+
+Resultado: dois selects nativos (mes e ano) no cabecalho do calendario, permitindo saltar diretamente para qualquer ano.
 
