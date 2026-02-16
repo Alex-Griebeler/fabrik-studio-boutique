@@ -165,8 +165,8 @@ export function useApproveMatch() {
 
       // Update matched record
       if (matchedType === "invoice") {
-        const { data: tx } = await supabase.from("bank_transactions").select("posted_date").eq("id", transactionId).maybeSingle();
-        await supabase.from("invoices").update({ status: "paid", payment_date: tx?.posted_date }).eq("id", matchedId);
+        const { data: tx } = await supabase.from("bank_transactions").select("posted_date, amount_cents").eq("id", transactionId).maybeSingle();
+        await supabase.from("invoices").update({ status: "paid", payment_date: tx?.posted_date, paid_amount_cents: tx?.amount_cents }).eq("id", matchedId);
       } else {
         const { data: tx } = await supabase.from("bank_transactions").select("posted_date").eq("id", transactionId).maybeSingle();
         await supabase.from("expenses").update({ status: "paid", payment_date: tx?.posted_date }).eq("id", matchedId);
@@ -266,16 +266,25 @@ export function useBatchApproveMatches() {
       const invoiceSuggestions = suggestions.filter(s => s.matched_type === "invoice");
       const expenseSuggestions = suggestions.filter(s => s.matched_type === "expense");
 
-      if (invoiceSuggestions.length > 0) {
-        for (const s of invoiceSuggestions) {
-          const postedDate = txMap.get(s.transaction_id);
-          const { error } = await supabase
-            .from("invoices")
-            .update({ status: "paid", payment_date: postedDate })
-            .eq("id", s.matched_id);
-          if (error) throw error;
-        }
-      }
+       if (invoiceSuggestions.length > 0) {
+         // Fetch transaction amounts for paid_amount_cents
+         const invoiceTxIds = invoiceSuggestions.map(s => s.transaction_id);
+         const { data: txData } = await supabase
+           .from("bank_transactions")
+           .select("id, posted_date, amount_cents")
+           .in("id", invoiceTxIds);
+         
+         const txAmountMap = new Map(txData?.map(t => [t.id, { date: t.posted_date, amount: t.amount_cents }]) ?? []);
+         
+         for (const s of invoiceSuggestions) {
+           const txInfo = txAmountMap.get(s.transaction_id);
+           const { error } = await supabase
+             .from("invoices")
+             .update({ status: "paid", payment_date: txInfo?.date, paid_amount_cents: txInfo?.amount })
+             .eq("id", s.matched_id);
+           if (error) throw error;
+         }
+       }
 
       if (expenseSuggestions.length > 0) {
         for (const s of expenseSuggestions) {
