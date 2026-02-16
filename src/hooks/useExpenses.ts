@@ -34,6 +34,7 @@ export interface ExpenseCategory {
 export interface Expense {
   id: string;
   category_id: string;
+  supplier_id: string | null;
   description: string;
   amount_cents: number;
   due_date: string;
@@ -41,14 +42,18 @@ export interface Expense {
   status: ExpenseStatus;
   payment_method: PaymentMethod | null;
   recurrence: string | null;
+  is_recurring: boolean;
+  competence_date: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
   category?: { name: string; color: string };
+  supplier?: { name: string } | null;
 }
 
 export interface ExpenseFormData {
   category_id: string;
+  supplier_id?: string;
   description: string;
   amount_cents: number;
   due_date: string;
@@ -56,6 +61,7 @@ export interface ExpenseFormData {
   status?: ExpenseStatus;
   payment_method?: PaymentMethod;
   recurrence?: string;
+  competence_date?: string;
   notes?: string;
 }
 
@@ -136,7 +142,7 @@ export function useExpenses(statusFilter: "all" | ExpenseStatus = "all") {
     queryFn: async () => {
       let query = supabase
         .from("expenses")
-        .select("*, category:expense_categories(name, color)")
+        .select("*, category:expense_categories(name, color), supplier:suppliers(name)")
         .order("due_date", { ascending: false })
         .limit(1000);
 
@@ -155,6 +161,7 @@ export function useCreateExpense() {
     mutationFn: async (data: ExpenseFormData) => {
       const { error } = await supabase.from("expenses").insert({
         category_id: data.category_id,
+        supplier_id: data.supplier_id || null,
         description: data.description,
         amount_cents: data.amount_cents,
         due_date: data.due_date,
@@ -162,6 +169,7 @@ export function useCreateExpense() {
         status: data.status ?? "pending",
         payment_method: data.payment_method ?? null,
         recurrence: data.recurrence ?? "none",
+        competence_date: data.competence_date || null,
         notes: data.notes || null,
       });
       if (error) throw error;

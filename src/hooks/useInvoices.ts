@@ -18,6 +18,10 @@ export interface Invoice {
   paid_amount_cents: number | null;
   payment_method: PaymentMethod | null;
   payment_proof_url: string | null;
+  invoice_number: string | null;
+  fine_amount_cents: number | null;
+  interest_amount_cents: number | null;
+  competence_date: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;

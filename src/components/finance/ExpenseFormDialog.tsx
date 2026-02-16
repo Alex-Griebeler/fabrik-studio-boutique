@@ -15,6 +15,7 @@ import {
   type ExpenseStatus,
   type ExpenseCategory,
 } from "@/hooks/useExpenses";
+import { useSuppliers } from "@/hooks/useSuppliers";
 import { paymentMethodLabels } from "@/hooks/useContracts";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -36,6 +37,7 @@ interface Props {
 
 export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
   const { data: categories } = useExpenseCategories();
+  const { data: suppliers } = useSuppliers();
   const createExpense = useCreateExpense();
   const updateExpense = useUpdateExpense();
 
@@ -125,6 +127,20 @@ export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
                     <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
                   )
                 )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Supplier */}
+          <div className="space-y-1.5">
+            <Label>Fornecedor</Label>
+            <Select value={(form as any).supplier_id || "none"} onValueChange={(v) => setForm({ ...form, supplier_id: v === "none" ? undefined : v } as any)}>
+              <SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Nenhum</SelectItem>
+                {suppliers?.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
