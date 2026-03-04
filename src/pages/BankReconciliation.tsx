@@ -46,6 +46,7 @@ export default function BankReconciliation() {
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
   const [manualMatchTx, setManualMatchTx] = useState<BankTransaction | null>(null);
+  const [duplicateDialog, setDuplicateDialog] = useState<{ open: boolean; details: string; pendingUpload: { fileContent: string; fileName: string; fileType: string } | null }>({ open: false, details: "", pendingUpload: null });
 
   const { data: imports, isLoading: loadingImports } = useBankImports();
   const { data: bankAccounts } = useBankAccounts();
@@ -74,6 +75,19 @@ export default function BankReconciliation() {
     restoreMutation.mutate(txId);
   }, [restoreMutation]);
 
+  const doUpload = (fileContent: string, fileName: string, fileType: string, forceImport = false) => {
+    uploadMutation.mutate(
+      { fileContent, fileName, fileType, forceImport },
+      {
+        onError: (err: any) => {
+          if (err.isDuplicate) {
+            setDuplicateDialog({ open: true, details: err.details, pendingUpload: { fileContent, fileName, fileType } });
+          }
+        },
+      }
+    );
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -87,10 +101,10 @@ export default function BankReconciliation() {
       const base64 = btoa(
         new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
       );
-      uploadMutation.mutate({ fileContent: base64, fileName: file.name, fileType: ext });
+      doUpload(base64, file.name, ext);
     } else {
       const text = await file.text();
-      uploadMutation.mutate({ fileContent: text, fileName: file.name, fileType: ext });
+      doUpload(text, file.name, ext);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -390,6 +404,32 @@ export default function BankReconciliation() {
         }}
         isPending={approveMutation.isPending}
       />
+
+      {/* Duplicate file confirmation dialog */}
+      <AlertDialog open={duplicateDialog.open} onOpenChange={(open) => { if (!open) setDuplicateDialog(prev => ({ ...prev, open: false })); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Arquivo já importado</AlertDialogTitle>
+            <AlertDialogDescription>
+              {duplicateDialog.details}
+              <br /><br />
+              Deseja importar novamente mesmo assim?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (duplicateDialog.pendingUpload) {
+                const { fileContent, fileName, fileType } = duplicateDialog.pendingUpload;
+                doUpload(fileContent, fileName, fileType, true);
+              }
+              setDuplicateDialog({ open: false, details: "", pendingUpload: null });
+            }}>
+              Importar novamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

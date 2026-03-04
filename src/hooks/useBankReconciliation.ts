@@ -92,12 +92,29 @@ export function useBankTransactions(importId: string | null) {
 export function useUploadBankStatement() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ fileContent, fileName, fileType }: { fileContent: string; fileName: string; fileType: string }) => {
+    mutationFn: async ({ fileContent, fileName, fileType, forceImport }: { fileContent: string; fileName: string; fileType: string; forceImport?: boolean }) => {
       const { data, error } = await supabase.functions.invoke("parse-bank-statement", {
-        body: { fileContent, fileName, fileType: fileType === "xls" ? "xlsx" : fileType },
+        body: { fileContent, fileName, fileType: fileType === "xls" ? "xlsx" : fileType, forceImport: forceImport ?? false },
       });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (error) {
+        // Check for 409 duplicate response embedded in FunctionsHttpError
+        if ((error as any)?.context?.status === 409 || (error as any)?.status === 409) {
+          const dupError = new Error("Arquivo duplicado") as any;
+          dupError.isDuplicate = true;
+          dupError.details = data?.details || "Este arquivo já foi importado anteriormente.";
+          throw dupError;
+        }
+        throw error;
+      }
+      if (data?.error) {
+        if (data.error === "Arquivo duplicado") {
+          const dupError = new Error("Arquivo duplicado") as any;
+          dupError.isDuplicate = true;
+          dupError.details = data.details || "Este arquivo já foi importado anteriormente.";
+          throw dupError;
+        }
+        throw new Error(data.error);
+      }
       return data;
     },
     onSuccess: (data) => {
@@ -107,8 +124,10 @@ export function useUploadBankStatement() {
       const expMsg = s?.expenses_created ? ` | ${s.expenses_created} despesas criadas automaticamente` : "";
       toast.success(`Importação concluída! ${s?.total_transactions ?? 0} transações processadas.${expMsg}`);
     },
-    onError: (err: Error) => {
-      toast.error(`Erro na importação: ${err.message}`);
+    onError: (err: any) => {
+      if (!err.isDuplicate) {
+        toast.error(`Erro na importação: ${err.message}`);
+      }
     },
   });
 }
