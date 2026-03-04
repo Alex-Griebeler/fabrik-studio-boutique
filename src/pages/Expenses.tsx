@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Receipt, TrendingDown, AlertTriangle, CheckCircle, Settings2, Zap } from "lucide-react";
+import { Plus, Search, Receipt, TrendingDown, AlertTriangle, CheckCircle, Settings2, Zap, ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ExpenseCategoryManager } from "@/components/finance/ExpenseCategoryManager";
 import { ExpenseCategoryRulesManager } from "@/components/finance/ExpenseCategoryRulesManager";
@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import {
   useExpenses,
   useExpenseCategories,
@@ -20,7 +22,7 @@ import {
 } from "@/hooks/useExpenses";
 import { formatCents } from "@/hooks/usePlans";
 import { ExpenseFormDialog } from "@/components/finance/ExpenseFormDialog";
-import { format } from "date-fns";
+import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 function formatDate(d: string | null) {
@@ -35,38 +37,84 @@ export default function Expenses() {
   const [editing, setEditing] = useState<Expense | null>(null);
   const [showCategories, setShowCategories] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [showDashboard, setShowDashboard] = useState(true);
 
   const { data: allExpenses } = useExpenses("all");
   const { data: expenses, isLoading } = useExpenses(statusFilter);
   const { data: categories } = useExpenseCategories();
 
-  const kpis = useMemo(() => {
-    const now = new Date();
-    const thisMonth = allExpenses?.filter((e) => {
+  const monthStart = startOfMonth(selectedMonth);
+  const monthEnd = endOfMonth(selectedMonth);
+
+  const monthExpenses = useMemo(() => {
+    return allExpenses?.filter((e) => {
       const d = new Date(e.due_date + "T00:00:00");
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
-    const totalMonth = thisMonth?.reduce((s, e) => s + e.amount_cents, 0) ?? 0;
-    const paidMonth = thisMonth?.filter((e) => e.status === "paid").reduce((s, e) => s + e.amount_cents, 0) ?? 0;
-    const pendingCount = allExpenses?.filter((e) => e.status === "pending").length ?? 0;
-    const overdueExpenses = allExpenses?.filter((e) => {
+      return d >= monthStart && d <= monthEnd;
+    }) ?? [];
+  }, [allExpenses, monthStart, monthEnd]);
+
+  const kpis = useMemo(() => {
+    const totalMonth = monthExpenses.reduce((s, e) => s + e.amount_cents, 0);
+    const paidMonth = monthExpenses.filter((e) => e.status === "paid").reduce((s, e) => s + e.amount_cents, 0);
+    const pendingCount = monthExpenses.filter((e) => e.status === "pending").length;
+    const now = new Date();
+    const overdueExpenses = monthExpenses.filter((e) => {
       if (e.status !== "pending") return false;
       return new Date(e.due_date + "T00:00:00") < now;
     });
-    const overdueTotal = overdueExpenses?.reduce((s, e) => s + e.amount_cents, 0) ?? 0;
+    const overdueTotal = overdueExpenses.reduce((s, e) => s + e.amount_cents, 0);
 
-    return { totalMonth, paidMonth, pendingCount, overdueTotal, overdueCount: overdueExpenses?.length ?? 0 };
-  }, [allExpenses]);
+    return { totalMonth, paidMonth, pendingCount, overdueTotal, overdueCount: overdueExpenses.length };
+  }, [monthExpenses]);
 
-  const filtered = expenses?.filter((e) =>
-    !search.trim() || e.description.toLowerCase().includes(search.toLowerCase()) ||
-    e.category?.name?.toLowerCase().includes(search.toLowerCase()) ||
-    (e as any).supplier?.name?.toLowerCase().includes(search.toLowerCase())
-  );
+  // Category breakdown for the dashboard
+  const categoryBreakdown = useMemo(() => {
+    const map = new Map<string, { name: string; color: string; total: number; count: number }>();
+    monthExpenses.forEach((e) => {
+      const catName = e.category?.name || "Sem categoria";
+      const catColor = e.category?.color || "gray";
+      const existing = map.get(catName) ?? { name: catName, color: catColor, total: 0, count: 0 };
+      existing.total += e.amount_cents;
+      existing.count += 1;
+      map.set(catName, existing);
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [monthExpenses]);
+
+  const maxCategoryTotal = categoryBreakdown[0]?.total || 1;
+
+  const filtered = expenses?.filter((e) => {
+    const d = new Date(e.due_date + "T00:00:00");
+    const inMonth = d >= monthStart && d <= monthEnd;
+    const matchesSearch = !search.trim() || e.description.toLowerCase().includes(search.toLowerCase()) ||
+      e.category?.name?.toLowerCase().includes(search.toLowerCase()) ||
+      (e as any).supplier?.name?.toLowerCase().includes(search.toLowerCase());
+    return inMonth && matchesSearch;
+  });
 
   return (
     <div>
       <PageHeader title="Despesas" description="Gestão de contas a pagar e custos operacionais" />
+
+      {/* Month selector */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => setSelectedMonth((m) => subMonths(m, 1))}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="text-lg font-semibold min-w-[160px] text-center capitalize">
+            {format(selectedMonth, "MMMM yyyy", { locale: ptBR })}
+          </span>
+          <Button variant="ghost" size="icon" onClick={() => setSelectedMonth((m) => addMonths(m, 1))}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setShowDashboard(!showDashboard)}>
+          <BarChart3 className="h-4 w-4 mr-1" />
+          {showDashboard ? "Ocultar resumo" : "Ver resumo"}
+        </Button>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard title="Total do Mês" value={formatCents(kpis.totalMonth)} icon={Receipt} />
@@ -79,6 +127,35 @@ export default function Expenses() {
           description={kpis.overdueTotal > 0 ? formatCents(kpis.overdueTotal) : undefined}
         />
       </div>
+
+      {/* Monthly dashboard - category breakdown */}
+      {showDashboard && categoryBreakdown.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-medium">Despesas por Categoria — {format(selectedMonth, "MMMM yyyy", { locale: ptBR })}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {categoryBreakdown.map((cat) => (
+                <div key={cat.name} className="flex items-center gap-3">
+                  <div className="w-[140px] truncate text-sm font-medium">{cat.name}</div>
+                  <div className="flex-1">
+                    <Progress value={(cat.total / maxCategoryTotal) * 100} className="h-3" />
+                  </div>
+                  <div className="w-[100px] text-right text-sm font-semibold">{formatCents(cat.total)}</div>
+                  <div className="w-[50px] text-right text-xs text-muted-foreground">{cat.count}x</div>
+                </div>
+              ))}
+              <div className="flex items-center gap-3 pt-2 border-t">
+                <div className="w-[140px] text-sm font-bold">Total</div>
+                <div className="flex-1" />
+                <div className="w-[100px] text-right text-sm font-bold">{formatCents(kpis.totalMonth)}</div>
+                <div className="w-[50px] text-right text-xs text-muted-foreground">{monthExpenses.length}x</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between mb-4">
         <div className="flex gap-2 flex-1 w-full sm:w-auto">
@@ -141,7 +218,7 @@ export default function Expenses() {
                 <TableRow key={i}><TableCell colSpan={8}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
               ))
             ) : !filtered?.length ? (
-              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhuma despesa encontrada</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhuma despesa encontrada neste mês</TableCell></TableRow>
             ) : (
               filtered.map((exp) => (
                 <TableRow key={exp.id}>

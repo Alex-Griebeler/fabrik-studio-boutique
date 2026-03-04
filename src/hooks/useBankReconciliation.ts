@@ -73,16 +73,20 @@ export function useBankImports() {
 }
 
 export function useBankTransactions(importId: string | null) {
+  const isAll = importId === "__all__";
   return useQuery({
     queryKey: ["bank-transactions", importId],
     enabled: !!importId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("bank_transactions")
         .select("*")
-         .eq("import_id", importId!)
-         .order("posted_date", { ascending: false })
-         .limit(1000);
+        .order("posted_date", { ascending: false })
+        .limit(1000);
+      if (!isAll) {
+        query = query.eq("import_id", importId!);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return data as BankTransaction[];
     },
