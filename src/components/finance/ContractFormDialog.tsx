@@ -164,14 +164,18 @@ export function ContractFormDialog({ open, onOpenChange, contract }: Props) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Auto-calculate monthly_value_cents
+    const installCount = form.installments || 1;
+    const monthlyValue = installCount > 0 ? Math.round(netValue / installCount) : netValue;
+
     if (contract) {
       updateContract.mutate(
-        { id: contract.id, data: form },
+        { id: contract.id, data: { ...form, monthly_value_cents: monthlyValue } },
         { onSuccess: () => onOpenChange(false) }
       );
     } else {
       createContract.mutate(
-        { ...form, installment_dates: installmentDates },
+        { ...form, monthly_value_cents: monthlyValue, installment_dates: installmentDates },
         { onSuccess: () => onOpenChange(false) }
       );
     }

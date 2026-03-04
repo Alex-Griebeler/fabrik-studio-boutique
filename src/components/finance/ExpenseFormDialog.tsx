@@ -69,6 +69,7 @@ export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
     if (expense) {
       setForm({
         category_id: expense.category_id,
+        supplier_id: expense.supplier_id || undefined,
         description: expense.description,
         amount_cents: expense.amount_cents,
         due_date: expense.due_date,
@@ -76,6 +77,7 @@ export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
         status: expense.status,
         payment_method: expense.payment_method || undefined,
         recurrence: expense.recurrence || "none",
+        competence_date: expense.competence_date || "",
         notes: expense.notes || "",
       });
     } else {
@@ -86,6 +88,7 @@ export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
         due_date: new Date().toISOString().slice(0, 10),
         status: "pending",
         recurrence: "none",
+        competence_date: "",
         notes: "",
       });
     }
@@ -134,7 +137,7 @@ export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
           {/* Supplier */}
           <div className="space-y-1.5">
             <Label>Fornecedor</Label>
-            <Select value={(form as any).supplier_id || "none"} onValueChange={(v) => setForm({ ...form, supplier_id: v === "none" ? undefined : v } as any)}>
+            <Select value={form.supplier_id || "none"} onValueChange={(v) => setForm({ ...form, supplier_id: v === "none" ? undefined : v })}>
               <SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Nenhum</SelectItem>
@@ -171,6 +174,11 @@ export function ExpenseFormDialog({ open, onOpenChange, expense }: Props) {
               <Label>Vencimento *</Label>
               <Input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} required />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Data de Competência</Label>
+            <Input type="date" value={form.competence_date || ""} onChange={(e) => setForm({ ...form, competence_date: e.target.value })} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

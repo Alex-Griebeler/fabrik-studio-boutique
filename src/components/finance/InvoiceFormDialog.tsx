@@ -32,6 +32,7 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [existingProofUrl, setExistingProofUrl] = useState<string | null>(null);
+  const [signedProofUrl, setSignedProofUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (invoice) {
@@ -43,6 +44,17 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
       setExistingProofUrl(invoice.payment_proof_url || null);
     }
   }, [invoice, open]);
+
+  // Generate signed URL on-demand for viewing existing proofs
+  useEffect(() => {
+    if (!existingProofUrl) { setSignedProofUrl(null); return; }
+    if (existingProofUrl.startsWith("http")) {
+      setSignedProofUrl(existingProofUrl);
+    } else {
+      supabase.storage.from("payment-proofs").createSignedUrl(existingProofUrl, 3600)
+        .then(({ data }) => setSignedProofUrl(data?.signedUrl || null));
+    }
+  }, [existingProofUrl]);
 
   if (!invoice) return null;
 
@@ -58,12 +70,7 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
       const path = `${invoice.id}/${Date.now()}.${ext}`;
       const { error } = await supabase.storage.from("payment-proofs").upload(path, proofFile);
       if (error) throw error;
-      // Use signed URL for private bucket (valid for 1 hour)
-      const { data, error: signError } = await supabase.storage
-        .from("payment-proofs")
-        .createSignedUrl(path, 3600);
-      if (signError) throw signError;
-      return data?.signedUrl || null;
+      return path;
     } catch (err) {
       console.error("Upload error:", err);
       return null;
@@ -265,10 +272,10 @@ export function InvoiceFormDialog({ open, onOpenChange, invoice }: Props) {
           {/* Read-only for paid/cancelled - show proof if exists */}
           {!canRegisterPayment && (
             <div className="space-y-3">
-              {existingProofUrl && (
+              {signedProofUrl && (
                 <div className="flex items-center gap-2 text-sm">
                   <FileCheck className="h-4 w-4 text-green-600" />
-                  <a href={existingProofUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                  <a href={signedProofUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">
                     Ver comprovante
                   </a>
                 </div>

@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Plus, Search, Receipt, TrendingDown, AlertTriangle, CheckCircle, Settings2, Zap, ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { Plus, Search, Receipt, TrendingDown, AlertTriangle, CheckCircle, Settings2, Zap, ChevronLeft, ChevronRight, BarChart3, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ExpenseCategoryManager } from "@/components/finance/ExpenseCategoryManager";
 import { ExpenseCategoryRulesManager } from "@/components/finance/ExpenseCategoryRulesManager";
@@ -15,11 +15,18 @@ import { Progress } from "@/components/ui/progress";
 import {
   useExpenses,
   useExpenseCategories,
+  useDeleteExpense,
   expenseStatusLabels,
   expenseStatusColors,
   type Expense,
   type ExpenseStatus,
 } from "@/hooks/useExpenses";
+import { useSuppliers } from "@/hooks/useSuppliers";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCents } from "@/hooks/usePlans";
 import { ExpenseFormDialog } from "@/components/finance/ExpenseFormDialog";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
@@ -40,9 +47,14 @@ export default function Expenses() {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [showDashboard, setShowDashboard] = useState(true);
 
+  const [supplierFilter, setSupplierFilter] = useState<string>("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const { data: allExpenses } = useExpenses("all");
   const { data: expenses, isLoading } = useExpenses(statusFilter);
   const { data: categories } = useExpenseCategories();
+  const { data: suppliers } = useSuppliers();
+  const deleteExpense = useDeleteExpense();
 
   const monthStart = startOfMonth(selectedMonth);
   const monthEnd = endOfMonth(selectedMonth);
@@ -89,7 +101,8 @@ export default function Expenses() {
     const inMonth = d >= monthStart && d <= monthEnd;
     const matchesSearch = !search.trim() || e.description.toLowerCase().includes(search.toLowerCase()) ||
       e.category?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      (e as any).supplier?.name?.toLowerCase().includes(search.toLowerCase());
+      e.supplier?.name?.toLowerCase().includes(search.toLowerCase());
+    if (supplierFilter !== "all" && e.supplier_id !== supplierFilter) return false;
     return inMonth && matchesSearch;
   });
 
@@ -172,6 +185,15 @@ export default function Expenses() {
               <SelectItem value="cancelled">Cancelados</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+            <SelectTrigger className="w-[160px]"><SelectValue placeholder="Fornecedor" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos Fornecedores</SelectItem>
+              {suppliers?.map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => { setShowRules(!showRules); setShowCategories(false); }}>
@@ -224,7 +246,7 @@ export default function Expenses() {
                 <TableRow key={exp.id}>
                   <TableCell className="font-medium">{exp.description}</TableCell>
                   <TableCell>{exp.category?.name || "—"}</TableCell>
-                  <TableCell>{(exp as any).supplier?.name || "—"}</TableCell>
+                  <TableCell>{exp.supplier?.name || "—"}</TableCell>
                   <TableCell>{formatCents(exp.amount_cents)}</TableCell>
                   <TableCell>{formatDate(exp.due_date)}</TableCell>
                   <TableCell>{exp.payment_date ? formatDate(exp.payment_date) : "—"}</TableCell>
@@ -234,9 +256,42 @@ export default function Expenses() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" variant="ghost" onClick={() => { setEditing(exp); setDialogOpen(true); }}>
-                      Editar
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="ghost" onClick={() => { setEditing(exp); setDialogOpen(true); }}>
+                        Editar
+                      </Button>
+                      <TooltipProvider>
+                        <AlertDialog>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <AlertDialogTrigger asChild>
+                                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive h-8 w-8 p-0">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </AlertDialogTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent>Excluir despesa</TooltipContent>
+                          </Tooltip>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir despesa?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Tem certeza que deseja excluir "<strong>{exp.description}</strong>"? Esta ação não pode ser desfeita.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={() => deleteExpense.mutate(exp.id)}
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TooltipProvider>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

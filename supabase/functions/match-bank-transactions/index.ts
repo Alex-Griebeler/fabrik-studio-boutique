@@ -278,15 +278,17 @@ Deno.serve(async (req) => {
 
         if (!error) {
           applied++;
+          const matchedTx = transactions.find(t => t.id === m.transaction_id);
           if (m.matched_type === "invoice") {
             await supabase.from("invoices").update({
               status: "paid",
-              payment_date: transactions.find(t => t.id === m.transaction_id)?.posted_date,
+              payment_date: matchedTx?.posted_date,
+              paid_amount_cents: matchedTx ? Math.abs(matchedTx.amount_cents) : null,
             }).eq("id", m.matched_id);
           } else {
             await supabase.from("expenses").update({
               status: "paid",
-              payment_date: transactions.find(t => t.id === m.transaction_id)?.posted_date,
+              payment_date: matchedTx?.posted_date,
             }).eq("id", m.matched_id);
           }
         }

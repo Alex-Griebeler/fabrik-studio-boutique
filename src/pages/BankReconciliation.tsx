@@ -80,6 +80,10 @@ export default function BankReconciliation() {
     uploadMutation.mutate(
       { fileContent, fileName, fileType, forceImport },
       {
+        onSuccess: () => {
+          // Auto-select the newest import after successful upload
+          setSelectedImport(null); // Reset to __all__ which will include new import
+        },
         onError: (err: any) => {
           if (err.isDuplicate) {
             setDuplicateDialog({ open: true, details: err.details, pendingUpload: { fileContent, fileName, fileType } });
@@ -145,14 +149,14 @@ export default function BankReconciliation() {
   }, [transactions, filters]);
 
   const kpis = useMemo(() => {
-    const data = filteredTx;
-    if (!data.length && !transactions?.length) return { credits: 0, debits: 0, unmatched: 0, matched: 0, total: 0 };
+    // Filter out balance entries from KPI calculations
+    const data = filteredTx.filter((t) => !t.is_balance_entry);
     const credits = data.filter((t) => t.transaction_type === "credit").reduce((s, t) => s + t.amount_cents, 0);
     const debits = data.filter((t) => t.transaction_type === "debit").reduce((s, t) => s + Math.abs(t.amount_cents), 0);
     const unmatched = data.filter((t) => t.match_status === "unmatched").length;
     const matched = data.filter((t) => t.match_status === "auto_matched" || t.match_status === "manual_matched").length;
     return { credits, debits, unmatched, matched, total: data.length };
-  }, [filteredTx, transactions]);
+  }, [filteredTx]);
 
   const handleApprove = useCallback((suggestion: MatchSuggestion) => {
     approveMutation.mutate(
@@ -277,7 +281,7 @@ export default function BankReconciliation() {
           </TooltipProvider>
         )}
 
-        {activeImport && (
+        {(activeImport || isConsolidatedView) && (
           <div className="flex gap-2 ml-auto">
             <TooltipProvider>
               <Tooltip>
