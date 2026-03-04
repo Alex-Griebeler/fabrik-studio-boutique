@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ScrollText, FileText, Receipt, TrendingUp, AlertTriangle, CheckCircle, Truck, Building2 } from "lucide-react";
+import { ScrollText, FileText, Receipt, TrendingUp, AlertTriangle, CheckCircle, Truck, Building2, BarChart3 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { KPICard } from "@/components/shared/KPICard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,9 +13,10 @@ import { InvoiceFormDialog } from "@/components/finance/InvoiceFormDialog";
 import { NfseTab } from "@/components/finance/NfseTab";
 import { SuppliersTab } from "@/components/finance/SuppliersTab";
 import { BankAccountManager } from "@/components/finance/BankAccountManager";
+import { FinancialDashboard } from "@/components/finance/FinancialDashboard";
 
 export default function Finance() {
-  const [tab, setTab] = useState("contracts");
+  const [tab, setTab] = useState("dashboard");
 
   const { data: contracts, isLoading: loadingContracts } = useContracts("all");
   const { data: invoices, isLoading: loadingInvoices } = useInvoices("all");
@@ -72,6 +73,9 @@ export default function Finance() {
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList className="flex-wrap">
+          <TabsTrigger value="dashboard" className="gap-1.5">
+            <BarChart3 className="h-4 w-4" /> Dashboard
+          </TabsTrigger>
           <TabsTrigger value="contracts" className="gap-1.5">
             <ScrollText className="h-4 w-4" /> Contratos
           </TabsTrigger>
@@ -88,6 +92,10 @@ export default function Finance() {
             <Building2 className="h-4 w-4" /> Contas
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dashboard">
+          <FinancialDashboard />
+        </TabsContent>
 
         <TabsContent value="contracts">
           <ContractsTab
