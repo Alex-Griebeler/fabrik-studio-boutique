@@ -203,7 +203,7 @@ export function BankTransactionFilters({ filters, onFiltersChange, accounts, ori
 
         {/* Data de/até */}
         <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">De</Label>
+          <Label className="text-xs text-muted-foreground">Lançamento de</Label>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -227,7 +227,7 @@ export function BankTransactionFilters({ filters, onFiltersChange, accounts, ori
         </div>
 
         <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Até</Label>
+          <Label className="text-xs text-muted-foreground">Lançamento até</Label>
           <Popover>
             <PopoverTrigger asChild>
               <Button
