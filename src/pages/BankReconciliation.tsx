@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback } from "react";
-import { Upload, Loader2, Wand2, Zap } from "lucide-react";
+import { Upload, Loader2, Wand2, Zap, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import {
   useBankImports, useBankTransactions, useUploadBankStatement,
   useRunMatching, useApproveMatch, useRejectMatch, useIgnoreTransaction, useBatchApproveMatches,
+  useDeleteBankImport,
   type MatchSuggestion,
 } from "@/hooks/useBankReconciliation";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ManualMatchDialog } from "@/components/finance/ManualMatchDialog";
@@ -41,6 +46,7 @@ export default function BankReconciliation() {
   const rejectMutation = useRejectMatch();
   const ignoreMutation = useIgnoreTransaction();
   const batchApproveMutation = useBatchApproveMatches();
+  const deleteMutation = useDeleteBankImport();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -185,6 +191,48 @@ export default function BankReconciliation() {
               ))}
             </SelectContent>
           </Select>
+        )}
+
+        {activeImport && (
+          <TooltipProvider>
+            <AlertDialog>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="icon" className="text-destructive hover:text-destructive" disabled={deleteMutation.isPending}>
+                      {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </Button>
+                  </AlertDialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Excluir esta importação</TooltipContent>
+              </Tooltip>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir importação?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Tem certeza que deseja excluir a importação <strong>{activeImport.file_name}</strong>? Todas as {activeImport.total_transactions ?? 0} transações associadas serão removidas permanentemente.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => {
+                      deleteMutation.mutate(activeImportId!, {
+                        onSuccess: () => {
+                          setSelectedImport(null);
+                          setMatchSuggestions([]);
+                          setSelectedTxIds(new Set());
+                        },
+                      });
+                    }}
+                  >
+                    Excluir
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </TooltipProvider>
         )}
 
         {activeImport && (
