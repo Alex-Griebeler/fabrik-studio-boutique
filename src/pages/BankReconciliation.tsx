@@ -1,5 +1,5 @@
-import { useState, useRef, useMemo, useCallback } from "react";
-import { Upload, Loader2, Wand2, Zap, Trash2 } from "lucide-react";
+import { useState, useRef, useMemo, useCallback, useEffect } from "react";
+import { Upload, Loader2, Wand2, Zap, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,8 @@ export default function BankReconciliation() {
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
   const [manualMatchTx, setManualMatchTx] = useState<BankTransaction | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [duplicateDialog, setDuplicateDialog] = useState<{ open: boolean; details: string; pendingUpload: { fileContent: string; fileName: string; fileType: string } | null }>({ open: false, details: "", pendingUpload: null });
 
   const { data: imports, isLoading: loadingImports } = useBankImports();
@@ -154,6 +156,16 @@ export default function BankReconciliation() {
     if (!transactions) return [];
     return applyTransactionFilters(transactions, filters);
   }, [transactions, filters]);
+
+  // Reset page when filters change
+  useEffect(() => { setCurrentPage(1); }, [filters]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filteredTx.length / PAGE_SIZE));
+  const paginatedTx = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredTx.slice(start, start + PAGE_SIZE);
+  }, [filteredTx, currentPage]);
 
   const kpis = useMemo(() => {
     // Filter out balance entries from KPI calculations
@@ -371,7 +383,7 @@ export default function BankReconciliation() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredTx.map((tx) => (
+                paginatedTx.map((tx) => (
                   <BankTransactionRow
                     key={tx.id}
                     tx={tx}
@@ -392,6 +404,36 @@ export default function BankReconciliation() {
               )}
             </TableBody>
           </Table>
+
+          {/* Pagination */}
+          {filteredTx.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between border-t px-4 py-3">
+              <span className="text-sm text-muted-foreground">
+                {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredTx.length)} de {filteredTx.length} transações
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => p - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm px-2">
+                  {currentPage}/{totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => p + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
