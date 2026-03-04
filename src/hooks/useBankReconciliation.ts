@@ -225,6 +225,35 @@ export function useIgnoreTransaction() {
   });
 }
 
+export function useDeleteBankImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (importId: string) => {
+      // Delete all transactions first (FK constraint)
+      const { error: txError } = await supabase
+        .from("bank_transactions")
+        .delete()
+        .eq("import_id", importId);
+      if (txError) throw txError;
+
+      // Delete the import record
+      const { error: impError } = await supabase
+        .from("bank_imports")
+        .delete()
+        .eq("id", importId);
+      if (impError) throw impError;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bank-imports"] });
+      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
+      toast.success("Importação excluída com sucesso!");
+    },
+    onError: (err: Error) => {
+      toast.error(`Erro ao excluir importação: ${err.message}`);
+    },
+  });
+}
+
 export function useBatchApproveMatches() {
   const qc = useQueryClient();
   return useMutation({
