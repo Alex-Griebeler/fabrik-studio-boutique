@@ -57,8 +57,9 @@ export default function BankReconciliation() {
     return filterImportsByAccount(imports, filters.accountId);
   }, [imports, filters.accountId]);
 
-  const activeImportId = selectedImport ?? visibleImports?.[0]?.id ?? null;
-  const activeImport = visibleImports?.find((i) => i.id === activeImportId);
+  const activeImportId = selectedImport ?? (visibleImports?.length ? "__all__" : null);
+  const activeImport = activeImportId && activeImportId !== "__all__" ? visibleImports?.find((i) => i.id === activeImportId) : null;
+  const isConsolidatedView = activeImportId === "__all__";
 
   // Reset selected import when account filter changes and current selection is filtered out
   const { data: transactions, isLoading: loadingTx } = useBankTransactions(activeImportId);
@@ -218,13 +219,14 @@ export default function BankReconciliation() {
           Importar Extrato
         </Button>
 
-        {imports && imports.length > 0 && (
+        {visibleImports && visibleImports.length > 0 && (
           <Select value={activeImportId ?? ""} onValueChange={(v) => setSelectedImport(v)}>
             <SelectTrigger className="w-[320px]">
               <SelectValue placeholder="Selecione uma importação" />
             </SelectTrigger>
             <SelectContent>
-              {imports.map((imp) => (
+              <SelectItem value="__all__">📊 Todas as importações</SelectItem>
+              {visibleImports.map((imp) => (
                 <SelectItem key={imp.id} value={imp.id}>
                   {imp.file_name} — {formatDate(imp.period_start)} a {formatDate(imp.period_end)}
                 </SelectItem>
@@ -318,10 +320,10 @@ export default function BankReconciliation() {
         isBatchPending={batchApproveMutation.isPending}
       />
 
-      {activeImport && <BankKPIs kpis={kpis} />}
+      {(activeImport || isConsolidatedView) && <BankKPIs kpis={kpis} />}
 
       {/* Filters */}
-      {activeImport && (
+      {(activeImport || isConsolidatedView) && (
         <BankTransactionFilters
           filters={filters}
           onFiltersChange={setFilters}
@@ -331,7 +333,7 @@ export default function BankReconciliation() {
       )}
 
       {/* Transaction table */}
-      {activeImport && (
+      {(activeImport || isConsolidatedView) && (
         <div className="rounded-lg border bg-card">
           <Table>
             <TableHeader>
@@ -383,7 +385,7 @@ export default function BankReconciliation() {
       )}
 
       {/* Empty state */}
-      {!activeImport && !loadingImports && (
+      {!activeImport && !isConsolidatedView && !loadingImports && (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <Upload className="h-12 w-12 mb-4 opacity-40" />
           <p className="text-lg font-medium">Nenhuma importação encontrada</p>
