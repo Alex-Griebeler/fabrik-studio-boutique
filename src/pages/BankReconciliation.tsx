@@ -125,13 +125,14 @@ export default function BankReconciliation() {
   }, [transactions, filters]);
 
   const kpis = useMemo(() => {
-    if (!transactions) return { credits: 0, debits: 0, unmatched: 0, matched: 0, total: 0 };
-    const credits = transactions.filter((t) => t.transaction_type === "credit").reduce((s, t) => s + t.amount_cents, 0);
-    const debits = transactions.filter((t) => t.transaction_type === "debit").reduce((s, t) => s + Math.abs(t.amount_cents), 0);
-    const unmatched = transactions.filter((t) => t.match_status === "unmatched").length;
-    const matched = transactions.filter((t) => t.match_status === "auto_matched" || t.match_status === "manual_matched").length;
-    return { credits, debits, unmatched, matched, total: transactions.length };
-  }, [transactions]);
+    const data = filteredTx;
+    if (!data.length && !transactions?.length) return { credits: 0, debits: 0, unmatched: 0, matched: 0, total: 0 };
+    const credits = data.filter((t) => t.transaction_type === "credit").reduce((s, t) => s + t.amount_cents, 0);
+    const debits = data.filter((t) => t.transaction_type === "debit").reduce((s, t) => s + Math.abs(t.amount_cents), 0);
+    const unmatched = data.filter((t) => t.match_status === "unmatched").length;
+    const matched = data.filter((t) => t.match_status === "auto_matched" || t.match_status === "manual_matched").length;
+    return { credits, debits, unmatched, matched, total: data.length };
+  }, [filteredTx, transactions]);
 
   const handleApprove = useCallback((suggestion: MatchSuggestion) => {
     approveMutation.mutate(
