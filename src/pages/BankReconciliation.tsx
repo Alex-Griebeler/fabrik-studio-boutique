@@ -80,9 +80,14 @@ export default function BankReconciliation() {
     uploadMutation.mutate(
       { fileContent, fileName, fileType, forceImport },
       {
-        onSuccess: () => {
-          // Auto-select the newest import after successful upload
-          setSelectedImport(null); // Reset to __all__ which will include new import
+        onSuccess: (data) => {
+          // Auto-select the newly uploaded import
+          const newImportId = data?.import_id;
+          if (newImportId) {
+            setSelectedImport(newImportId);
+          } else {
+            setSelectedImport(null);
+          }
         },
         onError: (err: any) => {
           if (err.isDuplicate) {
@@ -116,8 +121,10 @@ export default function BankReconciliation() {
 
   const handleRunMatching = (autoApply: boolean) => {
     if (!activeImportId) return;
+    // Send undefined for consolidated view so edge function fetches ALL unmatched transactions
+    const importIdParam = isConsolidatedView ? undefined : activeImportId;
     matchMutation.mutate(
-      { importId: activeImportId, autoApply },
+      { importId: importIdParam, autoApply },
       {
         onSuccess: (data) => {
           if (!autoApply) {
