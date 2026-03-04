@@ -24,6 +24,15 @@ import type { BankTransaction } from "@/hooks/useBankReconciliation";
 import { BankKPIs } from "@/components/bank/BankKPIs";
 import { BankSuggestionsBanner } from "@/components/bank/BankSuggestionsBanner";
 import { BankTransactionRow } from "@/components/bank/BankTransactionRow";
+import { useBankAccounts } from "@/hooks/useBankAccounts";
+import {
+  BankTransactionFilters,
+  applyTransactionFilters,
+  filterImportsByAccount,
+  extractUniqueOrigins,
+  INITIAL_FILTERS,
+  type TransactionFilters,
+} from "@/components/bank/BankTransactionFilters";
 
 function formatDate(d: string | null) {
   if (!d) return "—";
@@ -33,13 +42,25 @@ function formatDate(d: string | null) {
 export default function BankReconciliation() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedImport, setSelectedImport] = useState<string | null>(null);
-  const [filterType, setFilterType] = useState<string>("all");
+  const [filters, setFilters] = useState<TransactionFilters>(INITIAL_FILTERS);
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
   const [manualMatchTx, setManualMatchTx] = useState<BankTransaction | null>(null);
 
   const { data: imports, isLoading: loadingImports } = useBankImports();
-  const { data: transactions, isLoading: loadingTx } = useBankTransactions(selectedImport ?? imports?.[0]?.id ?? null);
+  const { data: bankAccounts } = useBankAccounts();
+
+  // Filter imports by selected account
+  const visibleImports = useMemo(() => {
+    if (!imports) return [];
+    return filterImportsByAccount(imports, filters.accountId);
+  }, [imports, filters.accountId]);
+
+  const activeImportId = selectedImport ?? visibleImports?.[0]?.id ?? null;
+  const activeImport = visibleImports?.find((i) => i.id === activeImportId);
+
+  // Reset selected import when account filter changes and current selection is filtered out
+  const { data: transactions, isLoading: loadingTx } = useBankTransactions(activeImportId);
   const uploadMutation = useUploadBankStatement();
   const matchMutation = useRunMatching();
   const approveMutation = useApproveMatch();
@@ -56,7 +77,6 @@ export default function BankReconciliation() {
       toast.error("Formato não suportado. Use OFX, CSV ou Excel (.xlsx/.xls).");
       return;
     }
-    // For Excel files, send as base64; for text files, send as text
     if (ext === "xlsx" || ext === "xls") {
       const buffer = await file.arrayBuffer();
       const base64 = btoa(
@@ -69,9 +89,6 @@ export default function BankReconciliation() {
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
-
-  const activeImportId = selectedImport ?? imports?.[0]?.id ?? null;
-  const activeImport = imports?.find((i) => i.id === activeImportId);
 
   const handleRunMatching = (autoApply: boolean) => {
     if (!activeImportId) return;
@@ -95,14 +112,17 @@ export default function BankReconciliation() {
     return map;
   }, [matchSuggestions]);
 
+  // Extract unique origins from transactions for the filter
+  const availableOrigins = useMemo(() => {
+    if (!transactions) return [];
+    return extractUniqueOrigins(transactions);
+  }, [transactions]);
+
+  // Apply all filters
   const filteredTx = useMemo(() => {
     if (!transactions) return [];
-    let result = transactions;
-    if (filterType === "credit") result = result.filter((t) => t.transaction_type === "credit");
-    else if (filterType === "debit") result = result.filter((t) => t.transaction_type === "debit");
-    else if (filterType !== "all") result = result.filter((t) => t.match_status === filterType);
-    return result;
-  }, [transactions, filterType]);
+    return applyTransactionFilters(transactions, filters);
+  }, [transactions, filters]);
 
   const kpis = useMemo(() => {
     if (!transactions) return { credits: 0, debits: 0, unmatched: 0, matched: 0, total: 0 };
@@ -280,22 +300,14 @@ export default function BankReconciliation() {
 
       {activeImport && <BankKPIs kpis={kpis} />}
 
-      {/* Filter */}
+      {/* Filters */}
       {activeImport && (
-        <div className="flex gap-2 mb-4">
-          <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              <SelectItem value="credit">Créditos</SelectItem>
-              <SelectItem value="debit">Débitos</SelectItem>
-              <SelectItem value="unmatched">Pendentes</SelectItem>
-              <SelectItem value="auto_matched">Vinculados (automático)</SelectItem>
-              <SelectItem value="manual_matched">Vinculados (manual)</SelectItem>
-              <SelectItem value="ignored">Ignorados</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <BankTransactionFilters
+          filters={filters}
+          onFiltersChange={setFilters}
+          accounts={bankAccounts?.map((a) => ({ id: a.id, name: a.name })) ?? []}
+          origins={availableOrigins}
+        />
       )}
 
       {/* Transaction table */}
