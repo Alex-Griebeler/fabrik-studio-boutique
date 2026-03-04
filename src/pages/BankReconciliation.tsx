@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import {
   useBankImports, useBankTransactions, useUploadBankStatement,
   useRunMatching, useApproveMatch, useRejectMatch, useIgnoreTransaction, useBatchApproveMatches,
-  useDeleteBankImport,
+  useDeleteBankImport, useRestoreTransaction,
   type MatchSuggestion,
 } from "@/hooks/useBankReconciliation";
 import {
@@ -68,6 +68,11 @@ export default function BankReconciliation() {
   const ignoreMutation = useIgnoreTransaction();
   const batchApproveMutation = useBatchApproveMatches();
   const deleteMutation = useDeleteBankImport();
+  const restoreMutation = useRestoreTransaction();
+
+  const handleRestore = useCallback((txId: string) => {
+    restoreMutation.mutate(txId);
+  }, [restoreMutation]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -351,8 +356,10 @@ export default function BankReconciliation() {
                     onReject={handleReject}
                     onManualMatch={setManualMatchTx}
                     onIgnore={handleIgnore}
+                    onRestore={handleRestore}
                     isApprovePending={approveMutation.isPending}
                     isIgnorePending={ignoreMutation.isPending}
+                    isRestorePending={restoreMutation.isPending}
                   />
                 ))
               )}

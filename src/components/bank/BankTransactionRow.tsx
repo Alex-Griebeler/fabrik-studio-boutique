@@ -1,4 +1,4 @@
-import { Check, X, EyeOff, Link2 } from "lucide-react";
+import { Check, X, EyeOff, Link2, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -67,8 +67,10 @@ interface BankTransactionRowProps {
   onReject: (transactionId: string) => void;
   onManualMatch: (tx: BankTransaction) => void;
   onIgnore: (transactionId: string) => void;
+  onRestore?: (transactionId: string) => void;
   isApprovePending: boolean;
   isIgnorePending: boolean;
+  isRestorePending?: boolean;
 }
 
 export function BankTransactionRow({
@@ -81,8 +83,10 @@ export function BankTransactionRow({
   onReject,
   onManualMatch,
   onIgnore,
+  onRestore,
   isApprovePending,
   isIgnorePending,
+  isRestorePending,
 }: BankTransactionRowProps) {
   const hasSuggestion = !!suggestion && tx.match_status === "unmatched";
 
@@ -198,6 +202,24 @@ export function BankTransactionRow({
                 </Tooltip>
               </TooltipProvider>
             </>
+          )}
+          {tx.match_status === "ignored" && onRestore && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={() => onRestore(tx.id)}
+                    disabled={isRestorePending}
+                  >
+                    <Undo2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Restaurar para pendente</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </TableCell>

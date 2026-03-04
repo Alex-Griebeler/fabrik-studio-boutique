@@ -225,6 +225,24 @@ export function useIgnoreTransaction() {
   });
 }
 
+export function useRestoreTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (transactionId: string) => {
+      const { error } = await supabase
+        .from("bank_transactions")
+        .update({ match_status: "unmatched" })
+        .eq("id", transactionId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
+      toast.success("Transação restaurada para pendente.");
+    },
+    onError: () => toast.error("Erro ao restaurar transação."),
+  });
+}
+
 export function useDeleteBankImport() {
   const qc = useQueryClient();
   return useMutation({
