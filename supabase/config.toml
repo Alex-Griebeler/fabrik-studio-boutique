@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.calculate-invoice-penalties]
 verify_jwt = false
+
+[functions.daily-finance-cron]
+verify_jwt = false
