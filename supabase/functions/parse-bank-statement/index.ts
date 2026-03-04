@@ -479,21 +479,25 @@ Deno.serve(async (req) => {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const fileHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 
-    // Check for duplicate import
-    const { data: existingImport } = await supabase
-      .from("bank_imports")
-      .select("id, file_name, created_at")
-      .eq("file_hash", fileHash)
-      .eq("status", "completed")
-      .limit(1);
+    const forceImport = body.forceImport === true;
 
-    if (existingImport && existingImport.length > 0) {
-      return new Response(JSON.stringify({
-        error: "Arquivo duplicado",
-        details: `Este arquivo já foi importado em ${existingImport[0].created_at} (${existingImport[0].file_name})`,
-      }), {
-        status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Check for duplicate import
+    if (!forceImport) {
+      const { data: existingImport } = await supabase
+        .from("bank_imports")
+        .select("id, file_name, created_at")
+        .eq("file_hash", fileHash)
+        .eq("status", "completed")
+        .limit(1);
+
+      if (existingImport && existingImport.length > 0) {
+        return new Response(JSON.stringify({
+          error: "Arquivo duplicado",
+          details: `Este arquivo já foi importado em ${existingImport[0].created_at} (${existingImport[0].file_name})`,
+        }), {
+          status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const { data: importRec, error: impErr } = await supabase.from("bank_imports").insert({
