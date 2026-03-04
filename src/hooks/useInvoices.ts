@@ -75,6 +75,9 @@ export function useInvoices(statusFilter: "all" | InvoiceStatus = "all") {
   return useQuery({
     queryKey: ["invoices", statusFilter],
     queryFn: async () => {
+      // Mark overdue invoices before fetching
+      await supabase.rpc("mark_overdue_invoices");
+
       let query = supabase
         .from("invoices")
         .select("*, student:students(full_name)")

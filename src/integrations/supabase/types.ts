@@ -2666,6 +2666,7 @@ export type Database = {
       is_own_invoice: { Args: { _invoice_id: string }; Returns: boolean }
       is_own_profile: { Args: { _profile_id: string }; Returns: boolean }
       is_own_student: { Args: { _student_id: string }; Returns: boolean }
+      mark_overdue_invoices: { Args: never; Returns: undefined }
       update_lead_anamnese: {
         Args: {
           p_email?: string
