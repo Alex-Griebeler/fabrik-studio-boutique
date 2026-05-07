@@ -74,6 +74,9 @@ Deno.serve(async (req) => {
       return jsonError(401, "Missing Authorization");
     }
     const token = authHeader.replace("Bearer ", "");
+    let payloadDbg: any = null;
+    try { payloadDbg = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); } catch {}
+    console.log("[detect-auth] tokenLen:", token.length, "payload:", JSON.stringify(payloadDbg));
     let isServiceRole = token === serviceKey || isServiceRoleJwt(token);
     if (!isServiceRole) {
       // Permite admin autenticado pra dry-run/testes manuais
