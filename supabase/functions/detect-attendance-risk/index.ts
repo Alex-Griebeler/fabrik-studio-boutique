@@ -16,6 +16,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// Aceita JWT do gateway com role=service_role (novo sistema sb_secret_*)
+function isServiceRoleJwt(token: string): boolean {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload?.role === "service_role";
+  } catch { return false; }
+}
+
 // ─────────── Tipos auxiliares ───────────
 interface AgentPolicies {
   mode: "shadow" | "live";
