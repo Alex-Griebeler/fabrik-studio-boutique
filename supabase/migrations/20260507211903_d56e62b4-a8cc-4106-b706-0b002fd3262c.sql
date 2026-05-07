@@ -1,0 +1,2 @@
+UPDATE public.policies SET value = to_jsonb('+5561999743974'::text), updated_at = now() WHERE key = 'attendance_agent.shadow_phone';
+UPDATE public.policies SET value = to_jsonb('4fd214e3-214c-433d-bde2-5e91957dc95a'::text), updated_at = now() WHERE key = 'attendance_agent.fallback_trainer_id';
