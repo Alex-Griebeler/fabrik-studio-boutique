@@ -123,7 +123,7 @@ export function useOpenAttendanceAlertForStudent(studentId: string | undefined) 
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      return (data ?? null) as AttendanceAlert | null;
+      return (data ?? null) as unknown as AttendanceAlert | null;
     },
   });
 }
