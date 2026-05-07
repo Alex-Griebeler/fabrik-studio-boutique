@@ -5,7 +5,7 @@ conforme for executando.
 
 ---
 
-## 0. Pré-requisitos do código (já feito por mim)
+## 0. Pré-requisitos do código (já feito)
 
 - [x] Migration `attendance_alerts` + policies seeds
 - [x] Edge function `detect-attendance-risk` (cron 22h)
@@ -19,23 +19,9 @@ conforme for executando.
 
 ## 1. Deploy do código
 
-O Lovable faz auto-deploy quando você faz push pra `main`:
+O Lovable faz auto-deploy quando você faz push pra `main`. Após o
+push, confira no painel da Lovable que:
 
-```bash
-git add docs/agente-faltas-contexto.md \
-        docs/agente-faltas-checklist.md \
-        supabase/migrations/20260507202800_*.sql \
-        supabase/functions/_shared/attendance/ \
-        supabase/functions/detect-attendance-risk/ \
-        supabase/functions/acknowledge-attendance-alert/ \
-        supabase/functions/escalate-attendance-alerts/ \
-        supabase/config.toml \
-        vitest.config.ts
-git commit -m "feat: agente de detecção de faltas (modo shadow)"
-git push origin main
-```
-
-Após o push, confira no painel da Lovable que:
 - A migration nova rodou (vai aparecer na lista de migrations)
 - As 3 edge functions novas estão deployadas
 
@@ -108,6 +94,28 @@ UPDATE trainers SET phone = '+5561XXXXXXXX' WHERE full_name = 'JP';
 
 ## 5. Smoke test em modo shadow (antes do cron rodar)
 
+Antes do smoke, confira se a base tem presença suficiente para o
+agente enxergar alguma coisa:
+
+```sql
+-- Sessões passadas ainda sem marcação: se isso estiver alto, o agente fica cego.
+SELECT status, count(*)
+FROM sessions
+WHERE session_date >= current_date - interval '14 days'
+  AND session_date < current_date
+GROUP BY status
+ORDER BY status;
+
+-- Faltas registradas em turmas nos últimos 14 dias.
+SELECT cb.status, count(*)
+FROM class_bookings cb
+JOIN sessions s ON s.id = cb.session_id
+WHERE s.session_date >= current_date - interval '14 days'
+  AND s.session_date < current_date
+GROUP BY cb.status
+ORDER BY cb.status;
+```
+
 Pegue a URL do projeto Supabase (Settings → API) e o `service_role`
 key (Settings → API → secrets). Rodar do terminal:
 
@@ -138,6 +146,11 @@ Se `alerts_detected > 0` mas você acha que ninguém faltou, é sinal
 de que `sessions.no_show` ou `class_bookings.no_show` tem registro
 incorreto. Investigar antes de seguir.
 
+> Se usar `SELECT * FROM public._smoke_test_detect_attendance();`, a
+> SQL function retorna só o `request_id` do `pg_net`; o JSON do detector
+> precisa ser conferido nos logs da Edge Function. Para ver a resposta
+> direto, prefira o `curl`.
+
 ---
 
 ## 6. Run real em shadow (envia pro **seu** WhatsApp)
@@ -151,6 +164,8 @@ curl -X POST "$SUPABASE_URL/functions/v1/detect-attendance-risk" \
 ```
 
 Você deve receber no WhatsApp **uma mensagem por aluno detectado**.
+Se rodar fora da janela 9-19h, o alerta fica criado com
+`notified_at = null` e será enviado no próximo run dentro da janela.
 
 Confere a tabela:
 ```sql
@@ -158,6 +173,15 @@ SELECT id, student_id, alert_type, status, mode, message_to, notified_at
 FROM attendance_alerts
 ORDER BY created_at DESC
 LIMIT 20;
+```
+
+Depois de um run dentro da janela, esta query deve voltar vazia:
+```sql
+SELECT id, student_id, status, mode, detected_at, notified_at, message_to
+FROM attendance_alerts
+WHERE status IN ('pending', 'escalated')
+  AND notified_at IS NULL
+ORDER BY detected_at;
 ```
 
 Clica no link de cada mensagem → deve abrir página "Marcado como
@@ -197,7 +221,25 @@ SELECT cron.schedule(
   $$
 );
 
--- 4) Job de escalação: a cada 30min em horário comercial UTC (= 9-18 SP)
+-- 4) Job de envio/retry: 9h America/Sao_Paulo, seg-sex.
+-- Ele chama o mesmo detector; alertas já abertos são pulados pelo índice único,
+-- e alertas abertos sem notified_at são enviados aqui (path sendPendingAlerts).
+SELECT cron.schedule(
+  'attendance-send-pending-9h',
+  '0 12 * * 1-5',
+  $$
+  SELECT net.http_post(
+    url := current_setting('app.settings.functions_url') || '/detect-attendance-risk',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+
+-- 5) Job de escalação: a cada 30min em horário comercial UTC (= 9-18 SP)
 SELECT cron.schedule(
   'attendance-escalate-30min',
   '*/30 12-21 * * 1-5',
@@ -220,6 +262,7 @@ SELECT jobname, schedule, active FROM cron.job;
 Para **desligar** os crons depois:
 ```sql
 SELECT cron.unschedule('attendance-detect-22h');
+SELECT cron.unschedule('attendance-send-pending-9h');
 SELECT cron.unschedule('attendance-escalate-30min');
 ```
 
@@ -229,13 +272,15 @@ SELECT cron.unschedule('attendance-escalate-30min');
 
 Por uma semana, com cron rodando:
 
-- [ ] Você recebe alertas no seu WhatsApp todo dia às 22h (se houver)
+- [ ] O detector roda às 22h e cria alertas se houver aluno em risco
+- [ ] Se o alerta nasceu fora da janela, ele é enviado no job das 9h
 - [ ] Os alunos detectados batem com a realidade (não há falsos
       positivos por culpa de check-in não lançado)
 - [ ] Os links de "marcado como tratado" funcionam
 - [ ] A escalação após 24h sem ack está disparando (testa deixando
       um alerta sem clicar)
 - [ ] Tasks pro treinador estão sendo criadas após o ack
+- [ ] Após o job das 9h, não sobra alerta aberto com `notified_at IS NULL`
 
 Se algo der errado nesta janela, ajustar **antes** de virar live.
 
