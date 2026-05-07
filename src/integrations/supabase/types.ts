@@ -2763,6 +2763,12 @@ export type Database = {
       }
     }
     Functions: {
+      _smoke_test_detect_attendance: {
+        Args: never
+        Returns: {
+          request_id: number
+        }[]
+      }
       calculate_monthly_kpis: { Args: { p_date: string }; Returns: undefined }
       has_role: {
         Args: {

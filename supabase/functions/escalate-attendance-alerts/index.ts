@@ -11,6 +11,15 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+function isServiceRoleJwt(token: string): boolean {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload?.role === "service_role";
+  } catch { return false; }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -24,7 +33,7 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) return j(401, { error: "Missing Authorization" });
     const token = authHeader.replace("Bearer ", "");
-    if (token !== serviceKey) return j(403, { error: "Service-role required" });
+    if (token !== serviceKey && !isServiceRoleJwt(token)) return j(403, { error: "Service-role required" });
 
     const policies = await loadPolicies(supabase);
     const nowInTz = nowInTimezone(policies.timezone);

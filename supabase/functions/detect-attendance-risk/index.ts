@@ -16,6 +16,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// Aceita JWT do gateway com role=service_role (novo sistema sb_secret_*)
+function isServiceRoleJwt(token: string): boolean {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload?.role === "service_role";
+  } catch { return false; }
+}
+
 // ─────────── Tipos auxiliares ───────────
 interface AgentPolicies {
   mode: "shadow" | "live";
@@ -58,14 +68,29 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: requer service_role bearer (cron) OU dry-run flag
+    // Auth: aceita service_role bearer (cron) OU JWT com role=service_role OU usuário admin (testes)
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) {
       return jsonError(401, "Missing Authorization");
     }
     const token = authHeader.replace("Bearer ", "");
-    console.log("[detect] received token len:", token.length, "prefix:", token.slice(0, 8), "serviceKey len:", serviceKey?.length, "prefix:", serviceKey?.slice(0, 8));
-    if (token !== serviceKey) {
+    let payloadDbg: any = null;
+    try { payloadDbg = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); } catch {}
+    console.log("[detect-auth] tokenLen:", token.length, "payload:", JSON.stringify(payloadDbg));
+    let isServiceRole = token === serviceKey || isServiceRoleJwt(token);
+    if (!isServiceRole) {
+      // Permite admin autenticado pra dry-run/testes manuais
+      try {
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+        const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
+        const { data: u } = await userClient.auth.getUser();
+        if (u?.user) {
+          const { data: r } = await supabase.from("user_roles").select("role").eq("user_id", u.user.id).eq("role", "admin").maybeSingle();
+          if (r) isServiceRole = true;
+        }
+      } catch { /* ignore */ }
+    }
+    if (!isServiceRole) {
       return jsonError(403, "Service-role required");
     }
 
