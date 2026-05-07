@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardKPIs, useUpcomingDues, useRecentLeads } from "@/hooks/useDashboard";
 import { usePendingTasksCount, useOverdueTasksCount } from "@/hooks/useTasks";
+import { useOpenAttendanceAlertsCount } from "@/hooks/useAttendanceAlerts";
 import { MonthlyKPISummary } from "@/components/analytics/MonthlyKPISummary";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -52,6 +53,7 @@ export default function Dashboard() {
   const { data: recentLeads, isLoading: leadsLoading } = useRecentLeads();
   const { data: pendingTasks } = usePendingTasksCount();
   const { data: overdueTasks } = useOverdueTasksCount();
+  const { data: openAlerts } = useOpenAttendanceAlertsCount();
 
   const revenueTrend = useMemo(
     () => (kpis ? calcTrend(kpis.revenue.current, kpis.revenue.previous) : undefined),
@@ -125,22 +127,50 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Tasks card */}
-      <Card className="border-border/50 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate("/tasks")}>
-        <CardContent className="flex items-center justify-between pt-6">
-          <div className="flex items-center gap-3">
-            <ListTodo className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium">Tarefas Pendentes</p>
-              <p className="text-xs text-muted-foreground">{overdueTasks ?? 0} atrasada(s)</p>
+      {/* Tasks + Attendance alerts row */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="border-border/50 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate("/tasks")}>
+          <CardContent className="flex items-center justify-between pt-6">
+            <div className="flex items-center gap-3">
+              <ListTodo className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">Tarefas Pendentes</p>
+                <p className="text-xs text-muted-foreground">{overdueTasks ?? 0} atrasada(s)</p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold">{pendingTasks ?? 0}</span>
-            {(overdueTasks ?? 0) > 0 && <AlertTriangle className="h-4 w-4 text-destructive" />}
-          </div>
-        </CardContent>
-      </Card>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold">{pendingTasks ?? 0}</span>
+              {(overdueTasks ?? 0) > 0 && <AlertTriangle className="h-4 w-4 text-destructive" />}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card
+          className={`cursor-pointer transition-shadow hover:shadow-sm ${
+            (openAlerts ?? 0) > 0
+              ? "border-yellow-300/60 bg-yellow-50/50 dark:border-yellow-900/40 dark:bg-yellow-950/10"
+              : "border-border/50"
+          }`}
+          onClick={() => navigate("/alertas-faltas")}
+        >
+          <CardContent className="flex items-center justify-between pt-6">
+            <div className="flex items-center gap-3">
+              <AlertTriangle
+                className={`h-5 w-5 ${
+                  (openAlerts ?? 0) > 0 ? "text-yellow-600" : "text-muted-foreground"
+                }`}
+              />
+              <div>
+                <p className="text-sm font-medium">Alunos em risco</p>
+                <p className="text-xs text-muted-foreground">
+                  Detectado pelo agente de faltas
+                </p>
+              </div>
+            </div>
+            <span className="text-2xl font-bold">{openAlerts ?? 0}</span>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Bottom cards */}
       <div className="grid gap-4 lg:grid-cols-2">
