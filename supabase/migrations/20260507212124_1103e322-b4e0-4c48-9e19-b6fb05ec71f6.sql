@@ -1,0 +1,1 @@
+UPDATE public.trainers SET phone = '+5561999743974', updated_at = now() WHERE id = '4fd214e3-214c-433d-bde2-5e91957dc95a';
