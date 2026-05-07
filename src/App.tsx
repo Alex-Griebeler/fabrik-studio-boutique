@@ -32,6 +32,7 @@ import NotFound from "@/pages/NotFound";
 import ResetPassword from "@/pages/ResetPassword";
 import Import from "@/pages/Import";
 import Anamnese from "@/pages/Anamnese";
+import AttendanceAlerts from "@/pages/AttendanceAlerts";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -225,6 +226,14 @@ const App = () => (
                  }
                />
                <Route path="/anamnese/:leadId" element={<Anamnese />} />
+               <Route
+                 path="/alertas-faltas"
+                 element={
+                   <ProtectedRoute allowedRoles={["admin", "manager", "reception"]}>
+                     <AppLayout><AttendanceAlerts /></AppLayout>
+                   </ProtectedRoute>
+                 }
+               />
                <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

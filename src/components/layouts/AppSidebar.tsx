@@ -20,9 +20,11 @@ import {
   Zap,
   FileUp,
 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserRoles, type AppRole } from "@/hooks/useUserRoles";
+import { useOpenAttendanceAlertsCount } from "@/hooks/useAttendanceAlerts";
 import logoFabrik from "@/assets/logo-fabrik.png";
 import {
   Sidebar,
@@ -66,6 +68,7 @@ const financeItems: MenuItem[] = [
 
 const operationalItems: MenuItem[] = [
   { title: "Agenda", url: "/schedule", icon: CalendarDays, roles: ["admin", "manager", "instructor", "reception"] },
+  { title: "Alertas de Faltas", url: "/alertas-faltas", icon: AlertTriangle, roles: ["admin", "manager", "reception"] },
   { title: "Instrutores", url: "/instructors", icon: GraduationCap, roles: ["admin", "manager"] },
   { title: "Trainer App", url: "/trainer-app", icon: Smartphone, roles: ["admin", "instructor"] },
   { title: "Student App", url: "/student-app", icon: Users, roles: ["admin", "student"] },
@@ -85,24 +88,38 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const { signOut } = useAuth();
   const { hasAnyRole } = useUserRoles();
+  const { data: openAlertsCount } = useOpenAttendanceAlertsCount();
 
   const renderItems = (items: MenuItem[]) =>
     items
       .filter((item) => !item.roles || hasAnyRole(item.roles))
-      .map((item) => (
-        <SidebarMenuItem key={item.title}>
-          <SidebarMenuButton asChild>
-            <NavLink
-              to={item.url}
-              className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-sidebar-accent"
-              activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold"
-            >
-              <item.icon className="h-[18px] w-[18px] shrink-0" />
-              {!collapsed && <span className="text-sm">{item.title}</span>}
-            </NavLink>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      ));
+      .map((item) => {
+        const showBadge =
+          item.url === "/alertas-faltas" && (openAlertsCount ?? 0) > 0;
+        return (
+          <SidebarMenuItem key={item.title}>
+            <SidebarMenuButton asChild>
+              <NavLink
+                to={item.url}
+                className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-sidebar-accent"
+                activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold"
+              >
+                <item.icon className="h-[18px] w-[18px] shrink-0" />
+                {!collapsed && (
+                  <span className="text-sm flex-1 flex items-center justify-between">
+                    {item.title}
+                    {showBadge && (
+                      <span className="ml-2 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-yellow-100 px-1.5 text-[10px] font-semibold text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">
+                        {openAlertsCount}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      });
 
   const hasAnyInGroup = (items: MenuItem[]) =>
     items.some((item) => !item.roles || hasAnyRole(item.roles));

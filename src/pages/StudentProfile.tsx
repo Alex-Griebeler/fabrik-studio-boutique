@@ -115,7 +115,7 @@ export default function StudentProfile() {
         </TabsContent>
 
         <TabsContent value="attendance">
-          <AttendanceTab bookings={bookings} />
+          <AttendanceTab studentId={id} bookings={bookings} />
         </TabsContent>
 
         <TabsContent value="interactions">
