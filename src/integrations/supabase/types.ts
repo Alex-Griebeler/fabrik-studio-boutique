@@ -100,6 +100,115 @@ export type Database = {
           },
         ]
       }
+      attendance_alerts: {
+        Row: {
+          ack_token: string
+          acknowledged_at: string | null
+          acknowledged_via: string | null
+          alert_type: string
+          created_at: string
+          detected_at: string
+          escalated_at: string | null
+          escalated_to_trainer_id: string | null
+          escalation_message_sid: string | null
+          id: string
+          last_attended_at: string | null
+          message_sid: string | null
+          message_to: string | null
+          missed_booking_ids: string[]
+          missed_dates: string[]
+          missed_session_ids: string[]
+          mode: Database["public"]["Enums"]["attendance_alert_mode"]
+          notified_at: string | null
+          plan_snapshot: Json | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: Database["public"]["Enums"]["attendance_alert_status"]
+          student_id: string
+          suppress_reason: string | null
+          trainer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          ack_token: string
+          acknowledged_at?: string | null
+          acknowledged_via?: string | null
+          alert_type: string
+          created_at?: string
+          detected_at?: string
+          escalated_at?: string | null
+          escalated_to_trainer_id?: string | null
+          escalation_message_sid?: string | null
+          id?: string
+          last_attended_at?: string | null
+          message_sid?: string | null
+          message_to?: string | null
+          missed_booking_ids?: string[]
+          missed_dates?: string[]
+          missed_session_ids?: string[]
+          mode?: Database["public"]["Enums"]["attendance_alert_mode"]
+          notified_at?: string | null
+          plan_snapshot?: Json | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: Database["public"]["Enums"]["attendance_alert_status"]
+          student_id: string
+          suppress_reason?: string | null
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ack_token?: string
+          acknowledged_at?: string | null
+          acknowledged_via?: string | null
+          alert_type?: string
+          created_at?: string
+          detected_at?: string
+          escalated_at?: string | null
+          escalated_to_trainer_id?: string | null
+          escalation_message_sid?: string | null
+          id?: string
+          last_attended_at?: string | null
+          message_sid?: string | null
+          message_to?: string | null
+          missed_booking_ids?: string[]
+          missed_dates?: string[]
+          missed_session_ids?: string[]
+          mode?: Database["public"]["Enums"]["attendance_alert_mode"]
+          notified_at?: string | null
+          plan_snapshot?: Json | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: Database["public"]["Enums"]["attendance_alert_status"]
+          student_id?: string
+          suppress_reason?: string | null
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_alerts_escalated_to_trainer_id_fkey"
+            columns: ["escalated_to_trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action: string
@@ -2680,6 +2789,13 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "instructor" | "student" | "manager" | "reception"
+      attendance_alert_mode: "shadow" | "live"
+      attendance_alert_status:
+        | "pending"
+        | "acknowledged"
+        | "escalated"
+        | "resolved"
+        | "suppressed"
       booking_status: "confirmed" | "cancelled" | "waitlist" | "no_show"
       checkin_method: "manual" | "qr_code" | "geolocation" | "auto"
       commission_status: "calculada" | "aprovada" | "paga" | "cancelada"
@@ -2874,6 +2990,14 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "instructor", "student", "manager", "reception"],
+      attendance_alert_mode: ["shadow", "live"],
+      attendance_alert_status: [
+        "pending",
+        "acknowledged",
+        "escalated",
+        "resolved",
+        "suppressed",
+      ],
       booking_status: ["confirmed", "cancelled", "waitlist", "no_show"],
       checkin_method: ["manual", "qr_code", "geolocation", "auto"],
       commission_status: ["calculada", "aprovada", "paga", "cancelada"],
