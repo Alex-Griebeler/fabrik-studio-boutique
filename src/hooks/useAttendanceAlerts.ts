@@ -84,7 +84,7 @@ export function useAttendanceAlerts(filters: AttendanceAlertFilters = {}) {
   return useQuery({
     queryKey: ["attendance_alerts", filters],
     queryFn: async () => {
-      let query = (supabase.from("attendance_alerts" as never) as never)
+      let query = supabase.from("attendance_alerts")
         .select(SELECT)
         .order("detected_at", { ascending: true });
 
@@ -115,7 +115,7 @@ export function useOpenAttendanceAlertForStudent(studentId: string | undefined) 
     queryKey: ["attendance_alerts", "open-by-student", studentId],
     enabled: !!studentId,
     queryFn: async () => {
-      const { data, error } = await (supabase.from("attendance_alerts" as never) as never)
+      const { data, error } = await supabase.from("attendance_alerts")
         .select(SELECT)
         .eq("student_id", studentId!)
         .in("status", OPEN_STATUSES)
@@ -133,7 +133,7 @@ export function useStudentAlertHistory(studentId: string | undefined) {
     queryKey: ["attendance_alerts", "history-by-student", studentId],
     enabled: !!studentId,
     queryFn: async () => {
-      const { data, error } = await (supabase.from("attendance_alerts" as never) as never)
+      const { data, error } = await supabase.from("attendance_alerts")
         .select(SELECT)
         .eq("student_id", studentId!)
         .not("status", "in", `(${OPEN_STATUSES.join(",")})`)
@@ -149,7 +149,7 @@ export function useOpenAttendanceAlertsCount() {
   return useQuery({
     queryKey: ["attendance_alerts", "open-count"],
     queryFn: async () => {
-      const { count, error } = await (supabase.from("attendance_alerts" as never) as never)
+      const { count, error } = await supabase.from("attendance_alerts")
         .select("id", { count: "exact", head: true })
         .in("status", OPEN_STATUSES);
       if (error) throw error;
@@ -162,7 +162,7 @@ export function useAcknowledgeAttendanceAlert() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase.from("attendance_alerts" as never) as never)
+      const { error } = await supabase.from("attendance_alerts")
         .update({
           status: "acknowledged",
           acknowledged_at: new Date().toISOString(),
@@ -185,7 +185,7 @@ export function useResolveAttendanceAlert() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase.from("attendance_alerts" as never) as never)
+      const { error } = await supabase.from("attendance_alerts")
         .update({
           status: "resolved",
           resolved_at: new Date().toISOString(),
