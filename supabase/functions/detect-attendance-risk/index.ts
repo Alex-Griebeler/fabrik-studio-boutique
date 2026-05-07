@@ -64,6 +64,7 @@ Deno.serve(async (req) => {
       return jsonError(401, "Missing Authorization");
     }
     const token = authHeader.replace("Bearer ", "");
+    console.log("[detect] received token len:", token.length, "prefix:", token.slice(0, 8), "serviceKey len:", serviceKey?.length, "prefix:", serviceKey?.slice(0, 8));
     if (token !== serviceKey) {
       return jsonError(403, "Service-role required");
     }
