@@ -38,15 +38,18 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
 
+    console.log("SERVICE_KEY length:", SERVICE_KEY?.length ?? 0);
     const r = await fetch(`${SUPABASE_URL}/functions/v1/detect-attendance-risk`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${SERVICE_KEY}`,
+        apikey: SERVICE_KEY,
       },
       body: JSON.stringify(body),
     });
     const text = await r.text();
+    console.log("inner status:", r.status, "body:", text.slice(0, 200));
     return new Response(text, {
       status: r.status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
