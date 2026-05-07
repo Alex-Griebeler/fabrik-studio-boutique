@@ -58,14 +58,14 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: requer service_role bearer (cron) OU dry-run flag
+    // Auth: aceita service_role bearer (literal OU JWT com role=service_role)
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) {
       return jsonError(401, "Missing Authorization");
     }
     const token = authHeader.replace("Bearer ", "");
-    console.log("[detect] received token len:", token.length, "prefix:", token.slice(0, 8), "serviceKey len:", serviceKey?.length, "prefix:", serviceKey?.slice(0, 8));
-    if (token !== serviceKey) {
+    const isServiceRole = token === serviceKey || isServiceRoleJwt(token);
+    if (!isServiceRole) {
       return jsonError(403, "Service-role required");
     }
 
