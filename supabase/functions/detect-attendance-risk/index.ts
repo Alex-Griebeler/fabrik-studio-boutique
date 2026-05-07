@@ -68,13 +68,25 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: aceita service_role bearer (literal OU JWT com role=service_role)
+    // Auth: aceita service_role bearer (cron) OU JWT com role=service_role OU usuário admin (testes)
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) {
       return jsonError(401, "Missing Authorization");
     }
     const token = authHeader.replace("Bearer ", "");
-    const isServiceRole = token === serviceKey || isServiceRoleJwt(token);
+    let isServiceRole = token === serviceKey || isServiceRoleJwt(token);
+    if (!isServiceRole) {
+      // Permite admin autenticado pra dry-run/testes manuais
+      try {
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+        const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
+        const { data: u } = await userClient.auth.getUser();
+        if (u?.user) {
+          const { data: r } = await supabase.from("user_roles").select("role").eq("user_id", u.user.id).eq("role", "admin").maybeSingle();
+          if (r) isServiceRole = true;
+        }
+      } catch { /* ignore */ }
+    }
     if (!isServiceRole) {
       return jsonError(403, "Service-role required");
     }
