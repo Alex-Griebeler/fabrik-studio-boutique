@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) return j(401, { error: "Missing Authorization" });
     const token = authHeader.replace("Bearer ", "");
-    if (token !== serviceKey) return j(403, { error: "Service-role required" });
+    if (token !== serviceKey && !isServiceRoleJwt(token)) return j(403, { error: "Service-role required" });
 
     const policies = await loadPolicies(supabase);
     const nowInTz = nowInTimezone(policies.timezone);
