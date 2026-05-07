@@ -23,14 +23,15 @@ Deno.serve(async (req) => {
     const userClient = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: claims, error: cErr } = await userClient.auth.getClaims();
-    if (cErr || !claims?.claims?.sub) return json(401, { error: "Invalid token" });
+    const { data: userData, error: uErr } = await userClient.auth.getUser();
+    if (uErr || !userData?.user) return json(401, { error: "Invalid token", detail: uErr?.message });
+    const userId = userData.user.id;
 
     const adminClient = createClient(SUPABASE_URL, SERVICE_KEY);
     const { data: roleRow } = await adminClient
       .from("user_roles")
       .select("role")
-      .eq("user_id", claims.claims.sub)
+      .eq("user_id", userId)
       .eq("role", "admin")
       .maybeSingle();
     if (!roleRow) return json(403, { error: "Admin only" });
