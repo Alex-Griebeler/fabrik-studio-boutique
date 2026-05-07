@@ -29,3 +29,12 @@ verify_jwt = false
 
 [functions.daily-finance-cron]
 verify_jwt = false
+
+[functions.detect-attendance-risk]
+verify_jwt = false
+
+[functions.escalate-attendance-alerts]
+verify_jwt = false
+
+[functions.acknowledge-attendance-alert]
+verify_jwt = false
