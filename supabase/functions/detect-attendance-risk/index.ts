@@ -57,6 +57,22 @@ interface PlanSnapshot {
   frequency: string | null;
 }
 
+interface PendingAlertRow {
+  id: string;
+  trainer_id: string | null;
+  escalated_to_trainer_id: string | null;
+  alert_type: RiskAlert["alertType"];
+  missed_dates: string[];
+  last_attended_at: string | null;
+  plan_snapshot: PlanSnapshot | null;
+  status: "pending" | "escalated";
+  mode: "shadow" | "live";
+  ack_token: string;
+  student: { full_name: string } | null;
+  trainer: TrainerInfo | null;
+  escalated_to_trainer: TrainerInfo | null;
+}
+
 // ─────────── Entry point ───────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -74,8 +90,14 @@ Deno.serve(async (req) => {
       return jsonError(401, "Missing Authorization");
     }
     const token = authHeader.replace("Bearer ", "");
-    let payloadDbg: any = null;
-    try { payloadDbg = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); } catch {}
+    let payloadDbg: unknown = null;
+    try {
+      payloadDbg = JSON.parse(
+        atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+      );
+    } catch {
+      payloadDbg = null;
+    }
     console.log("[detect-auth] tokenLen:", token.length, "payload:", JSON.stringify(payloadDbg));
     let isServiceRole = token === serviceKey || isServiceRoleJwt(token);
     if (!isServiceRole) {
@@ -119,12 +141,32 @@ Deno.serve(async (req) => {
       mode: effectiveMode,
       in_send_window: inSendWindow,
       dry_run: !!body.dryRun,
+      unnotified_candidates: 0,
+      unnotified_sent: 0,
       created: 0,
       suppressed: 0,
       sent: 0,
       skipped_existing: 0,
       errors: [] as string[],
     };
+
+    if (!body.dryRun && inSendWindow) {
+      try {
+        const pending = await sendPendingAlerts({
+          supabase,
+          supabaseUrl,
+          serviceKey,
+          policies,
+        });
+        summary.unnotified_candidates = pending.candidates;
+        summary.unnotified_sent = pending.sent;
+        summary.errors.push(...pending.errors);
+      } catch (err) {
+        summary.errors.push(
+          `pending send: ${(err as Error).message ?? String(err)}`,
+        );
+      }
+    }
 
     if (alerts.length === 0) {
       return jsonOk(summary);
@@ -267,6 +309,93 @@ Deno.serve(async (req) => {
 });
 
 // ─────────── Helpers de I/O ───────────
+
+async function sendPendingAlerts(args: {
+  supabase: SupabaseClient;
+  supabaseUrl: string;
+  serviceKey: string;
+  policies: AgentPolicies;
+}): Promise<{ candidates: number; sent: number; errors: string[] }> {
+  const { supabase, supabaseUrl, serviceKey, policies } = args;
+  const { data, error } = await supabase
+    .from("attendance_alerts")
+    .select(
+      "id, trainer_id, escalated_to_trainer_id, alert_type, missed_dates, last_attended_at, plan_snapshot, status, mode, ack_token, student:students!attendance_alerts_student_id_fkey(full_name), trainer:trainers!attendance_alerts_trainer_id_fkey(id, full_name, phone, is_active), escalated_to_trainer:trainers!attendance_alerts_escalated_to_trainer_id_fkey(id, full_name, phone, is_active)",
+    )
+    .in("status", ["pending", "escalated"])
+    .is("notified_at", null)
+    .order("detected_at", { ascending: true })
+    .limit(100);
+
+  if (error) throw new Error(`load pending alerts: ${error.message}`);
+
+  const rows = (data ?? []) as unknown as PendingAlertRow[];
+  const summary = {
+    candidates: rows.length,
+    sent: 0,
+    errors: [] as string[],
+  };
+
+  if (rows.length === 0) return summary;
+
+  const ackBaseUrl = `${supabaseUrl}/functions/v1/acknowledge-attendance-alert`;
+
+  for (const row of rows) {
+    try {
+      const trainerForAlert = row.escalated_to_trainer ?? row.trainer;
+      const targetPhone = resolveTargetPhone({
+        mode: row.mode,
+        shadowPhone: policies.shadowPhone,
+        trainer: trainerForAlert?.is_active ? trainerForAlert : null,
+      });
+
+      if (!targetPhone) {
+        summary.errors.push(
+          `pending ${row.id}: no target phone (status=${row.status}, mode=${row.mode})`,
+        );
+        continue;
+      }
+
+      const ackUrl = `${ackBaseUrl}?token=${row.ack_token}`;
+      const messageBody = buildTrainerAlertMessage({
+        studentName: row.student?.full_name ?? "Aluno",
+        planLabel: formatPlanLabel(row.plan_snapshot),
+        lastAttendedAt: row.last_attended_at,
+        missedDates: row.missed_dates,
+        ackUrl,
+        alertType: row.alert_type,
+      });
+
+      const sendResult = await sendWhatsapp(
+        supabaseUrl,
+        serviceKey,
+        targetPhone,
+        messageBody,
+      );
+
+      const { error: updateErr } = await supabase
+        .from("attendance_alerts")
+        .update({
+          notified_at: new Date().toISOString(),
+          message_sid: sendResult.sid,
+          message_to: targetPhone,
+        })
+        .eq("id", row.id)
+        .is("notified_at", null);
+
+      if (updateErr) {
+        summary.errors.push(`pending ${row.id}: update ${updateErr.message}`);
+        continue;
+      }
+
+      summary.sent++;
+    } catch (err) {
+      summary.errors.push(`pending ${row.id}: ${(err as Error).message}`);
+    }
+  }
+
+  return summary;
+}
 
 async function loadPolicies(supabase: SupabaseClient): Promise<AgentPolicies> {
   const keys = [
