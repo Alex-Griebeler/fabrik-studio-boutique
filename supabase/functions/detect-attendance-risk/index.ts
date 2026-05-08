@@ -9,6 +9,7 @@ import {
   buildTrainerAlertMessage,
   type AlertMessageContext,
 } from "../_shared/attendance/messaging.ts";
+import { newAlertInitialState } from "../_shared/attendance/escalation.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 
 const corsHeaders = {
