@@ -233,6 +233,82 @@ export type Database = {
           },
         ]
       }
+      attendance_events: {
+        Row: {
+          assistant_trainer_id: string | null
+          created_at: string
+          event_date: string
+          id: string
+          modality: string
+          raw: Json | null
+          session_type: string
+          source: Database["public"]["Enums"]["attendance_event_source"]
+          source_id: string
+          source_synced_at: string
+          start_time: string
+          status: Database["public"]["Enums"]["attendance_event_status"]
+          student_id: string
+          trainer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          assistant_trainer_id?: string | null
+          created_at?: string
+          event_date: string
+          id?: string
+          modality: string
+          raw?: Json | null
+          session_type: string
+          source: Database["public"]["Enums"]["attendance_event_source"]
+          source_id: string
+          source_synced_at?: string
+          start_time: string
+          status: Database["public"]["Enums"]["attendance_event_status"]
+          student_id: string
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assistant_trainer_id?: string | null
+          created_at?: string
+          event_date?: string
+          id?: string
+          modality?: string
+          raw?: Json | null
+          session_type?: string
+          source?: Database["public"]["Enums"]["attendance_event_source"]
+          source_id?: string
+          source_synced_at?: string
+          start_time?: string
+          status?: Database["public"]["Enums"]["attendance_event_status"]
+          student_id?: string
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_events_assistant_trainer_id_fkey"
+            columns: ["assistant_trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_events_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_events_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action: string
@@ -904,6 +980,100 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      evo_student_mappings: {
+        Row: {
+          created_at: string
+          evo_first_seen_at: string
+          evo_member_id: string
+          id: string
+          last_synced_at: string
+          match_method: Database["public"]["Enums"]["evo_student_match_method"]
+          notes: string | null
+          raw: Json | null
+          student_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          evo_first_seen_at?: string
+          evo_member_id: string
+          id?: string
+          last_synced_at?: string
+          match_method?: Database["public"]["Enums"]["evo_student_match_method"]
+          notes?: string | null
+          raw?: Json | null
+          student_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          evo_first_seen_at?: string
+          evo_member_id?: string
+          id?: string
+          last_synced_at?: string
+          match_method?: Database["public"]["Enums"]["evo_student_match_method"]
+          notes?: string | null
+          raw?: Json | null
+          student_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evo_student_mappings_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      evo_trainer_mappings: {
+        Row: {
+          created_at: string
+          evo_employee_id: string | null
+          evo_instructor_name: string | null
+          id: string
+          last_synced_at: string
+          match_method: Database["public"]["Enums"]["evo_trainer_match_method"]
+          notes: string | null
+          raw: Json | null
+          trainer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          evo_employee_id?: string | null
+          evo_instructor_name?: string | null
+          id?: string
+          last_synced_at?: string
+          match_method?: Database["public"]["Enums"]["evo_trainer_match_method"]
+          notes?: string | null
+          raw?: Json | null
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          evo_employee_id?: string | null
+          evo_instructor_name?: string | null
+          id?: string
+          last_synced_at?: string
+          match_method?: Database["public"]["Enums"]["evo_trainer_match_method"]
+          notes?: string | null
+          raw?: Json | null
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evo_trainer_mappings_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
             referencedColumns: ["id"]
           },
         ]
@@ -2826,11 +2996,19 @@ export type Database = {
         | "escalated"
         | "resolved"
         | "suppressed"
+      attendance_event_source: "evo" | "internal_session" | "manual"
+      attendance_event_status:
+        | "present"
+        | "no_show"
+        | "cancelled_late"
+        | "cancelled_on_time"
       booking_status: "confirmed" | "cancelled" | "waitlist" | "no_show"
       checkin_method: "manual" | "qr_code" | "geolocation" | "auto"
       commission_status: "calculada" | "aprovada" | "paga" | "cancelada"
       commission_type: "venda_nova" | "renovacao" | "indicacao" | "meta"
       contract_status: "active" | "suspended" | "cancelled" | "expired"
+      evo_student_match_method: "cpf" | "email" | "manual" | "unmatched"
+      evo_trainer_match_method: "email" | "name" | "manual" | "unmatched"
       expense_status: "pending" | "paid" | "cancelled"
       full_session_status:
         | "scheduled"
@@ -3028,11 +3206,20 @@ export const Constants = {
         "resolved",
         "suppressed",
       ],
+      attendance_event_source: ["evo", "internal_session", "manual"],
+      attendance_event_status: [
+        "present",
+        "no_show",
+        "cancelled_late",
+        "cancelled_on_time",
+      ],
       booking_status: ["confirmed", "cancelled", "waitlist", "no_show"],
       checkin_method: ["manual", "qr_code", "geolocation", "auto"],
       commission_status: ["calculada", "aprovada", "paga", "cancelada"],
       commission_type: ["venda_nova", "renovacao", "indicacao", "meta"],
       contract_status: ["active", "suspended", "cancelled", "expired"],
+      evo_student_match_method: ["cpf", "email", "manual", "unmatched"],
+      evo_trainer_match_method: ["email", "name", "manual", "unmatched"],
       expense_status: ["pending", "paid", "cancelled"],
       full_session_status: [
         "scheduled",
