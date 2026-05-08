@@ -189,81 +189,53 @@ tratado" e mudar o status pra `acknowledged` no banco.
 
 ---
 
-## 7. Configurar pg_cron (Supabase → SQL Editor)
+## 7. Configurar pg_cron
 
-**Pré-requisitos**:
+**Os 3 crons agora são criados por migration versionada** —
+`supabase/migrations/20260508004908_attendance_agent_crons.sql` —
+junto com a setting `app.settings.functions_url`. A migration é
+idempotente (remove crons antigos com mesmo nome antes de recriar).
+
+**Pré-requisitos** (uma vez, manual no SQL Editor):
 - pg_cron e pg_net já estão instaladas (migration `20260304174221`)
-- Você precisa do `service_role` key — vai ficar dentro de uma config
-  privada do banco
+- A setting `app.settings.service_role_key` precisa estar configurada
+  ANTES da migration rodar — **não** vai pro repo.
 
 ```sql
--- 1) Salva o service_role key como setting privada
+-- ÚNICO comando manual. NÃO commitar este SQL com o valor preenchido.
 ALTER DATABASE postgres
   SET app.settings.service_role_key = '<<SERVICE_ROLE_KEY>>';
-
--- 2) Salva a URL base das functions
-ALTER DATABASE postgres
-  SET app.settings.functions_url = 'https://hcfzqeutssngprldtymo.functions.supabase.co';
-
--- 3) Job de detecção: 22h America/Sao_Paulo = 01:00 UTC, todo dia
-SELECT cron.schedule(
-  'attendance-detect-22h',
-  '0 1 * * *',
-  $$
-  SELECT net.http_post(
-    url := current_setting('app.settings.functions_url') || '/detect-attendance-risk',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
-
--- 4) Job de envio/retry: 9h America/Sao_Paulo, seg-sex.
--- Ele chama o mesmo detector; alertas já abertos são pulados pelo índice único,
--- e alertas abertos sem notified_at são enviados aqui (path sendPendingAlerts).
-SELECT cron.schedule(
-  'attendance-send-pending-9h',
-  '0 12 * * 1-5',
-  $$
-  SELECT net.http_post(
-    url := current_setting('app.settings.functions_url') || '/detect-attendance-risk',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
-
--- 5) Job de escalação: a cada 30min em horário comercial UTC (= 9-18 SP)
-SELECT cron.schedule(
-  'attendance-escalate-30min',
-  '*/30 12-21 * * 1-5',
-  $$
-  SELECT net.http_post(
-    url := current_setting('app.settings.functions_url') || '/escalate-attendance-alerts',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
-
--- Confere o que foi agendado:
-SELECT jobname, schedule, active FROM cron.job;
 ```
 
-Para **desligar** os crons depois:
+Sem essa setting, os jobs ainda rodam mas o header `Authorization`
+vira `Bearer ` vazio e a edge function responde 401 — nenhum segredo
+vaza, só não dispara mensagem.
+
+**Validar depois da migration aplicada:**
 ```sql
-SELECT cron.unschedule('attendance-detect-22h');
-SELECT cron.unschedule('attendance-send-pending-9h');
-SELECT cron.unschedule('attendance-escalate-30min');
+-- Confere os 3 jobs criados
+SELECT jobname, schedule, active
+FROM cron.job
+WHERE jobname LIKE 'attendance-%'
+ORDER BY jobname;
+
+-- Confirma que service_role_key foi configurada (sem mostrar valor)
+SELECT current_setting('app.settings.service_role_key', true) IS NOT NULL
+  AS has_service_role_key;
+
+-- Confirma functions_url
+SELECT current_setting('app.settings.functions_url', true) AS functions_url;
+```
+
+Para **desligar** os crons depois (rollback manual):
+```sql
+SELECT cron.unschedule(jobid)
+FROM cron.job
+WHERE jobname IN (
+  'attendance-detect-22h',
+  'attendance-send-pending-9h',
+  'attendance-escalate-30min'
+);
 ```
 
 ---
