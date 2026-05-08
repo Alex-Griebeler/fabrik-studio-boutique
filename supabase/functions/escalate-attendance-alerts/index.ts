@@ -74,18 +74,23 @@ Deno.serve(async (req) => {
 
     const cutoff = new Date();
     cutoff.setHours(cutoff.getHours() - policies.escalationHours);
+    const cutoffIso = cutoff.toISOString();
 
-    // Alerta pendente, com notified_at antes do cutoff, sem ack ainda, sem escalada
+    // Alertas pending sem ack/escalada cuja idade >= escalation_hours.
+    // Base temporal preferida: notified_at; fallback: created_at quando
+    // a notificação ainda não foi enviada (alerta detectado fora da
+    // janela de envio, por ex.).
     const { data: alerts, error: aErr } = await supabase
       .from("attendance_alerts")
       .select(
-        "id, student_id, trainer_id, mode, missed_dates, last_attended_at, plan_snapshot, ack_token, notified_at, student:students(full_name), trainer:trainers!attendance_alerts_trainer_id_fkey(full_name)",
+        "id, student_id, trainer_id, mode, missed_dates, last_attended_at, plan_snapshot, ack_token, notified_at, created_at, student:students(full_name), trainer:trainers!attendance_alerts_trainer_id_fkey(full_name)",
       )
       .eq("status", "pending")
       .is("acknowledged_at", null)
       .is("escalated_at", null)
-      .not("notified_at", "is", null)
-      .lt("notified_at", cutoff.toISOString())
+      .or(
+        `and(notified_at.not.is.null,notified_at.lt.${cutoffIso}),and(notified_at.is.null,created_at.lt.${cutoffIso})`,
+      )
       .limit(100);
     if (aErr) throw new Error(`load alerts: ${aErr.message}`);
 
@@ -98,7 +103,8 @@ Deno.serve(async (req) => {
       last_attended_at: string | null;
       plan_snapshot: { plan_name?: string; frequency?: string | null } | null;
       ack_token: string;
-      notified_at: string;
+      notified_at: string | null;
+      created_at: string;
       student: { full_name: string } | null;
       trainer: { full_name: string } | null;
     };

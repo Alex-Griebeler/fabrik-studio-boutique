@@ -9,6 +9,7 @@ import {
   buildTrainerAlertMessage,
   type AlertMessageContext,
 } from "../_shared/attendance/messaging.ts";
+import { newAlertInitialState } from "../_shared/attendance/escalation.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 
 const corsHeaders = {
@@ -234,7 +235,13 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Insere primeiro (idempotência via unique partial index)
+        // Insere primeiro (idempotência via unique partial index).
+        // Regra: alerta novo SEMPRE nasce `pending` com escalated_at=null.
+        // `escalated_to_trainer_id` aqui é apenas o destino de roteamento
+        // quando o titular não tem telefone — a escalação real (mudança
+        // de status) é responsabilidade exclusiva da function
+        // `escalate-attendance-alerts` após `escalation_hours` sem ack.
+        const initialState = newAlertInitialState();
         const { data: inserted, error: insertErr } = await supabase
           .from("attendance_alerts")
           .insert({
@@ -249,8 +256,8 @@ Deno.serve(async (req) => {
             plan_snapshot: planSnapshot,
             mode: effectiveMode,
             ack_token: ackToken,
-            status: isFallback ? "escalated" : "pending",
-            escalated_at: isFallback ? new Date().toISOString() : null,
+            status: initialState.status,
+            escalated_at: initialState.escalated_at,
           })
           .select("id")
           .single();
