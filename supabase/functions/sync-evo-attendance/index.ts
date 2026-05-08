@@ -178,8 +178,8 @@ Deno.serve(async (req) => {
     const evoDns = Deno.env.get("EVO_DNS");
     const evoToken = Deno.env.get("EVO_TOKEN");
     const evoBranchId = Deno.env.get("EVO_BRANCH_ID") ?? "1";
-    if (!evoBaseUrl || !evoDns || !evoToken) {
-      return jsonError(500, "EVO env not configured");
+    if (!evoDns || !evoToken) {
+      return jsonError(500, "EVO env not configured (missing EVO_DNS or EVO_TOKEN)");
     }
     const evoAuth = "Basic " + base64(`${evoDns}:${evoToken}`);
     const memberBatchSize = clamp(body.memberBatchSize ?? 50, 1, 100);
