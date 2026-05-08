@@ -38,6 +38,15 @@ import {
   type TrainerRecord,
 } from "../_shared/attendance/evo-normalizer.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import {
+  DEFAULT_BACKOFF_MS,
+  DEFAULT_RETRY_ATTEMPTS,
+  EVO_BODY_PARSE_FAILED_PREFIX,
+  EVO_BODY_READ_FAILED_PREFIX,
+  EVO_FETCH_FAILED_PREFIX,
+  isTransientError,
+  withRetry,
+} from "../_shared/attendance/evo-retry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -825,19 +834,91 @@ function countByStatus(s: SyncSummary, status: EvoNormalizedStatus): void {
   }
 }
 
-async function evoFetchJson<T>(url: string, auth: string): Promise<T> {
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: auth,
-      Accept: "application/json",
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`EVO ${res.status} ${url}: ${text.slice(0, 200)}`);
+/**
+ * Faz UMA tentativa de GET autenticado contra a API EVO. Lança erros
+ * com prefixos reconhecidos por `isTransientError`:
+ *   - `EVO_FETCH_FAILED:`        — falha de rede / TypeError no fetch
+ *   - `EVO_BODY_READ_FAILED:`    — conexão morre lendo body
+ *   - `EVO_BODY_PARSE_FAILED:`   — JSON inválido em resposta 2xx
+ *   - `EVO <status> <url>: ...`  — HTTP non-2xx (preserva formato
+ *                                    consumido por `is4xx`)
+ */
+async function evoFetchJsonOnce<T>(url: string, auth: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: auth,
+        Accept: "application/json",
+      },
+    });
+  } catch (err) {
+    throw new Error(`${EVO_FETCH_FAILED_PREFIX} ${(err as Error)?.message ?? String(err)}`);
   }
-  return (await res.json()) as T;
+
+  if (!res.ok) {
+    let text = "";
+    try {
+      text = await res.text();
+    } catch {
+      // ignore — apenas inclui um placeholder pra preservar formato
+    }
+    throw new Error(`EVO ${res.status} ${redactUrl(url)}: ${text.slice(0, 200)}`);
+  }
+
+  let bodyText: string;
+  try {
+    bodyText = await res.text();
+  } catch (err) {
+    throw new Error(
+      `${EVO_BODY_READ_FAILED_PREFIX} ${(err as Error)?.message ?? String(err)}`,
+    );
+  }
+
+  try {
+    return JSON.parse(bodyText) as T;
+  } catch (err) {
+    throw new Error(
+      `${EVO_BODY_PARSE_FAILED_PREFIX} ${(err as Error)?.message ?? String(err)}`,
+    );
+  }
+}
+
+/**
+ * Wrapper com retry de erros transitórios (5xx, 429, falhas de rede,
+ * falhas lendo/parseando body). 4xx propaga imediatamente — caller
+ * (`fetchEvoMembersBatched`) usa pra cair no fallback v2→v1.
+ *
+ * Após esgotar tentativas, agrega numa mensagem útil:
+ *   `EVO request failed after N attempts: GET <url> — last error: ...`
+ */
+async function evoFetchJson<T>(url: string, auth: string): Promise<T> {
+  try {
+    return await withRetry(() => evoFetchJsonOnce<T>(url, auth), {
+      attempts: DEFAULT_RETRY_ATTEMPTS,
+      backoffMs: DEFAULT_BACKOFF_MS,
+      isTransient: isTransientError,
+      onAttemptFailed: (attempt, err, waitMs) => {
+        console.warn(
+          `EVO retry ${attempt + 1}/${DEFAULT_RETRY_ATTEMPTS - 1} in ${waitMs}ms — ${redactUrl(url)} — ${shortErr(err)}`,
+        );
+      },
+    });
+  } catch (err) {
+    if (isTransientError(err)) {
+      throw new Error(
+        `EVO request failed after ${DEFAULT_RETRY_ATTEMPTS} attempts: GET ${redactUrl(url)} — last error: ${(err as Error)?.message ?? String(err)}`,
+      );
+    }
+    throw err;
+  }
+}
+
+/** Remove query string pra não vazar `idsMembers`/parâmetros nos logs. */
+function redactUrl(url: string): string {
+  const idx = url.indexOf("?");
+  return idx === -1 ? url : url.slice(0, idx) + "?…";
 }
 
 function base64(s: string): string {
