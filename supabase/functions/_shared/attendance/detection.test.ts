@@ -176,6 +176,31 @@ describe("evaluateStudent — edge cases", () => {
     expect(result!.missedBookingIds).toEqual(["book-A", "book-B"]);
   });
 
+  it("missedSessionIds aceita UUID puro (formato gravado em attendance_alerts.missed_session_ids uuid[])", () => {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    const uuidA = "11111111-2222-3333-4444-555555555555";
+    const uuidB = "66666666-7777-8888-9999-aaaaaaaaaaaa";
+    const events: AttendanceEvent[] = [
+      {
+        ...ev("2026-05-03", "no_show"),
+        sessionId: uuidA,
+        bookingId: null,
+      },
+      {
+        ...ev("2026-05-05", "no_show"),
+        sessionId: uuidB,
+        bookingId: null,
+      },
+    ];
+    const result = evaluateStudent(events);
+    expect(result!.missedSessionIds).toEqual([uuidA, uuidB]);
+    // garante que cada elemento bate com o formato uuid (sanity pra
+    // não regredir e voltar a injetar source_id textual no futuro)
+    for (const id of result!.missedSessionIds) {
+      expect(id).toMatch(UUID_RE);
+    }
+  });
+
   it("filtra bookingId null pra sessões personal", () => {
     const events: AttendanceEvent[] = [
       {

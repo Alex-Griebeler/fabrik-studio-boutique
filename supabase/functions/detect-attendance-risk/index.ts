@@ -458,134 +458,46 @@ async function loadAttendanceEvents(
 
   const map = new Map<string, AttendanceEvent[]>();
 
-  // 1) Personal sessions (1 student per session)
-  const { data: personal, error: pErr } = await supabase
-    .from("sessions")
+  // Lê da fonte normalizada (`attendance_events`). Pode conter eventos
+  // de qualquer source (`evo`, `internal_session`, `manual`) — a lógica
+  // de detecção é agnóstica de origem.
+  //
+  // IMPORTANTE: usa `id` (uuid de attendance_events), não `source_id`.
+  // `attendance_alerts.missed_session_ids` é uuid[] e source_id é texto
+  // arbitrário (ex.: `"17535:4321"` pra eventos EVO).
+  const { data, error } = await supabase
+    .from("attendance_events")
     .select(
-      "id, session_type, modality, student_id, session_date, start_time, status, trainer_id, assistant_trainer_id, student_checkin_at",
+      "id, student_id, trainer_id, assistant_trainer_id, event_date, start_time, modality, session_type, status",
     )
-    .eq("session_type", "personal")
-    .gte("session_date", startStr)
-    .lte("session_date", todayStr)
-    .not("student_id", "is", null);
-  if (pErr) throw new Error(`load personal: ${pErr.message}`);
+    .gte("event_date", startStr)
+    .lte("event_date", todayStr);
+  if (error) throw new Error(`load attendance_events: ${error.message}`);
 
-  for (const s of personal ?? []) {
-    const status = mapSessionStatus(s.status, s.student_checkin_at);
-    if (!status) continue;
-    pushEvent(map, {
-      studentId: s.student_id!,
-      sessionId: s.id,
-      bookingId: null,
-      sessionType: "personal",
-      modality: s.modality,
-      date: s.session_date,
-      startTime: (s.start_time as string).slice(0, 5),
-      status,
-      trainerId: s.trainer_id ?? null,
-      assistantTrainerId: s.assistant_trainer_id ?? null,
-    });
-  }
-
-  // 2) Group bookings. Query sessions separately to avoid relying on
-  // PostgREST embedded relationships, which differ across migrated schemas.
-  const { data: groupSessions, error: gErr } = await supabase
-    .from("sessions")
-    .select("id, session_date, start_time, modality, status, trainer_id, assistant_trainer_id")
-    .eq("session_type", "group")
-    .gte("session_date", startStr)
-    .lte("session_date", todayStr);
-  if (gErr) throw new Error(`load group sessions: ${gErr.message}`);
-
-  const { data: legacyClassSessions, error: lErr } = await supabase
-    .from("class_sessions")
-    .select("id, session_date, start_time, modality, status")
-    .gte("session_date", startStr)
-    .lte("session_date", todayStr);
-  if (lErr) throw new Error(`load legacy class sessions: ${lErr.message}`);
-
-  type GroupSessionRow = {
+  type Row = {
     id: string;
-    session_date: string;
-    start_time: string;
-    modality: string;
-    status: string;
+    student_id: string;
     trainer_id: string | null;
     assistant_trainer_id: string | null;
-  };
-  type LegacyClassSessionRow = {
-    id: string;
-    session_date: string;
+    event_date: string;
     start_time: string;
     modality: string;
-    status: string;
-  };
-  type BookingRow = {
-    id: string;
-    status: string;
-    student_id: string;
-    session_id: string;
+    session_type: "personal" | "group";
+    status: AttendanceEvent["status"];
   };
 
-  const groupSessionById = new Map(
-    ((groupSessions ?? []) as unknown as GroupSessionRow[]).map((s) => [s.id, s]),
-  );
-  const legacyClassSessionById = new Map(
-    ((legacyClassSessions ?? []) as unknown as LegacyClassSessionRow[])
-      .filter((s) => !groupSessionById.has(s.id))
-      .map((s) => [s.id, s]),
-  );
-  const groupSessionIds = [
-    ...groupSessionById.keys(),
-    ...legacyClassSessionById.keys(),
-  ];
-
-  if (groupSessionIds.length === 0) return map;
-
-  const { data: bookings, error: bErr } = await supabase
-    .from("class_bookings")
-    .select("id, status, student_id, session_id")
-    .in("session_id", groupSessionIds);
-  if (bErr) throw new Error(`load bookings: ${bErr.message}`);
-
-  for (const b of (bookings ?? []) as unknown as BookingRow[]) {
-    const fullSession = groupSessionById.get(b.session_id);
-    const legacySession = legacyClassSessionById.get(b.session_id);
-    const session = fullSession
-      ? fullSession
-      : legacySession
-        ? {
-          id: legacySession.id,
-          session_date: legacySession.session_date,
-          start_time: legacySession.start_time,
-          modality: legacySession.modality,
-          status: normalizeLegacyClassSessionStatus(legacySession.status),
-          trainer_id: null,
-          assistant_trainer_id: null,
-        }
-        : null;
-    if (!session) continue;
-
-    // Aula cancelada (a sessão inteira) não conta pro aluno.
-    if (
-      session.status === "cancelled_on_time" ||
-      session.status === "cancelled_late"
-    ) {
-      continue;
-    }
-    const status = mapBookingStatus(b.status, session.status);
-    if (!status) continue;
+  for (const ev of (data ?? []) as Row[]) {
     pushEvent(map, {
-      studentId: b.student_id,
-      sessionId: session.id,
-      bookingId: b.id,
-      sessionType: "group",
-      modality: session.modality,
-      date: session.session_date,
-      startTime: session.start_time.slice(0, 5),
-      status,
-      trainerId: session.trainer_id,
-      assistantTrainerId: session.assistant_trainer_id,
+      studentId: ev.student_id,
+      sessionId: ev.id,
+      bookingId: null,
+      sessionType: ev.session_type,
+      modality: ev.modality,
+      date: ev.event_date,
+      startTime: ev.start_time.slice(0, 5),
+      status: ev.status,
+      trainerId: ev.trainer_id,
+      assistantTrainerId: ev.assistant_trainer_id,
     });
   }
 
@@ -599,55 +511,6 @@ function pushEvent(
   const list = map.get(ev.studentId);
   if (list) list.push(ev);
   else map.set(ev.studentId, [ev]);
-}
-
-function mapSessionStatus(
-  status: string,
-  checkinAt: string | null,
-): AttendanceEvent["status"] | null {
-  switch (status) {
-    case "completed":
-      return "present";
-    case "late_arrival":
-      return "present";
-    case "no_show":
-      return "no_show";
-    case "cancelled_on_time":
-      return "cancelled_on_time";
-    case "cancelled_late":
-      return "cancelled_late";
-    case "scheduled":
-      // sessão no passado ainda 'scheduled' = trainer não marcou. Ignora.
-      return null;
-    default:
-      return null;
-  }
-}
-
-function mapBookingStatus(
-  bookingStatus: string,
-  sessionStatus: string,
-): AttendanceEvent["status"] | null {
-  if (bookingStatus === "no_show") return "no_show";
-  if (bookingStatus === "confirmed") {
-    if (sessionStatus === "completed" || sessionStatus === "late_arrival") {
-      return "present";
-    }
-    return null; // sessão ainda não rolou ou está em estado intermediário
-  }
-  if (bookingStatus === "cancelled") return "cancelled_on_time";
-  return null; // waitlist, etc.
-}
-
-function normalizeLegacyClassSessionStatus(status: string): string {
-  switch (status) {
-    case "cancelled":
-      return "cancelled_on_time";
-    case "completed":
-      return "completed";
-    default:
-      return "scheduled";
-  }
 }
 
 async function loadStudents(

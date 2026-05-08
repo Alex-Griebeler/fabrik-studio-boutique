@@ -12,8 +12,15 @@ export type SessionType = "personal" | "group";
 
 export interface AttendanceEvent {
   studentId: string;
-  sessionId: string;          // sempre presente: é o id da `sessions`
-  bookingId: string | null;   // setado quando vem de class_bookings (group)
+  /**
+   * Identificador UUID do evento, gravado no `missed_session_ids` (uuid[])
+   * de `attendance_alerts`. Quando carregado de `attendance_events`,
+   * vem do `attendance_events.id`. NÃO confundir com `source_id` (texto
+   * tipo `"{idActivitySession}:{idMember}"` em eventos EVO) — esse é
+   * só identificador externo, não pode entrar em coluna uuid.
+   */
+  sessionId: string;
+  bookingId: string | null;   // legado (uuid de class_bookings); pode ser null
   sessionType: SessionType;
   modality: string;
   date: string;               // ISO yyyy-mm-dd

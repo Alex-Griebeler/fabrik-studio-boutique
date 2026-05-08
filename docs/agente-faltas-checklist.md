@@ -296,21 +296,150 @@ Ou mais brutal: `cron.unschedule(...)`.
 
 ---
 
-## 11. EVO — quando entrar de fato
+## 11. Integração EVO (fonte de verdade)
 
-Hoje o agente lê **direto da tabela `sessions`** do Fabrik
-Performance. Isso assume que o check-in/falta é registrado dentro do
-nosso app.
+**EVO é a fonte oficial de presença.** O detector NÃO lê mais
+`sessions`/`class_bookings` — ele lê da tabela
+`attendance_events`, populada pelo sync EVO.
 
-Se o source-of-truth de presença for migrado pro EVO no futuro:
-- Construir uma function `sync-evo-attendance` que pula no EVO API
-  (https://evo-abc.readme.io/) e atualiza `sessions.status` /
-  `class_bookings.status`
-- Schedule esse sync ANTES do `detect-attendance-risk` no cron
-- Investigar webhook do EVO pra "ausência" → reduz lag
+### 11.1 Arquitetura
 
-Sinal pra construir isso: você ou um treinador apontar que o agente
-está perdendo faltas que aparecem no EVO mas não no app.
+```
+EVO API  →  sync-evo-attendance (cron 21h40 SP)  →  attendance_events
+                                                              ↓
+                              detect-attendance-risk (cron 22h SP)
+                                                              ↓
+                                            attendance_alerts + WhatsApp
+```
+
+- `sync-evo-attendance` busca `GET /api/v1/activities/schedule` +
+  `GET /api/v1/activities/schedule/detail` por dia, filtra aulas
+  finalizadas (`statusName='Finalized'` ou `status=6`), normaliza
+  enrollments via `_shared/attendance/evo-normalizer.ts` e faz
+  upsert idempotente em `attendance_events` com
+  `(source='evo', source_id='{idActivitySession}:{idMember}')`.
+- O detector lê de `attendance_events` agnosticamente — funciona com
+  qualquer `source` (`evo`, `internal_session`, `manual`).
+- Cron de sync foi versionado (`20260508110238_attendance_evo_sync_cron.sql`)
+  com body `{"dryRun": true}`. **Não escreve em produção até virar live.**
+
+### 11.2 Mapping EVO → CRM
+
+Duas tabelas resolvem identificadores:
+
+- `evo_student_mappings(evo_member_id, student_id, match_method)`
+  - método: `cpf` (preferencial), `email`, `manual`, `unmatched`
+  - se sem match, fica `student_id=null` + `match_method='unmatched'`.
+    Não cria aluno automático nesta fase.
+  - em `dryRun=false`, o sync busca members EVO em lote, tenta casar
+    CPF/email com `students`, grava mappings novos e só grava
+    `attendance_events` para alunos mapeados.
+- `evo_trainer_mappings(evo_employee_id, evo_instructor_name, trainer_id, match_method)`
+  - amostra Fase 1 trouxe `idEmployee=null` em todos os enrollments,
+    então fallback é match por `trainers.full_name` normalizado.
+
+### 11.3 Status mapping confirmado (Fase 1, 20 enrollments reais)
+
+| EVO | → `attendance_event_status` | Justificativa |
+|---|---|---|
+| `removed=true` | `ignore` | inscrição removida pré-aula |
+| `suspended=true` | `ignore` | aluno suspenso |
+| `replacement=true` | `ignore` | substituição na vaga |
+| `justifiedAbsence=true` | `cancelled_on_time` | ausência justificada (não conta) |
+| `status=0` | `present` | `count(status=0) == ocupation` em 100% das amostras |
+| `status=1` | `no_show` | falta sem cancelamento |
+| `status=2` | `ignore` | cancelamento sem timestamp confiável (conservador) |
+| desconhecido | `ignore` | reportado em `summary.errors` |
+
+Lógica isolada em `evo-normalizer.ts`, coberta pelos testes de
+normalização/matching EVO.
+
+### 11.4 Limites de plano EVO PLUS
+
+Plano atual gratuito: **1.000 req/mês, 100/dia**.
+
+Custo por sync diário em prod: 1 schedule + N details (1 por aula
+finalizada). Pra ~31 aulas/dia = **32 reqs/dia ≈ 960/mês** — encosta
+no limite. Margem zero.
+
+**Recomendação antes de virar live**: upgrade pra API PRO
+(R$ 39,90/mês fixos + R$ 2,72/100 reqs em horário comercial).
+Desbloqueia webhook real-time também.
+
+### 11.5 Como ligar a integração EVO
+
+**Pré-requisitos manuais (Supabase → Settings → Functions → Secrets):**
+
+```
+EVO_API_BASE_URL = https://evo-integracao-api.w12app.com.br
+EVO_DNS          = <dns da unidade>
+EVO_TOKEN        = <token gerado no painel EVO → Integrações → API>
+EVO_BRANCH_ID    = 1
+EVO_SYNC_DRY_RUN = true        (não mudar até validar 1 semana)
+```
+
+E na tabela `attendance_agent_runtime_config`, garantir que existe a
+chave `cron_secret` com um valor aleatório (mesmo secret consumido
+pelos outros crons do agente):
+
+```sql
+SELECT key FROM attendance_agent_runtime_config WHERE key = 'cron_secret';
+-- se vazio:
+INSERT INTO attendance_agent_runtime_config (key, value)
+VALUES ('cron_secret', encode(gen_random_bytes(32), 'hex'));
+```
+
+**Smoke test (dry-run) sem envolver cron:**
+
+```bash
+SUPABASE_URL="https://hcfzqeutssngprldtymo.supabase.co"
+SERVICE_KEY="<<service_role_key>>"
+
+# Sync 1 dia em dry-run (não escreve nada)
+curl -X POST "$SUPABASE_URL/functions/v1/sync-evo-attendance" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"date": "2026-05-07", "dryRun": true, "limitDetails": 5}'
+```
+
+Esperado no JSON:
+```json
+{
+  "dry_run": true,
+  "date": "2026-05-07",
+  "schedule_count": 45,
+  "finalized_count": 31,
+  "details_fetched": 5,
+  "enrollments_seen": <N>,
+  "present_count": <N>, "no_show_count": <N>, "ignored_count": <N>,
+  "members_fetched": <N>,
+  "mapped_students": <N>,
+  "unmapped_students": <N>,
+  "would_map_by_cpf": <N>,
+  "would_map_by_email": <N>,
+  "would_unmatched": <N>,
+  "mapped_trainers": <N>, "unmapped_trainers": <N>,
+  "upserted": 0,
+  "errors": []
+}
+```
+
+**Virar `dryRun=false`** (popula attendance_events com dados reais):
+
+```bash
+# Override em runtime via body do detector
+curl -X POST "$SUPABASE_URL/functions/v1/sync-evo-attendance" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -d '{"date": "2026-05-07", "dryRun": false}'
+```
+
+Ou alterar a setting persistente:
+```
+Supabase → Functions → Secrets → EVO_SYNC_DRY_RUN = false
+```
+
+E ajustar o cron `attendance-evo-sync-21h40` pra body
+`{"dryRun": false}` quando estiver pronto.
 
 ---
 

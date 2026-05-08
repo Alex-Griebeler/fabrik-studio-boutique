@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.acknowledge-attendance-alert]
 verify_jwt = false
+
+[functions.sync-evo-attendance]
+verify_jwt = false
