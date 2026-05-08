@@ -191,32 +191,21 @@ tratado" e mudar o status pra `acknowledged` no banco.
 
 ## 7. Configurar pg_cron
 
-**Os 3 crons agora são criados por migration versionada** —
-`supabase/migrations/20260508004908_attendance_agent_crons.sql`. A
-migration é idempotente (remove crons antigos com mesmo nome antes
-de recriar).
+**Os 3 crons são criados por migration versionada.** A migration
+`supabase/migrations/20260508013356_attendance_agent_cron_secret.sql`
+gera um segredo interno no banco, guarda em uma tabela restrita, e
+recria os crons com o header `x-attendance-agent-cron-secret`.
 
 A URL pública das edge functions
 (`https://hcfzqeutssngprldtymo.functions.supabase.co/...`) fica
-literal dentro de cada cron job, versionada nesta migration. A
-migration **não** usa `ALTER DATABASE ... SET app.settings.functions_url`
-— o migration runner do Supabase não tem permissão pra `ALTER DATABASE`
-nesse projeto.
+literal dentro de cada cron job. A autenticação do cron **não usa**
+`app.settings.service_role_key`, porque o migration runner do Supabase
+não tem permissão pra `ALTER DATABASE` nesse projeto.
 
-**Pré-requisitos** (uma vez, manual no SQL Editor):
+**Pré-requisitos**:
 - pg_cron e pg_net já estão instaladas (migration `20260304174221`)
-- A setting `app.settings.service_role_key` precisa estar configurada
-  ANTES da migration rodar — **não** vai pro repo.
-
-```sql
--- ÚNICO comando manual. NÃO commitar este SQL com o valor preenchido.
-ALTER DATABASE postgres
-  SET app.settings.service_role_key = '<<SERVICE_ROLE_KEY>>';
-```
-
-Sem essa setting, os jobs ainda rodam mas o header `Authorization`
-vira `Bearer ` vazio e a edge function responde 401 — nenhum segredo
-vaza, só não dispara mensagem.
+- Edge Functions deployadas no commit que valida
+  `x-attendance-agent-cron-secret`
 
 **Validar depois da migration aplicada:**
 ```sql
@@ -226,9 +215,13 @@ FROM cron.job
 WHERE jobname LIKE 'attendance-%'
 ORDER BY jobname;
 
--- Confirma que service_role_key foi configurada (sem mostrar valor)
-SELECT current_setting('app.settings.service_role_key', true) IS NOT NULL
-  AS has_service_role_key;
+-- Confirma que o segredo interno foi gerado (sem mostrar valor)
+SELECT EXISTS (
+  SELECT 1
+  FROM public.attendance_agent_runtime_config
+  WHERE key = 'cron_secret'
+    AND length(value) >= 64
+) AS has_cron_secret;
 ```
 
 Para **desligar** os crons depois (rollback manual):

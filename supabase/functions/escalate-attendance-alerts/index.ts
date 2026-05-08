@@ -4,6 +4,7 @@ import {
   buildEscalationMessage,
   type EscalationMessageContext,
 } from "../_shared/attendance/messaging.ts";
+import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,9 +32,15 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const authHeader = req.headers.get("Authorization") ?? "";
-    if (!authHeader.startsWith("Bearer ")) return j(401, { error: "Missing Authorization" });
-    const token = authHeader.replace("Bearer ", "");
-    if (token !== serviceKey && !isServiceRoleJwt(token)) return j(403, { error: "Service-role required" });
+    const cronAuthorized = await hasValidAttendanceCronSecret(req, supabase);
+    if (!authHeader.startsWith("Bearer ")) {
+      if (!cronAuthorized) return j(401, { error: "Missing Authorization" });
+    } else {
+      const token = authHeader.replace("Bearer ", "");
+      if (token !== serviceKey && !isServiceRoleJwt(token) && !cronAuthorized) {
+        return j(403, { error: "Service-role required" });
+      }
+    }
 
     const policies = await loadPolicies(supabase);
     const nowInTz = nowInTimezone(policies.timezone);

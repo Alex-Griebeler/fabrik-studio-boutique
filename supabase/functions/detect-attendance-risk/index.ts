@@ -9,6 +9,7 @@ import {
   buildTrainerAlertMessage,
   type AlertMessageContext,
 } from "../_shared/attendance/messaging.ts";
+import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -84,12 +85,15 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: aceita service_role bearer (cron) OU JWT com role=service_role OU usuário admin (testes)
+    // Auth: aceita service_role bearer, segredo interno do cron OU usuário admin (testes)
     const authHeader = req.headers.get("Authorization") ?? "";
-    if (!authHeader.startsWith("Bearer ")) {
+    const cronAuthorized = await hasValidAttendanceCronSecret(req, supabase);
+    if (!authHeader.startsWith("Bearer ") && !cronAuthorized) {
       return jsonError(401, "Missing Authorization");
     }
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.replace("Bearer ", "")
+      : "";
     let payloadDbg: unknown = null;
     try {
       payloadDbg = JSON.parse(
@@ -99,8 +103,11 @@ Deno.serve(async (req) => {
       payloadDbg = null;
     }
     console.log("[detect-auth] tokenLen:", token.length, "payload:", JSON.stringify(payloadDbg));
-    let isServiceRole = token === serviceKey || isServiceRoleJwt(token);
-    if (!isServiceRole) {
+    let isServiceRole =
+      token === serviceKey ||
+      isServiceRoleJwt(token) ||
+      cronAuthorized;
+    if (!isServiceRole && authHeader.startsWith("Bearer ")) {
       // Permite admin autenticado pra dry-run/testes manuais
       try {
         const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
