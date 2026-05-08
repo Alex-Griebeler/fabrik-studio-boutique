@@ -192,9 +192,16 @@ tratado" e mudar o status pra `acknowledged` no banco.
 ## 7. Configurar pg_cron
 
 **Os 3 crons agora são criados por migration versionada** —
-`supabase/migrations/20260508004908_attendance_agent_crons.sql` —
-junto com a setting `app.settings.functions_url`. A migration é
-idempotente (remove crons antigos com mesmo nome antes de recriar).
+`supabase/migrations/20260508004908_attendance_agent_crons.sql`. A
+migration é idempotente (remove crons antigos com mesmo nome antes
+de recriar).
+
+A URL pública das edge functions
+(`https://hcfzqeutssngprldtymo.functions.supabase.co/...`) fica
+literal dentro de cada cron job, versionada nesta migration. A
+migration **não** usa `ALTER DATABASE ... SET app.settings.functions_url`
+— o migration runner do Supabase não tem permissão pra `ALTER DATABASE`
+nesse projeto.
 
 **Pré-requisitos** (uma vez, manual no SQL Editor):
 - pg_cron e pg_net já estão instaladas (migration `20260304174221`)
@@ -222,9 +229,6 @@ ORDER BY jobname;
 -- Confirma que service_role_key foi configurada (sem mostrar valor)
 SELECT current_setting('app.settings.service_role_key', true) IS NOT NULL
   AS has_service_role_key;
-
--- Confirma functions_url
-SELECT current_setting('app.settings.functions_url', true) AS functions_url;
 ```
 
 Para **desligar** os crons depois (rollback manual):

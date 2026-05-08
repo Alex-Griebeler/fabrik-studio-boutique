@@ -5,6 +5,11 @@
 -- ou qualquer segredo. Os jobs leem o service_role_key em runtime via
 -- `current_setting('app.settings.service_role_key', true)`.
 --
+-- A migration NÃO usa `ALTER DATABASE ... SET app.settings.functions_url`
+-- (o migration runner do Supabase não tem permissão pra ALTER DATABASE
+-- nesse projeto). A URL das edge functions é PÚBLICA e fica literal
+-- dentro de cada cron job, versionada nesta migration.
+--
 -- Pré-requisito operacional (rodar UMA VEZ no SQL Editor, fora do
 -- versionamento):
 --
@@ -16,12 +21,7 @@
 -- nenhum segredo vaza, só a mensagem não sai.
 -- =============================================================
 
--- 1) URL base das edge functions (não é segredo) — versionada.
-ALTER DATABASE postgres
-  SET app.settings.functions_url =
-    'https://hcfzqeutssngprldtymo.functions.supabase.co';
-
--- 2) Idempotência: remove crons anteriores se existirem (compat por jobid).
+-- 1) Idempotência: remove crons anteriores se existirem (compat por jobid).
 SELECT cron.unschedule(jobid)
 FROM cron.job
 WHERE jobname IN (
@@ -30,13 +30,13 @@ WHERE jobname IN (
   'attendance-escalate-30min'
 );
 
--- 3) Detecção diária às 22h America/Sao_Paulo (= 01:00 UTC).
+-- 2) Detecção diária às 22h America/Sao_Paulo (= 01:00 UTC).
 SELECT cron.schedule(
   'attendance-detect-22h',
   '0 1 * * *',
   $job$
   SELECT net.http_post(
-    url := current_setting('app.settings.functions_url') || '/detect-attendance-risk',
+    url := 'https://hcfzqeutssngprldtymo.functions.supabase.co/detect-attendance-risk',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || COALESCE(current_setting('app.settings.service_role_key', true), '')
@@ -46,7 +46,7 @@ SELECT cron.schedule(
   $job$
 );
 
--- 4) Retry/envio de pendentes às 9h America/Sao_Paulo (= 12:00 UTC), seg-sex.
+-- 3) Retry/envio de pendentes às 9h America/Sao_Paulo (= 12:00 UTC), seg-sex.
 --    Reutiliza o detector — sendPendingAlerts processa alertas abertos
 --    com notified_at IS NULL quando dentro da janela.
 SELECT cron.schedule(
@@ -54,7 +54,7 @@ SELECT cron.schedule(
   '0 12 * * 1-5',
   $job$
   SELECT net.http_post(
-    url := current_setting('app.settings.functions_url') || '/detect-attendance-risk',
+    url := 'https://hcfzqeutssngprldtymo.functions.supabase.co/detect-attendance-risk',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || COALESCE(current_setting('app.settings.service_role_key', true), '')
@@ -64,13 +64,13 @@ SELECT cron.schedule(
   $job$
 );
 
--- 5) Escalação a cada 30min em horário comercial UTC (= 9-18 SP), seg-sex.
+-- 4) Escalação a cada 30min em horário comercial UTC (= 9-18 SP), seg-sex.
 SELECT cron.schedule(
   'attendance-escalate-30min',
   '*/30 12-21 * * 1-5',
   $job$
   SELECT net.http_post(
-    url := current_setting('app.settings.functions_url') || '/escalate-attendance-alerts',
+    url := 'https://hcfzqeutssngprldtymo.functions.supabase.co/escalate-attendance-alerts',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || COALESCE(current_setting('app.settings.service_role_key', true), '')
