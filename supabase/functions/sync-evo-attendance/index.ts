@@ -173,12 +173,13 @@ Deno.serve(async (req) => {
     }
 
     // EVO env
-    const evoBaseUrl = Deno.env.get("EVO_API_BASE_URL");
+    // URL pública documentada do EVO; pode ser sobrescrita via secret se necessário.
+    const evoBaseUrl = Deno.env.get("EVO_API_BASE_URL") ?? "https://evo-integracao-api.w12app.com.br";
     const evoDns = Deno.env.get("EVO_DNS");
     const evoToken = Deno.env.get("EVO_TOKEN");
     const evoBranchId = Deno.env.get("EVO_BRANCH_ID") ?? "1";
-    if (!evoBaseUrl || !evoDns || !evoToken) {
-      return jsonError(500, "EVO env not configured");
+    if (!evoDns || !evoToken) {
+      return jsonError(500, "EVO env not configured (missing EVO_DNS or EVO_TOKEN)");
     }
     const evoAuth = "Basic " + base64(`${evoDns}:${evoToken}`);
     const memberBatchSize = clamp(body.memberBatchSize ?? 50, 1, 100);
