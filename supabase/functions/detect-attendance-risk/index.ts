@@ -487,53 +487,105 @@ async function loadAttendanceEvents(
     });
   }
 
-  // 2) Group bookings — joinar à session pra pegar data, modality, trainer
-  const { data: bookings, error: bErr } = await supabase
-    .from("class_bookings")
-    .select(
-      "id, status, student_id, session:sessions!inner(id, session_date, start_time, modality, status, trainer_id, assistant_trainer_id)",
-    )
-    .gte("session.session_date", startStr)
-    .lte("session.session_date", todayStr);
-  if (bErr) throw new Error(`load bookings: ${bErr.message}`);
+  // 2) Group bookings. Query sessions separately to avoid relying on
+  // PostgREST embedded relationships, which differ across migrated schemas.
+  const { data: groupSessions, error: gErr } = await supabase
+    .from("sessions")
+    .select("id, session_date, start_time, modality, status, trainer_id, assistant_trainer_id")
+    .eq("session_type", "group")
+    .gte("session_date", startStr)
+    .lte("session_date", todayStr);
+  if (gErr) throw new Error(`load group sessions: ${gErr.message}`);
 
+  const { data: legacyClassSessions, error: lErr } = await supabase
+    .from("class_sessions")
+    .select("id, session_date, start_time, modality, status")
+    .gte("session_date", startStr)
+    .lte("session_date", todayStr);
+  if (lErr) throw new Error(`load legacy class sessions: ${lErr.message}`);
+
+  type GroupSessionRow = {
+    id: string;
+    session_date: string;
+    start_time: string;
+    modality: string;
+    status: string;
+    trainer_id: string | null;
+    assistant_trainer_id: string | null;
+  };
+  type LegacyClassSessionRow = {
+    id: string;
+    session_date: string;
+    start_time: string;
+    modality: string;
+    status: string;
+  };
   type BookingRow = {
     id: string;
     status: string;
     student_id: string;
-    session: {
-      id: string;
-      session_date: string;
-      start_time: string;
-      modality: string;
-      status: string;
-      trainer_id: string | null;
-      assistant_trainer_id: string | null;
-    };
+    session_id: string;
   };
 
+  const groupSessionById = new Map(
+    ((groupSessions ?? []) as unknown as GroupSessionRow[]).map((s) => [s.id, s]),
+  );
+  const legacyClassSessionById = new Map(
+    ((legacyClassSessions ?? []) as unknown as LegacyClassSessionRow[])
+      .filter((s) => !groupSessionById.has(s.id))
+      .map((s) => [s.id, s]),
+  );
+  const groupSessionIds = [
+    ...groupSessionById.keys(),
+    ...legacyClassSessionById.keys(),
+  ];
+
+  if (groupSessionIds.length === 0) return map;
+
+  const { data: bookings, error: bErr } = await supabase
+    .from("class_bookings")
+    .select("id, status, student_id, session_id")
+    .in("session_id", groupSessionIds);
+  if (bErr) throw new Error(`load bookings: ${bErr.message}`);
+
   for (const b of (bookings ?? []) as unknown as BookingRow[]) {
-    if (!b.session) continue;
+    const fullSession = groupSessionById.get(b.session_id);
+    const legacySession = legacyClassSessionById.get(b.session_id);
+    const session = fullSession
+      ? fullSession
+      : legacySession
+        ? {
+          id: legacySession.id,
+          session_date: legacySession.session_date,
+          start_time: legacySession.start_time,
+          modality: legacySession.modality,
+          status: normalizeLegacyClassSessionStatus(legacySession.status),
+          trainer_id: null,
+          assistant_trainer_id: null,
+        }
+        : null;
+    if (!session) continue;
+
     // Aula cancelada (a sessão inteira) não conta pro aluno.
     if (
-      b.session.status === "cancelled_on_time" ||
-      b.session.status === "cancelled_late"
+      session.status === "cancelled_on_time" ||
+      session.status === "cancelled_late"
     ) {
       continue;
     }
-    const status = mapBookingStatus(b.status, b.session.status);
+    const status = mapBookingStatus(b.status, session.status);
     if (!status) continue;
     pushEvent(map, {
       studentId: b.student_id,
-      sessionId: b.session.id,
+      sessionId: session.id,
       bookingId: b.id,
       sessionType: "group",
-      modality: b.session.modality,
-      date: b.session.session_date,
-      startTime: b.session.start_time.slice(0, 5),
+      modality: session.modality,
+      date: session.session_date,
+      startTime: session.start_time.slice(0, 5),
       status,
-      trainerId: b.session.trainer_id,
-      assistantTrainerId: b.session.assistant_trainer_id,
+      trainerId: session.trainer_id,
+      assistantTrainerId: session.assistant_trainer_id,
     });
   }
 
@@ -585,6 +637,17 @@ function mapBookingStatus(
   }
   if (bookingStatus === "cancelled") return "cancelled_on_time";
   return null; // waitlist, etc.
+}
+
+function normalizeLegacyClassSessionStatus(status: string): string {
+  switch (status) {
+    case "cancelled":
+      return "cancelled_on_time";
+    case "completed":
+      return "completed";
+    default:
+      return "scheduled";
+  }
 }
 
 async function loadStudents(
