@@ -6,6 +6,7 @@ import {
   findTrainerMatch,
   normalizeDocument,
   normalizeEmail,
+  normalizeEvoTime,
   normalizeEvoEnrollment,
   normalizeInstructorName,
   type StudentRecord,
@@ -171,6 +172,39 @@ describe("normalizeEmail", () => {
     expect(normalizeEmail("")).toBeNull();
     expect(normalizeEmail("   ")).toBeNull();
     expect(normalizeEmail(null)).toBeNull();
+  });
+});
+
+describe("normalizeEvoTime", () => {
+  it("normaliza formato 24h HH:MM para HH:MM:SS", () => {
+    expect(normalizeEvoTime("06:00")).toBe("06:00:00");
+    expect(normalizeEvoTime("6:05")).toBe("06:05:00");
+  });
+
+  it("preserva formato 24h com segundos normalizando hora", () => {
+    expect(normalizeEvoTime("6:00:15")).toBe("06:00:15");
+    expect(normalizeEvoTime("18:30:00")).toBe("18:30:00");
+  });
+
+  it("normaliza formato 12h AM/PM para 24h", () => {
+    expect(normalizeEvoTime("6:00 AM")).toBe("06:00:00");
+    expect(normalizeEvoTime("6:00 PM")).toBe("18:00:00");
+    expect(normalizeEvoTime("12:00 AM")).toBe("00:00:00");
+    expect(normalizeEvoTime("12:00 PM")).toBe("12:00:00");
+  });
+
+  it("aceita segundos e pontuação em AM/PM", () => {
+    expect(normalizeEvoTime("7:08:09 a.m.")).toBe("07:08:09");
+    expect(normalizeEvoTime("7:08:09 P.M.")).toBe("19:08:09");
+  });
+
+  it("retorna null para valores vazios ou inválidos", () => {
+    expect(normalizeEvoTime(null)).toBeNull();
+    expect(normalizeEvoTime(undefined)).toBeNull();
+    expect(normalizeEvoTime("")).toBeNull();
+    expect(normalizeEvoTime("25:00")).toBeNull();
+    expect(normalizeEvoTime("10:99 AM")).toBeNull();
+    expect(normalizeEvoTime("not-a-time")).toBeNull();
   });
 });
 

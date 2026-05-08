@@ -27,6 +27,7 @@ import {
   evoSourceId,
   findStudentMatch,
   findTrainerMatch,
+  normalizeEvoTime,
   normalizeEvoEnrollment,
   normalizeInstructorName,
   type EvoEnrollment,
@@ -322,7 +323,8 @@ async function syncOneDay(args: {
           evoMemberId: String(enr.idMember),
           status: result.status,
           eventDate: detail?.date ?? aula.activityDate ?? day,
-          startTime: detail?.startTime ?? aula.startTime ?? "00:00",
+          startTime:
+            normalizeEvoTime(detail?.startTime ?? aula.startTime) ?? "00:00:00",
           modality: (detail?.name ?? aula.name ?? "").trim() || "—",
           sessionType: deriveSessionType(detail?.capacity ?? aula.capacity),
           instructorName: detail?.instructor ?? aula.instructor ?? null,

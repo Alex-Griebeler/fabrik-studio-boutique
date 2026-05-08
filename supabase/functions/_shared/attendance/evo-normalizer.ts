@@ -102,6 +102,40 @@ export function normalizeEmail(email: string | null | undefined): string | null 
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * Normaliza horários do EVO para formato aceito pelo Postgres `time`.
+ * O EVO pode responder tanto em 24h ("06:00", "06:00:00") quanto em
+ * 12h com AM/PM ("6:00 AM", "6:00:00 PM").
+ */
+export function normalizeEvoTime(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const twelveHour = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP])\.?M\.?$/i);
+  if (twelveHour) {
+    let hour = Number(twelveHour[1]);
+    const minute = twelveHour[2];
+    const second = twelveHour[3] ?? "00";
+    const period = twelveHour[4].toUpperCase();
+    if (hour < 1 || hour > 12 || !isValidMinuteSecond(minute, second)) return null;
+    if (period === "A") hour = hour === 12 ? 0 : hour;
+    else hour = hour === 12 ? 12 : hour + 12;
+    return `${pad2(hour)}:${minute}:${second}`;
+  }
+
+  const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (twentyFourHour) {
+    const hour = Number(twentyFourHour[1]);
+    const minute = twentyFourHour[2];
+    const second = twentyFourHour[3] ?? "00";
+    if (hour < 0 || hour > 23 || !isValidMinuteSecond(minute, second)) return null;
+    return `${pad2(hour)}:${minute}:${second}`;
+  }
+
+  return null;
+}
+
 /** Normaliza nome de instrutor pra match (lowercase, trim, colapsa espaços, sem acento). */
 export function normalizeInstructorName(name: string | null | undefined): string | null {
   if (!name) return null;
@@ -226,4 +260,14 @@ export function findTrainerMatch(
     }
   }
   return { trainerId: null, method: "unmatched" };
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function isValidMinuteSecond(minute: string, second: string): boolean {
+  const m = Number(minute);
+  const s = Number(second);
+  return m >= 0 && m <= 59 && s >= 0 && s <= 59;
 }
