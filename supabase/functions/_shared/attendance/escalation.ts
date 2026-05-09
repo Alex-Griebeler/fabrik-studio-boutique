@@ -1,45 +1,64 @@
+// Lógica pura de decisão de escalação de attendance_alerts.
+// Sem I/O. Determinística e testável.
+//
+// Regras de produto (Maio/2026):
+//   - Alerta novo SEMPRE nasce `pending` com `escalated_at=null`.
+//   - Detector apenas notifica (treinador titular ou shadow_phone). Nunca
+//     escala na mesma run em que cria o alerta.
+//   - Escalação só ocorre via `escalate-attendance-alerts` quando o alerta
+//     pending continua sem ack após `escalationHours` (default 24h).
+//   - Base temporal preferida pra calcular idade: `notified_at`. Se for
+//     null (alerta criado fora da janela de envio, sem mensagem ainda),
+//     cai pra `created_at`. Não usar `missed_dates` pra essa decisão.
+
+export interface NewAlertInitialState {
+  status: "pending";
+  escalated_at: null;
+}
+
+/**
+ * Estado inicial canônico de um alerta recém-detectado.
+ * Existe como função pura pra travar a regra em teste.
+ */
+export function newAlertInitialState(): NewAlertInitialState {
+  return { status: "pending", escalated_at: null };
+}
+
 export interface EscalationCandidate {
   id: string;
-  status: string;
+  status: "pending" | "escalated";
   acknowledged_at: string | null;
   escalated_at: string | null;
   notified_at: string | null;
-  created_at: string | null;
+  created_at: string;
 }
 
-export interface EscalationOptions {
+export interface ShouldEscalateOptions {
   now: Date;
   escalationHours: number;
 }
 
-export interface EscalationDecision {
+export interface ShouldEscalateResult {
   escalate: boolean;
-  reason:
-    | "eligible_since_notified"
-    | "eligible_since_created"
-    | "status_not_pending"
-    | "already_acknowledged"
-    | "already_escalated"
-    | "too_recent"
-    | "invalid_temporal_base";
+  reason: string;
 }
 
-export function newAlertInitialState(): {
-  status: "pending";
-  escalated_at: null;
-} {
-  return {
-    status: "pending",
-    escalated_at: null,
-  };
-}
-
+/**
+ * Decide se um alerta deve ser escalado AGORA.
+ *
+ * Retorna `escalate=false` (com motivo) quando:
+ *   - status já não é `pending`
+ *   - já foi acknowledged
+ *   - já foi escalado em algum momento
+ *   - base temporal inválida
+ *   - idade do alerta ainda menor que `escalationHours`
+ */
 export function shouldEscalate(
   alert: EscalationCandidate,
-  opts: EscalationOptions,
-): EscalationDecision {
+  opts: ShouldEscalateOptions,
+): ShouldEscalateResult {
   if (alert.status !== "pending") {
-    return { escalate: false, reason: "status_not_pending" };
+    return { escalate: false, reason: `status_${alert.status}` };
   }
   if (alert.acknowledged_at) {
     return { escalate: false, reason: "already_acknowledged" };
@@ -48,28 +67,24 @@ export function shouldEscalate(
     return { escalate: false, reason: "already_escalated" };
   }
 
-  const basis = alert.notified_at ?? alert.created_at;
-  const basisKind = alert.notified_at ? "notified" : "created";
-  if (!basis) {
+  const baseIso = alert.notified_at ?? alert.created_at;
+  if (!baseIso) {
+    return { escalate: false, reason: "no_temporal_base" };
+  }
+  const baseMs = Date.parse(baseIso);
+  if (Number.isNaN(baseMs)) {
     return { escalate: false, reason: "invalid_temporal_base" };
   }
 
-  const basisDate = new Date(basis);
-  if (Number.isNaN(basisDate.getTime())) {
-    return { escalate: false, reason: "invalid_temporal_base" };
-  }
+  const ageMs = opts.now.getTime() - baseMs;
+  const thresholdMs = opts.escalationHours * 3600_000;
 
-  const ageMs = opts.now.getTime() - basisDate.getTime();
-  const thresholdMs = opts.escalationHours * 60 * 60 * 1000;
   if (ageMs < thresholdMs) {
     return { escalate: false, reason: "too_recent" };
   }
 
   return {
     escalate: true,
-    reason:
-      basisKind === "notified"
-        ? "eligible_since_notified"
-        : "eligible_since_created",
+    reason: alert.notified_at ? "aged_since_notified" : "aged_since_created",
   };
 }

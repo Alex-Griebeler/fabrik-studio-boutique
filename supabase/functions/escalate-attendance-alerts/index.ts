@@ -73,9 +73,9 @@ Deno.serve(async (req) => {
       return j(200, { skipped: "fallback_inactive" });
     }
 
-    // Carrega alertas pendentes ainda não tratados. A decisão temporal é
-    // feita em TypeScript para preferir notified_at e cair para created_at
-    // quando a notificação ainda não saiu.
+    // Carrega alertas pending sem ack/escalada. A decisão temporal fica no
+    // helper puro testado, que prefere notified_at e usa created_at quando
+    // a notificação ainda não saiu.
     const { data: alerts, error: aErr } = await supabase
       .from("attendance_alerts")
       .select(
@@ -92,14 +92,14 @@ Deno.serve(async (req) => {
       id: string;
       student_id: string;
       trainer_id: string | null;
-      status: string;
+      status: "pending" | "escalated";
       mode: "shadow" | "live";
       missed_dates: string[];
       last_attended_at: string | null;
       plan_snapshot: { plan_name?: string; frequency?: string | null } | null;
       ack_token: string;
       notified_at: string | null;
-      created_at: string | null;
+      created_at: string;
       acknowledged_at: string | null;
       escalated_at: string | null;
       student: { full_name: string } | null;

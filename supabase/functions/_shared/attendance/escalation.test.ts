@@ -1,26 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   newAlertInitialState,
   shouldEscalate,
   type EscalationCandidate,
-} from "./escalation";
+} from "./escalation.ts";
 
-function candidate(
+const baseAlert = (
   overrides: Partial<EscalationCandidate> = {},
-): EscalationCandidate {
-  return {
-    id: "alert-1",
-    status: "pending",
-    acknowledged_at: null,
-    escalated_at: null,
-    notified_at: null,
-    created_at: "2026-05-08T00:00:00Z",
-    ...overrides,
-  };
-}
+): EscalationCandidate => ({
+  id: "alert-1",
+  status: "pending",
+  acknowledged_at: null,
+  escalated_at: null,
+  notified_at: null,
+  created_at: "2026-05-08T00:00:00Z",
+  ...overrides,
+});
 
 describe("newAlertInitialState", () => {
-  it("cria alerta novo como pending, sem escalated_at", () => {
+  it("alerta novo nasce sempre pending sem escalated_at", () => {
     expect(newAlertInitialState()).toEqual({
       status: "pending",
       escalated_at: null,
@@ -29,101 +27,97 @@ describe("newAlertInitialState", () => {
 });
 
 describe("shouldEscalate", () => {
-  const opts = {
-    now: new Date("2026-05-09T12:00:00Z"),
-    escalationHours: 24,
-  };
+  const now = new Date("2026-05-09T12:00:00Z");
+  const opts = { now, escalationHours: 24 };
 
-  it("nao escala status diferente de pending", () => {
+  it("nao escala quando status ja escalated", () => {
     const r = shouldEscalate(
-      candidate({
-        status: "escalated",
-        notified_at: "2026-05-07T00:00:00Z",
-      }),
+      baseAlert({ status: "escalated", notified_at: "2026-05-07T00:00:00Z" }),
       opts,
     );
-    expect(r).toEqual({ escalate: false, reason: "status_not_pending" });
+    expect(r.escalate).toBe(false);
+    expect(r.reason).toBe("status_escalated");
   });
 
-  it("nao escala alerta acknowledged", () => {
+  it("nao escala quando ja acknowledged", () => {
     const r = shouldEscalate(
-      candidate({
+      baseAlert({
         notified_at: "2026-05-07T00:00:00Z",
         acknowledged_at: "2026-05-08T10:00:00Z",
       }),
       opts,
     );
-    expect(r).toEqual({ escalate: false, reason: "already_acknowledged" });
+    expect(r.escalate).toBe(false);
+    expect(r.reason).toBe("already_acknowledged");
   });
 
-  it("nao escala alerta com escalated_at preenchido", () => {
+  it("nao escala quando ja tem escalated_at preenchido", () => {
     const r = shouldEscalate(
-      candidate({
+      baseAlert({
         notified_at: "2026-05-07T00:00:00Z",
         escalated_at: "2026-05-08T10:00:00Z",
       }),
       opts,
     );
-    expect(r).toEqual({ escalate: false, reason: "already_escalated" });
+    expect(r.escalate).toBe(false);
+    expect(r.reason).toBe("already_escalated");
   });
 
-  it("nao escala alerta recém-notificado antes de 24h", () => {
+  it("nao escala alerta recem-notificado (< 24h)", () => {
     const r = shouldEscalate(
-      candidate({ notified_at: "2026-05-09T00:00:01Z" }),
+      baseAlert({ notified_at: "2026-05-09T00:00:01Z" }),
       opts,
     );
-    expect(r).toEqual({ escalate: false, reason: "too_recent" });
+    expect(r.escalate).toBe(false);
+    expect(r.reason).toBe("too_recent");
   });
 
-  it("escala alerta com notified_at ha pelo menos 24h", () => {
+  it("escala alerta com notified_at > 24h atras", () => {
     const r = shouldEscalate(
-      candidate({ notified_at: "2026-05-08T12:00:00Z" }),
+      baseAlert({ notified_at: "2026-05-08T11:59:59Z" }),
       opts,
     );
-    expect(r).toEqual({ escalate: true, reason: "eligible_since_notified" });
+    expect(r.escalate).toBe(true);
+    expect(r.reason).toBe("aged_since_notified");
   });
 
   it("usa created_at como fallback quando notified_at e null e ainda recente", () => {
     const r = shouldEscalate(
-      candidate({
-        notified_at: null,
-        created_at: "2026-05-09T08:00:00Z",
-      }),
+      baseAlert({ notified_at: null, created_at: "2026-05-09T08:00:00Z" }),
       opts,
     );
-    expect(r).toEqual({ escalate: false, reason: "too_recent" });
+    expect(r.escalate).toBe(false);
+    expect(r.reason).toBe("too_recent");
   });
 
   it("usa created_at como fallback e escala quando antigo", () => {
     const r = shouldEscalate(
-      candidate({
-        notified_at: null,
-        created_at: "2026-05-08T11:00:00Z",
-      }),
+      baseAlert({ notified_at: null, created_at: "2026-05-08T11:00:00Z" }),
       opts,
     );
-    expect(r).toEqual({ escalate: true, reason: "eligible_since_created" });
+    expect(r.escalate).toBe(true);
+    expect(r.reason).toBe("aged_since_created");
   });
 
   it("prefere notified_at sobre created_at quando ambos existem", () => {
+    // created_at antigo (> 24h) mas notified_at recente (< 24h) → não escala.
     const r = shouldEscalate(
-      candidate({
+      baseAlert({
         created_at: "2026-05-01T00:00:00Z",
         notified_at: "2026-05-09T08:00:00Z",
       }),
       opts,
     );
-    expect(r).toEqual({ escalate: false, reason: "too_recent" });
+    expect(r.escalate).toBe(false);
+    expect(r.reason).toBe("too_recent");
   });
 
   it("nao escala sem base temporal valida", () => {
     const r = shouldEscalate(
-      candidate({ notified_at: "not-a-date", created_at: "" }),
+      baseAlert({ notified_at: "not-a-date", created_at: "" }),
       opts,
     );
-    expect(r).toEqual({
-      escalate: false,
-      reason: "invalid_temporal_base",
-    });
+    expect(r.escalate).toBe(false);
+    expect(r.reason).toBe("invalid_temporal_base");
   });
 });
