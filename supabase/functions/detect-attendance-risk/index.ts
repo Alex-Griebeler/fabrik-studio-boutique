@@ -10,6 +10,7 @@ import {
   type AlertMessageContext,
 } from "../_shared/attendance/messaging.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import { newAlertInitialState } from "../_shared/attendance/escalation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -249,8 +250,7 @@ Deno.serve(async (req) => {
             plan_snapshot: planSnapshot,
             mode: effectiveMode,
             ack_token: ackToken,
-            status: isFallback ? "escalated" : "pending",
-            escalated_at: isFallback ? new Date().toISOString() : null,
+            ...newAlertInitialState(),
           })
           .select("id")
           .single();

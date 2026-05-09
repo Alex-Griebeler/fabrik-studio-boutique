@@ -5,6 +5,7 @@ import {
   type EscalationMessageContext,
 } from "../_shared/attendance/messaging.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import { shouldEscalate } from "../_shared/attendance/escalation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,48 +73,57 @@ Deno.serve(async (req) => {
       return j(200, { skipped: "fallback_inactive" });
     }
 
-    const cutoff = new Date();
-    cutoff.setHours(cutoff.getHours() - policies.escalationHours);
-
-    // Alerta pendente, com notified_at antes do cutoff, sem ack ainda, sem escalada
+    // Carrega alertas pendentes ainda não tratados. A decisão temporal é
+    // feita em TypeScript para preferir notified_at e cair para created_at
+    // quando a notificação ainda não saiu.
     const { data: alerts, error: aErr } = await supabase
       .from("attendance_alerts")
       .select(
-        "id, student_id, trainer_id, mode, missed_dates, last_attended_at, plan_snapshot, ack_token, notified_at, student:students(full_name), trainer:trainers!attendance_alerts_trainer_id_fkey(full_name)",
+        "id, student_id, trainer_id, status, mode, missed_dates, last_attended_at, plan_snapshot, ack_token, notified_at, created_at, acknowledged_at, escalated_at, student:students(full_name), trainer:trainers!attendance_alerts_trainer_id_fkey(full_name)",
       )
       .eq("status", "pending")
       .is("acknowledged_at", null)
       .is("escalated_at", null)
-      .not("notified_at", "is", null)
-      .lt("notified_at", cutoff.toISOString())
-      .limit(100);
+      .order("created_at", { ascending: true })
+      .limit(500);
     if (aErr) throw new Error(`load alerts: ${aErr.message}`);
 
     type Row = {
       id: string;
       student_id: string;
       trainer_id: string | null;
+      status: string;
       mode: "shadow" | "live";
       missed_dates: string[];
       last_attended_at: string | null;
       plan_snapshot: { plan_name?: string; frequency?: string | null } | null;
       ack_token: string;
-      notified_at: string;
+      notified_at: string | null;
+      created_at: string | null;
+      acknowledged_at: string | null;
+      escalated_at: string | null;
       student: { full_name: string } | null;
       trainer: { full_name: string } | null;
     };
 
+    const eligibleAlerts = ((alerts ?? []) as unknown as Row[]).filter((a) =>
+      shouldEscalate(a, {
+        now: new Date(),
+        escalationHours: policies.escalationHours,
+      }).escalate,
+    );
+
     const summary = {
-      candidates: (alerts ?? []).length,
+      candidates: eligibleAlerts.length,
       escalated: 0,
       errors: [] as string[],
     };
 
-    if (!alerts || alerts.length === 0) return j(200, summary);
+    if (eligibleAlerts.length === 0) return j(200, summary);
 
     const ackBaseUrl = `${supabaseUrl}/functions/v1/acknowledge-attendance-alert`;
 
-    for (const a of alerts as unknown as Row[]) {
+    for (const a of eligibleAlerts) {
       try {
         const ackUrl = `${ackBaseUrl}?token=${a.ack_token}`;
         const planLabel = formatPlanLabel(a.plan_snapshot);
