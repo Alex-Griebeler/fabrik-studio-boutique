@@ -73,9 +73,10 @@ Deno.serve(async (req) => {
       return j(200, { skipped: "fallback_inactive" });
     }
 
-    // Carrega alertas pending sem ack/escalada. A decisão temporal fica no
-    // helper puro testado, que prefere notified_at e usa created_at quando
-    // a notificação ainda não saiu.
+    // Carrega alertas pending sem ack/escalada que JÁ foram notificados.
+    // Regra única: idade desde `notified_at` >= `escalationHours`. Alertas
+    // sem `notified_at` ficam esperando o próximo ping antes de iniciar
+    // o relógio. A decisão temporal fica no helper puro testado.
     const { data: alerts, error: aErr } = await supabase
       .from("attendance_alerts")
       .select(
@@ -84,7 +85,8 @@ Deno.serve(async (req) => {
       .eq("status", "pending")
       .is("acknowledged_at", null)
       .is("escalated_at", null)
-      .order("created_at", { ascending: true })
+      .not("notified_at", "is", null)
+      .order("notified_at", { ascending: true })
       .limit(500);
     if (aErr) throw new Error(`load alerts: ${aErr.message}`);
 
