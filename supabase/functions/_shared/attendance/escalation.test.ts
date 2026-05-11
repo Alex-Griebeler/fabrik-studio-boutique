@@ -81,26 +81,25 @@ describe("shouldEscalate", () => {
     expect(r.reason).toBe("aged_since_notified");
   });
 
-  it("usa created_at como fallback quando notified_at e null e ainda recente", () => {
+  it("nao escala quando notified_at e null mesmo com created_at antigo", () => {
+    const r = shouldEscalate(
+      baseAlert({ notified_at: null, created_at: "2026-05-01T00:00:00Z" }),
+      opts,
+    );
+    expect(r.escalate).toBe(false);
+    expect(r.reason).toBe("not_notified_yet");
+  });
+
+  it("nao escala quando notified_at e null e created_at recente", () => {
     const r = shouldEscalate(
       baseAlert({ notified_at: null, created_at: "2026-05-09T08:00:00Z" }),
       opts,
     );
     expect(r.escalate).toBe(false);
-    expect(r.reason).toBe("too_recent");
+    expect(r.reason).toBe("not_notified_yet");
   });
 
-  it("usa created_at como fallback e escala quando antigo", () => {
-    const r = shouldEscalate(
-      baseAlert({ notified_at: null, created_at: "2026-05-08T11:00:00Z" }),
-      opts,
-    );
-    expect(r.escalate).toBe(true);
-    expect(r.reason).toBe("aged_since_created");
-  });
-
-  it("prefere notified_at sobre created_at quando ambos existem", () => {
-    // created_at antigo (> 24h) mas notified_at recente (< 24h) → não escala.
+  it("ignora created_at antigo quando notified_at e recente", () => {
     const r = shouldEscalate(
       baseAlert({
         created_at: "2026-05-01T00:00:00Z",
@@ -112,12 +111,21 @@ describe("shouldEscalate", () => {
     expect(r.reason).toBe("too_recent");
   });
 
-  it("nao escala sem base temporal valida", () => {
+  it("nao escala quando notified_at em formato invalido", () => {
     const r = shouldEscalate(
-      baseAlert({ notified_at: "not-a-date", created_at: "" }),
+      baseAlert({ notified_at: "not-a-date" }),
       opts,
     );
     expect(r.escalate).toBe(false);
-    expect(r.reason).toBe("invalid_temporal_base");
+    expect(r.reason).toBe("invalid_notified_at");
+  });
+
+  it("escala exatamente no limite (idade == escalationHours)", () => {
+    const r = shouldEscalate(
+      baseAlert({ notified_at: "2026-05-08T12:00:00Z" }),
+      opts,
+    );
+    expect(r.escalate).toBe(true);
+    expect(r.reason).toBe("aged_since_notified");
   });
 });

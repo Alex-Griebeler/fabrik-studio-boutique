@@ -6,10 +6,12 @@
 //   - Detector apenas notifica (treinador titular ou shadow_phone). Nunca
 //     escala na mesma run em que cria o alerta.
 //   - Escalação só ocorre via `escalate-attendance-alerts` quando o alerta
-//     pending continua sem ack após `escalationHours` (default 24h).
-//   - Base temporal preferida pra calcular idade: `notified_at`. Se for
-//     null (alerta criado fora da janela de envio, sem mensagem ainda),
-//     cai pra `created_at`. Não usar `missed_dates` pra essa decisão.
+//     pending continua sem ack após `escalationHours` (default 24h)
+//     CONTADAS A PARTIR DO PRIMEIRO PING ao treinador (`notified_at`).
+//   - Se `notified_at IS NULL` o alerta NUNCA escala — não há marco a
+//     contar. `created_at` NÃO é fallback válido pra essa decisão; um
+//     alerta criado fora da janela de envio fica esperando o próximo
+//     ping antes de iniciar o relógio de 24h.
 
 export interface NewAlertInitialState {
   status: "pending";
@@ -30,7 +32,8 @@ export interface EscalationCandidate {
   acknowledged_at: string | null;
   escalated_at: string | null;
   notified_at: string | null;
-  created_at: string;
+  /** Mantido na interface por compatibilidade de payload, mas IGNORADO na decisão. */
+  created_at?: string;
 }
 
 export interface ShouldEscalateOptions {
@@ -50,8 +53,9 @@ export interface ShouldEscalateResult {
  *   - status já não é `pending`
  *   - já foi acknowledged
  *   - já foi escalado em algum momento
- *   - base temporal inválida
- *   - idade do alerta ainda menor que `escalationHours`
+ *   - ainda não foi notificado (`notified_at IS NULL`)
+ *   - `notified_at` em formato inválido
+ *   - idade desde `notified_at` ainda menor que `escalationHours`
  */
 export function shouldEscalate(
   alert: EscalationCandidate,
@@ -66,14 +70,12 @@ export function shouldEscalate(
   if (alert.escalated_at) {
     return { escalate: false, reason: "already_escalated" };
   }
-
-  const baseIso = alert.notified_at ?? alert.created_at;
-  if (!baseIso) {
-    return { escalate: false, reason: "no_temporal_base" };
+  if (!alert.notified_at) {
+    return { escalate: false, reason: "not_notified_yet" };
   }
-  const baseMs = Date.parse(baseIso);
+  const baseMs = Date.parse(alert.notified_at);
   if (Number.isNaN(baseMs)) {
-    return { escalate: false, reason: "invalid_temporal_base" };
+    return { escalate: false, reason: "invalid_notified_at" };
   }
 
   const ageMs = opts.now.getTime() - baseMs;
@@ -83,8 +85,5 @@ export function shouldEscalate(
     return { escalate: false, reason: "too_recent" };
   }
 
-  return {
-    escalate: true,
-    reason: alert.notified_at ? "aged_since_notified" : "aged_since_created",
-  };
+  return { escalate: true, reason: "aged_since_notified" };
 }
