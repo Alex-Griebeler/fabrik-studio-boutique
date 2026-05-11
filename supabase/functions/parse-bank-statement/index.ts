@@ -509,7 +509,8 @@ Deno.serve(async (req) => {
     }).select().single();
 
     if (impErr) {
-      return new Response(JSON.stringify({ error: "Erro ao criar importação", details: impErr.message }), {
+      console.error("parse-bank-statement: import insert failed", impErr.message);
+      return new Response(JSON.stringify({ error: "Erro ao criar importação" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -531,7 +532,8 @@ Deno.serve(async (req) => {
       const { error: tErr, data: ins } = await supabase.from("bank_transactions").insert(valid).select("id");
       if (tErr) {
         await supabase.from("bank_imports").update({ status: "failed", error_message: tErr.message }).eq("id", importRec.id);
-        return new Response(JSON.stringify({ error: "Erro ao inserir transações", details: tErr.message }), {
+        console.error("parse-bank-statement: tx insert failed", tErr.message);
+        return new Response(JSON.stringify({ error: "Erro ao inserir transações" }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -622,7 +624,8 @@ Deno.serve(async (req) => {
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Error:", error);
-    return new Response(JSON.stringify({ error: "Erro inesperado", details: error instanceof Error ? error.message : "Unknown" }), {
+    console.error("parse-bank-statement fatal:", error instanceof Error ? error.message : error);
+    return new Response(JSON.stringify({ error: "Erro inesperado" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

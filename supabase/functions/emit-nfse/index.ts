@@ -61,8 +61,9 @@ Deno.serve(async (req) => {
       .single();
 
     if (invError || !invoice) {
+      console.error("emit-nfse: invoice lookup failed", { invoice_id, error: invError?.message });
       return new Response(
-        JSON.stringify({ error: "Fatura não encontrada", details: invError?.message }),
+        JSON.stringify({ error: "Fatura não encontrada" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -215,8 +216,9 @@ Deno.serve(async (req) => {
       .single();
 
     if (insertError) {
+      console.error("emit-nfse: insert failed", { invoice_id, error: insertError.message });
       return new Response(
-        JSON.stringify({ error: "Erro ao salvar NF-e", details: insertError.message }),
+        JSON.stringify({ error: "Erro ao salvar NF-e" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -233,8 +235,9 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
+    console.error("emit-nfse fatal:", (err as Error).message);
     return new Response(
-      JSON.stringify({ error: "Erro interno", details: (err as Error).message }),
+      JSON.stringify({ error: "Erro interno" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
