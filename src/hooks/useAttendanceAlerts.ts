@@ -57,6 +57,15 @@ export interface AttendanceAlert {
   acknowledged_via: string | null;
   escalated_at: string | null;
   resolved_at: string | null;
+  // Provider delivery status (populado por refresh-attendance-message-status)
+  message_provider_status: string | null;
+  message_provider_error_code: string | null;
+  message_provider_error_message: string | null;
+  message_provider_checked_at: string | null;
+  escalation_provider_status: string | null;
+  escalation_provider_error_code: string | null;
+  escalation_provider_error_message: string | null;
+  escalation_provider_checked_at: string | null;
   created_at: string;
   updated_at: string;
   student?: { id: string; full_name: string } | null;

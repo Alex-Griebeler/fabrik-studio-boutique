@@ -104,6 +104,25 @@ function deliveryBadgeClass(a: AttendanceAlert): string {
   return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
 }
 
+type AuditTone = "default" | "muted" | "bad";
+
+function providerStatusTone(status: string | null): AuditTone {
+  if (!status) return "muted";
+  const s = status.toLowerCase();
+  if (s === "failed" || s === "undelivered") return "bad";
+  return "default";
+}
+
+function providerErrorValue(
+  code: string | null,
+  message: string | null,
+): string {
+  if (code && message) return `${code} · ${message}`;
+  if (code) return code;
+  if (message) return message;
+  return "—";
+}
+
 export default function AttendanceAlerts() {
   const [tab, setTab] = useState<"open" | "history">("open");
   const [modeFilter, setModeFilter] = useState<AttendanceAlertMode | "all">("all");
@@ -431,6 +450,42 @@ function AlertAudit({ alert }: { alert: AttendanceAlert }) {
                   : "Pendente"
               }
             />
+            <AuditItem
+              label="Status provider"
+              value={alert.message_provider_status ?? "Ainda não consultado"}
+              tone={providerStatusTone(alert.message_provider_status)}
+            />
+            <AuditItem
+              label="Erro provider"
+              value={providerErrorValue(
+                alert.message_provider_error_code,
+                alert.message_provider_error_message,
+              )}
+              tone={alert.message_provider_error_code ? "bad" : "muted"}
+            />
+            <AuditItem
+              label="Checado em"
+              value={fmtDateTime(alert.message_provider_checked_at)}
+              tone={alert.message_provider_checked_at ? "default" : "muted"}
+            />
+            <AuditItem
+              label="Status provider escalação"
+              value={alert.escalation_provider_status ?? "Ainda não consultado"}
+              tone={providerStatusTone(alert.escalation_provider_status)}
+            />
+            <AuditItem
+              label="Erro provider escalação"
+              value={providerErrorValue(
+                alert.escalation_provider_error_code,
+                alert.escalation_provider_error_message,
+              )}
+              tone={alert.escalation_provider_error_code ? "bad" : "muted"}
+            />
+            <AuditItem
+              label="Checado escalação em"
+              value={fmtDateTime(alert.escalation_provider_checked_at)}
+              tone={alert.escalation_provider_checked_at ? "default" : "muted"}
+            />
           </div>
         </AccordionContent>
       </AccordionItem>
@@ -443,19 +498,27 @@ function AuditItem({
   label,
   value,
   title,
+  tone = "default",
 }: {
   icon?: ReactNode;
   label: string;
   value: string;
   title?: string;
+  tone?: AuditTone;
 }) {
+  const valueClass =
+    tone === "bad"
+      ? "truncate font-medium text-red-700 dark:text-red-400"
+      : tone === "muted"
+        ? "truncate font-medium text-muted-foreground"
+        : "truncate font-medium text-foreground";
   return (
     <div className="min-w-0">
       <div className="mb-1 flex items-center gap-1.5 text-muted-foreground">
         {icon}
         <span>{label}</span>
       </div>
-      <div className="truncate font-medium text-foreground" title={title ?? value}>
+      <div className={valueClass} title={title ?? value}>
         {value}
       </div>
     </div>
