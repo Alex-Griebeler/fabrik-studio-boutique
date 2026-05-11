@@ -89,7 +89,7 @@ serve(async (req) => {
     if (!response.ok) {
       console.error("Twilio error:", data);
       return new Response(
-        JSON.stringify({ error: data.message || "Erro ao enviar mensagem", details: data }),
+        JSON.stringify({ error: "Erro ao enviar mensagem", code: data?.code ?? null }),
         { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -99,9 +99,9 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Error:", error);
+    console.error("send-whatsapp fatal:", (error as Error).message);
     return new Response(
-      JSON.stringify({ error: (error as Error).message }),
+      JSON.stringify({ error: "Erro interno" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

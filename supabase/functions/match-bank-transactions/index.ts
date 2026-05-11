@@ -60,7 +60,10 @@ Deno.serve(async (req) => {
     if (importId) txQuery = txQuery.eq("import_id", importId);
 
     const { data: transactions, error: txErr } = await txQuery;
-    if (txErr) return json({ error: "Erro ao buscar transações", details: txErr.message }, 500);
+    if (txErr) {
+      console.error("match-bank-transactions: tx fetch failed", txErr.message);
+      return json({ error: "Erro ao buscar transações" }, 500);
+    }
     if (!transactions || transactions.length === 0) {
       return json({ success: true, message: "Nenhuma transação não conciliada", matches: [], stats: { total_transactions: 0, total_matches: 0, high_confidence: 0, medium_confidence: 0, low_confidence: 0, auto_applied: 0 } });
     }
@@ -345,7 +348,8 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     console.error("Match error:", error);
-    return json({ error: "Erro inesperado", details: error instanceof Error ? error.message : "Unknown" }, 500);
+    console.error("match-bank-transactions fatal:", error instanceof Error ? error.message : error);
+    return json({ error: "Erro inesperado" }, 500);
   }
 });
 
