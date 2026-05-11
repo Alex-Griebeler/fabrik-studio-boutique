@@ -1,13 +1,27 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertTriangle, CheckCircle2, Clock, Filter } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Filter,
+  MessageSquare,
+  Send,
+  ShieldCheck,
+} from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   Table,
   TableBody,
@@ -62,6 +76,32 @@ function statusBadgeClass(status: AttendanceAlertStatus): string {
     case "suppressed":
       return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
   }
+}
+
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  return format(parseISO(iso), "dd/MM HH:mm", { locale: ptBR });
+}
+
+function shortSid(sid: string | null): string {
+  if (!sid) return "—";
+  return sid.length <= 14 ? sid : `${sid.slice(0, 10)}…${sid.slice(-6)}`;
+}
+
+function deliveryLabel(a: AttendanceAlert): string {
+  if (a.message_sid) return "Enviado ao provider";
+  if (a.notified_at) return "Notificado";
+  return "Aguardando envio";
+}
+
+function deliveryBadgeClass(a: AttendanceAlert): string {
+  if (a.message_sid) {
+    return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+  }
+  if (a.notified_at) {
+    return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
+  }
+  return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
 }
 
 export default function AttendanceAlerts() {
@@ -222,6 +262,7 @@ function AlertsTable({
             <TableHead>Faltou</TableHead>
             <TableHead>Última presença</TableHead>
             <TableHead>Treinador alvo</TableHead>
+            <TableHead>Envio</TableHead>
             <TableHead>Aberto há</TableHead>
             <TableHead>Status</TableHead>
             {showActions && <TableHead className="w-[180px]" />}
@@ -231,89 +272,192 @@ function AlertsTable({
           {alerts.map((a) => {
             const targetTrainer = a.escalated_to_trainer ?? a.trainer;
             return (
-              <TableRow key={a.id}>
-                <TableCell className="font-medium">
-                  {a.student ? (
-                    <Link
-                      to={`/students/${a.student.id}`}
-                      className="hover:underline"
-                    >
-                      {a.student.full_name}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </TableCell>
-                <TableCell className="text-sm">
-                  {alertTypeLabels[a.alert_type]}
-                  {a.mode === "shadow" && (
-                    <Badge
-                      variant="outline"
-                      className="ml-2 text-[10px] uppercase tracking-wide"
-                    >
-                      {alertModeLabels[a.mode]}
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-sm whitespace-nowrap">
-                  {joinDates(a.missed_dates)}
-                </TableCell>
-                <TableCell className="text-sm whitespace-nowrap">
-                  {a.last_attended_at ? fmtShort(a.last_attended_at) : "—"}
-                </TableCell>
-                <TableCell className="text-sm">
-                  {targetTrainer?.full_name ?? "—"}
-                  {a.escalated_to_trainer_id && (
-                    <Badge
-                      variant="outline"
-                      className="ml-2 text-[10px] text-red-700 border-red-300"
-                    >
-                      escalado
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                  <Clock className="h-3 w-3 inline mr-1 opacity-60" />
-                  {formatDistanceToNow(parseISO(a.detected_at), {
-                    locale: ptBR,
-                    addSuffix: false,
-                  })}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] ${statusBadgeClass(a.status)}`}
-                  >
-                    {alertStatusLabels[a.status]}
-                  </Badge>
-                </TableCell>
-                {showActions && (
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
+              <Fragment key={a.id}>
+                <TableRow>
+                  <TableCell className="font-medium">
+                    {a.student ? (
+                      <Link
+                        to={`/students/${a.student.id}`}
+                        className="hover:underline"
+                      >
+                        {a.student.full_name}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {alertTypeLabels[a.alert_type]}
+                    {a.mode === "shadow" && (
+                      <Badge
                         variant="outline"
-                        disabled={ackPending}
-                        onClick={() => onAck?.(a.id)}
+                        className="ml-2 text-[10px] uppercase tracking-wide"
                       >
-                        Tratado
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={resolvePending}
-                        onClick={() => onResolve?.(a.id)}
+                        {alertModeLabels[a.mode]}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {joinDates(a.missed_dates)}
+                  </TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {a.last_attended_at ? fmtShort(a.last_attended_at) : "—"}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {targetTrainer?.full_name ?? "—"}
+                    {a.escalated_to_trainer_id && (
+                      <Badge
+                        variant="outline"
+                        className="ml-2 text-[10px] text-red-700 border-red-300"
                       >
-                        Resolver
-                      </Button>
+                        escalado
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    <div className="flex flex-col gap-1">
+                      <Badge
+                        variant="outline"
+                        className={`w-fit text-[10px] ${deliveryBadgeClass(a)}`}
+                      >
+                        {deliveryLabel(a)}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {a.message_to ?? "sem destino"}
+                      </span>
                     </div>
                   </TableCell>
-                )}
-              </TableRow>
+                  <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                    <Clock className="h-3 w-3 inline mr-1 opacity-60" />
+                    {formatDistanceToNow(parseISO(a.detected_at), {
+                      locale: ptBR,
+                      addSuffix: false,
+                    })}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${statusBadgeClass(a.status)}`}
+                    >
+                      {alertStatusLabels[a.status]}
+                    </Badge>
+                  </TableCell>
+                  {showActions && (
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={ackPending}
+                          onClick={() => onAck?.(a.id)}
+                        >
+                          Tratado
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={resolvePending}
+                          onClick={() => onResolve?.(a.id)}
+                        >
+                          Resolver
+                        </Button>
+                      </div>
+                    </TableCell>
+                  )}
+                </TableRow>
+                <TableRow>
+                  <TableCell colSpan={showActions ? 9 : 8} className="p-0">
+                    <AlertAudit alert={a} />
+                  </TableCell>
+                </TableRow>
+              </Fragment>
             );
           })}
         </TableBody>
       </Table>
+    </div>
+  );
+}
+
+function AlertAudit({ alert }: { alert: AttendanceAlert }) {
+  return (
+    <Accordion type="single" collapsible>
+      <AccordionItem value={`audit-${alert.id}`} className="border-0">
+        <AccordionTrigger className="px-4 py-2 text-xs font-medium text-muted-foreground hover:no-underline">
+          <span className="flex items-center gap-2">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Auditoria do agente
+          </span>
+        </AccordionTrigger>
+        <AccordionContent className="px-4 pb-4">
+          <div className="grid gap-3 rounded-md border bg-muted/30 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <AuditItem
+              icon={<MessageSquare className="h-3.5 w-3.5" />}
+              label="Destino"
+              value={alert.message_to ?? "Ainda não enviado"}
+            />
+            <AuditItem
+              icon={<Send className="h-3.5 w-3.5" />}
+              label="SID Twilio"
+              value={shortSid(alert.message_sid)}
+              title={alert.message_sid ?? undefined}
+            />
+            <AuditItem
+              label="Notificado em"
+              value={fmtDateTime(alert.notified_at)}
+            />
+            <AuditItem
+              label="Escalado em"
+              value={fmtDateTime(alert.escalated_at)}
+            />
+            <AuditItem
+              label="Criado em"
+              value={fmtDateTime(alert.created_at)}
+            />
+            <AuditItem
+              label="Detectado em"
+              value={fmtDateTime(alert.detected_at)}
+            />
+            <AuditItem
+              label="Escalação SID"
+              value={shortSid(alert.escalation_message_sid)}
+              title={alert.escalation_message_sid ?? undefined}
+            />
+            <AuditItem
+              label="Ack"
+              value={
+                alert.acknowledged_at
+                  ? `${fmtDateTime(alert.acknowledged_at)} (${alert.acknowledged_via ?? "—"})`
+                  : "Pendente"
+              }
+            />
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
+  );
+}
+
+function AuditItem({
+  icon,
+  label,
+  value,
+  title,
+}: {
+  icon?: ReactNode;
+  label: string;
+  value: string;
+  title?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 flex items-center gap-1.5 text-muted-foreground">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <div className="truncate font-medium text-foreground" title={title ?? value}>
+        {value}
+      </div>
     </div>
   );
 }
