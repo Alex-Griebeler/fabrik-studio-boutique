@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  alertSignature,
+  collapseByDay,
   evaluateStudent,
   evaluateAll,
+  isHistoricalDuplicate,
   isWithinSendWindow,
   type AttendanceEvent,
 } from "./detection";
@@ -93,17 +96,16 @@ describe("evaluateStudent — regra group_2_misses", () => {
     expect(result!.alertType).toBe("group_2_misses");
   });
 
-  it("usa data+hora pra ordenar (mesmo dia, horários diferentes)", () => {
+  it("mesmo dia: present+no_show → dia vira present (no_show colapsa)", () => {
+    // Bug #2: 1 present + 1 no_show no mesmo dia, mais um no_show no dia
+    // seguinte. Antes contaria como streak de 2 faltas. Agora o dia
+    // 05/05 colapsa em present, sobra só 1 dia-falta (06/05) → NÃO alerta.
     const events = [
       { ...ev("2026-05-05", "present"), startTime: "07:00" },
       { ...ev("2026-05-05", "no_show"), startTime: "18:00" },
       { ...ev("2026-05-06", "no_show"), startTime: "07:00" },
     ];
-    const result = evaluateStudent(events);
-    expect(result).not.toBeNull();
-    expect(result!.alertType).toBe("group_2_misses");
-    // Confere que considerou as duas faltas mais recentes
-    expect(result!.missedDates).toEqual(["2026-05-05", "2026-05-06"]);
+    expect(evaluateStudent(events)).toBeNull();
   });
 });
 
@@ -240,6 +242,268 @@ describe("evaluateAll", () => {
     expect(result).toHaveLength(2);
     const ids = result.map((r) => r.studentId).sort();
     expect(ids).toEqual(["stu-A", "stu-C"]);
+  });
+});
+
+describe("evaluateStudent — Bug #2: same-day collapse", () => {
+  it("2 no_shows no mesmo dia NÃO alertam em grupo (1 dia-falta apenas)", () => {
+    // Caso real Christina Aires: HIIT 08:30 + FLOW 08:00 no mesmo dia.
+    // Tecnicamente 2 events, mas 1 só dia ruim → não dispara grupo.
+    const events = [
+      { ...ev("2026-05-01", "present") },
+      { ...ev("2026-05-07", "no_show"), startTime: "08:00", modality: "FLOW" },
+      { ...ev("2026-05-07", "no_show"), startTime: "08:30", modality: "HIIT" },
+    ];
+    expect(evaluateStudent(events)).toBeNull();
+  });
+
+  it("3 no_shows no mesmo dia ainda contam como 1 dia-falta", () => {
+    const events = [
+      { ...ev("2026-05-01", "present") },
+      { ...ev("2026-05-07", "no_show"), startTime: "07:00" },
+      { ...ev("2026-05-07", "no_show"), startTime: "09:00" },
+      { ...ev("2026-05-07", "no_show"), startTime: "18:00" },
+    ];
+    expect(evaluateStudent(events)).toBeNull();
+  });
+
+  it("2 no_shows em dias DISTINTOS continuam alertando em grupo", () => {
+    const events = [
+      { ...ev("2026-05-01", "present") },
+      { ...ev("2026-05-06", "no_show") },
+      { ...ev("2026-05-07", "no_show") },
+    ];
+    const result = evaluateStudent(events);
+    expect(result).not.toBeNull();
+    expect(result!.alertType).toBe("group_2_misses");
+    expect(result!.missedDates).toEqual(["2026-05-06", "2026-05-07"]);
+  });
+
+  it("dia com no_show + cancelled_late conta como no_show (1 dia-falta)", () => {
+    const events = [
+      { ...ev("2026-05-01", "present") },
+      {
+        ...ev("2026-05-07", "no_show"),
+        startTime: "07:00",
+      },
+      {
+        ...ev("2026-05-07", "cancelled_late"),
+        startTime: "18:00",
+      },
+    ];
+    // Só 1 dia-falta → grupo não alerta
+    expect(evaluateStudent(events)).toBeNull();
+  });
+
+  it("missedSessionIds preserva TODOS os events dos dias-falta (mesmo colapsados)", () => {
+    const events: AttendanceEvent[] = [
+      { ...ev("2026-05-01", "present"), sessionId: "sess-present" },
+      {
+        ...ev("2026-05-06", "no_show"),
+        startTime: "08:00",
+        sessionId: "sess-06-A",
+      },
+      {
+        ...ev("2026-05-06", "no_show"),
+        startTime: "10:00",
+        sessionId: "sess-06-B",
+      },
+      {
+        ...ev("2026-05-07", "no_show"),
+        sessionId: "sess-07",
+      },
+    ];
+    const result = evaluateStudent(events);
+    expect(result).not.toBeNull();
+    expect(result!.missedDates).toEqual(["2026-05-06", "2026-05-07"]);
+    // 2 events no dia 06 + 1 no dia 07 = 3 sessionIds preservados
+    expect(result!.missedSessionIds).toEqual([
+      "sess-06-A",
+      "sess-06-B",
+      "sess-07",
+    ]);
+  });
+
+  it("PT no mesmo dia ainda alerta (1 dia-falta basta pra personal)", () => {
+    const events = [
+      { ...ev("2026-05-01", "present", { sessionType: "personal" }) },
+      {
+        ...ev("2026-05-07", "no_show", { sessionType: "personal" }),
+        startTime: "08:00",
+      },
+      {
+        ...ev("2026-05-07", "no_show", { sessionType: "personal" }),
+        startTime: "18:00",
+      },
+    ];
+    const result = evaluateStudent(events);
+    expect(result).not.toBeNull();
+    expect(result!.alertType).toBe("pt_1_miss");
+    expect(result!.missedDates).toEqual(["2026-05-07"]);
+  });
+
+  it("dia com personal + group no_show → vira pt_1_miss", () => {
+    const events = [
+      {
+        ...ev("2026-05-07", "no_show", { sessionType: "personal" }),
+        startTime: "08:00",
+      },
+      {
+        ...ev("2026-05-07", "no_show", { sessionType: "group" }),
+        startTime: "18:00",
+      },
+    ];
+    const result = evaluateStudent(events);
+    expect(result).not.toBeNull();
+    expect(result!.alertType).toBe("pt_1_miss");
+  });
+});
+
+describe("collapseByDay", () => {
+  it("agrupa eventos por data e aplica prioridade present > no_show > cancelled_late", () => {
+    const events = [
+      ev("2026-05-01", "no_show"),
+      { ...ev("2026-05-01", "present"), startTime: "10:00" },
+      ev("2026-05-02", "no_show"),
+      ev("2026-05-03", "cancelled_late"),
+    ];
+    const buckets = collapseByDay(events);
+    expect(buckets).toHaveLength(3);
+    expect(buckets[0]).toMatchObject({ date: "2026-05-01", status: "present" });
+    expect(buckets[1]).toMatchObject({ date: "2026-05-02", status: "no_show" });
+    expect(buckets[2]).toMatchObject({
+      date: "2026-05-03",
+      status: "cancelled_late",
+    });
+  });
+
+  it("preserva events só do status escolhido (descarta os menos prioritários)", () => {
+    const events = [
+      { ...ev("2026-05-01", "present"), sessionId: "p1" },
+      { ...ev("2026-05-01", "no_show"), sessionId: "n1" },
+    ];
+    const buckets = collapseByDay(events);
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0].events.map((e) => e.sessionId)).toEqual(["p1"]);
+  });
+
+  it("ordena buckets cronologicamente", () => {
+    const events = [
+      ev("2026-05-10", "no_show"),
+      ev("2026-05-01", "no_show"),
+      ev("2026-05-05", "no_show"),
+    ];
+    const dates = collapseByDay(events).map((b) => b.date);
+    expect(dates).toEqual(["2026-05-01", "2026-05-05", "2026-05-10"]);
+  });
+});
+
+describe("alertSignature + isHistoricalDuplicate (Bug #3)", () => {
+  it("assinatura é invariante a ordem de missedDates", () => {
+    const a = alertSignature({
+      alertType: "group_2_misses",
+      missedDates: ["2026-05-03", "2026-05-05"],
+    });
+    const b = alertSignature({
+      alertType: "group_2_misses",
+      missedDates: ["2026-05-05", "2026-05-03"],
+    });
+    expect(a).toBe(b);
+  });
+
+  it("assinatura distingue alert_type diferente", () => {
+    const a = alertSignature({
+      alertType: "group_2_misses",
+      missedDates: ["2026-05-05"],
+    });
+    const b = alertSignature({
+      alertType: "pt_1_miss",
+      missedDates: ["2026-05-05"],
+    });
+    expect(a).not.toBe(b);
+  });
+
+  it("dedupa datas iguais antes de comparar (defensivo)", () => {
+    const a = alertSignature({
+      alertType: "group_2_misses",
+      missedDates: ["2026-05-05", "2026-05-05"],
+    });
+    const b = alertSignature({
+      alertType: "group_2_misses",
+      missedDates: ["2026-05-05"],
+    });
+    expect(a).toBe(b);
+  });
+
+  it("isHistoricalDuplicate=true quando mesma assinatura existe no histórico", () => {
+    const history = [
+      {
+        alert_type: "group_2_misses" as const,
+        missed_dates: ["2026-05-05", "2026-05-07"],
+      },
+    ];
+    const candidate = {
+      alertType: "group_2_misses" as const,
+      missedDates: ["2026-05-07", "2026-05-05"], // ordem diferente
+    };
+    expect(isHistoricalDuplicate(candidate, history)).toBe(true);
+  });
+
+  it("isHistoricalDuplicate=false quando datas overlap parcialmente (NÃO é assinatura)", () => {
+    // Trava explícita: overlap parcial NÃO conta como duplicata.
+    // Alerta novo {05,07,09} vs histórico {05,07} são alertas diferentes
+    // (o novo agregou uma data adicional). Não suprimir.
+    const history = [
+      {
+        alert_type: "group_2_misses" as const,
+        missed_dates: ["2026-05-05", "2026-05-07"],
+      },
+    ];
+    const candidate = {
+      alertType: "group_2_misses" as const,
+      missedDates: ["2026-05-05", "2026-05-07", "2026-05-09"],
+    };
+    expect(isHistoricalDuplicate(candidate, history)).toBe(false);
+  });
+
+  it("isHistoricalDuplicate=false quando alert_type diferente, mesmo missed_dates", () => {
+    const history = [
+      {
+        alert_type: "pt_1_miss" as const,
+        missed_dates: ["2026-05-05"],
+      },
+    ];
+    const candidate = {
+      alertType: "group_2_misses" as const,
+      missedDates: ["2026-05-05"],
+    };
+    expect(isHistoricalDuplicate(candidate, history)).toBe(false);
+  });
+
+  it("isHistoricalDuplicate=false com histórico vazio", () => {
+    const candidate = {
+      alertType: "group_2_misses" as const,
+      missedDates: ["2026-05-05", "2026-05-07"],
+    };
+    expect(isHistoricalDuplicate(candidate, [])).toBe(false);
+  });
+
+  it("isHistoricalDuplicate olha múltiplos registros históricos", () => {
+    const history = [
+      {
+        alert_type: "group_2_misses" as const,
+        missed_dates: ["2026-04-20", "2026-04-22"],
+      },
+      {
+        alert_type: "group_2_misses" as const,
+        missed_dates: ["2026-05-05", "2026-05-07"],
+      },
+    ];
+    const candidate = {
+      alertType: "group_2_misses" as const,
+      missedDates: ["2026-05-05", "2026-05-07"],
+    };
+    expect(isHistoricalDuplicate(candidate, history)).toBe(true);
   });
 });
 

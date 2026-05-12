@@ -1,8 +1,10 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   evaluateAll,
+  isHistoricalDuplicate,
   isWithinSendWindow,
   type AttendanceEvent,
+  type AlertType,
   type RiskAlert,
 } from "../_shared/attendance/detection.ts";
 import {
@@ -155,6 +157,8 @@ Deno.serve(async (req) => {
       suppressed: 0,
       sent: 0,
       skipped_existing: 0,
+      skipped_no_contract: 0,
+      skipped_duplicate_history: 0,
       errors: [] as string[],
     };
 
@@ -209,6 +213,36 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        // Fix #1: aluno sem contrato ativo no CRM NÃO gera alerta.
+        // Antes a mensagem dizia "Sem plano ativo" e ainda assim
+        // disparava — caso real (Christina Aires): mapping EVO OK mas
+        // sem contrato no CRM. Pulamos sem criar alerta nem registro
+        // de erro; só contador no summary pra observabilidade.
+        const planSnapshot = plansByStudent.get(alert.studentId) ?? null;
+        if (!planSnapshot) {
+          summary.skipped_no_contract++;
+          continue;
+        }
+
+        // Fix #3: dedup por assinatura histórica. Se já houve alerta
+        // (em qualquer status) com mesmo alert_type + mesma multiset
+        // de missed_dates pra esse aluno, NÃO recria.
+        //
+        // Trava explícita: critério é igualdade exata da multiset, NÃO
+        // overlap parcial. Alerta novo {05,07,09} vs histórico {05,07}
+        // são considerados diferentes (o novo agrega uma data) — só
+        // bloqueia recriar idêntico.
+        const history = await loadAlertHistory(supabase, alert.studentId);
+        if (
+          isHistoricalDuplicate(
+            { alertType: alert.alertType, missedDates: alert.missedDates },
+            history,
+          )
+        ) {
+          summary.skipped_duplicate_history++;
+          continue;
+        }
+
         // Treinador alvo (com fallback Raquel se inativo / inexistente)
         const { trainerForAlert, escalatedTrainerId, isFallback } = pickTrainer(
           alert.primaryTrainerId,
@@ -216,7 +250,6 @@ Deno.serve(async (req) => {
           trainers,
         );
 
-        const planSnapshot = plansByStudent.get(alert.studentId) ?? null;
         const ackToken = generateAckToken();
         const ackUrl = `${ackBaseUrl}?token=${ackToken}`;
 
@@ -572,6 +605,30 @@ async function loadTrainers(
     .select("id, full_name, phone, is_active");
   if (error) throw new Error(`load trainers: ${error.message}`);
   return new Map((data ?? []).map((t) => [t.id as string, t as TrainerInfo]));
+}
+
+/**
+ * Carrega o histórico completo de alertas do aluno (qualquer status)
+ * pra checagem de duplicata por assinatura. Volume típico por aluno é
+ * baixo (<10 entradas), uma query simples não pesa. Caller passa pro
+ * helper puro `isHistoricalDuplicate`.
+ */
+async function loadAlertHistory(
+  supabase: SupabaseClient,
+  studentId: string,
+): Promise<Array<{ alert_type: AlertType; missed_dates: string[] }>> {
+  const { data, error } = await supabase
+    .from("attendance_alerts")
+    .select("alert_type, missed_dates")
+    .eq("student_id", studentId);
+  if (error) throw new Error(`load alert history: ${error.message}`);
+  return ((data ?? []) as Array<{
+    alert_type: AlertType;
+    missed_dates: string[] | null;
+  }>).map((r) => ({
+    alert_type: r.alert_type,
+    missed_dates: r.missed_dates ?? [],
+  }));
 }
 
 async function isInSilenceWindow(

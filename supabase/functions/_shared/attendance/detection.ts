@@ -37,7 +37,7 @@ export interface RiskAlert {
   alertType: AlertType;
   missedSessionIds: string[];
   missedBookingIds: string[];
-  missedDates: string[];      // ISO yyyy-mm-dd, oldest → newest
+  missedDates: string[];      // ISO yyyy-mm-dd, oldest → newest, 1 entrada por DIA
   lastAttendedAt: string | null;
   primaryTrainerId: string | null;   // do treinador da sessão mais recente
 }
@@ -64,8 +64,94 @@ function sortChronological(events: AttendanceEvent[]): AttendanceEvent[] {
 }
 
 /**
+ * Bucket consolidado de eventos do mesmo dia. A regra do P3 da Fabrik
+ * trata "1 dia" como unidade (e não "1 aula") — duas faltas no mesmo
+ * dia não somam, é o mesmo dia ruim.
+ */
+export interface DayBucket {
+  date: string;
+  /** Hora do primeiro evento relevante (pra ordenação determinística). */
+  startTime: string;
+  status: "present" | "no_show" | "cancelled_late";
+  /** Eventos do dia que casam com `status` do bucket — preservados pra alimentar `missedSessionIds`. */
+  events: AttendanceEvent[];
+}
+
+/**
+ * Colapsa lista de eventos `countable` em 1 bucket por dia. Prioridade:
+ *
+ *   present  >  no_show  >  cancelled_late
+ *
+ * Ou seja: se o aluno teve QUALQUER presença confirmada no dia, o dia
+ * inteiro conta como presença (não importa se também faltou em outra
+ * aula no mesmo dia — improvável, mas defensivo). Caso contrário, se
+ * houve no_show, o dia é "falta". Caso só haja cancelled_late, o dia
+ * é "falta tardia".
+ *
+ * Eventos `cancelled_on_time` e `scheduled` já devem ter sido filtrados
+ * antes (não entram em `COUNTABLE_STATUSES`).
+ */
+export function collapseByDay(
+  countableEvents: AttendanceEvent[],
+): DayBucket[] {
+  const byDate = new Map<string, AttendanceEvent[]>();
+  for (const ev of countableEvents) {
+    const list = byDate.get(ev.date);
+    if (list) list.push(ev);
+    else byDate.set(ev.date, [ev]);
+  }
+
+  const buckets: DayBucket[] = [];
+  for (const [date, dayEvents] of byDate) {
+    const sortedDay = [...dayEvents].sort((a, b) =>
+      a.startTime < b.startTime ? -1 : a.startTime > b.startTime ? 1 : 0,
+    );
+
+    // Prioridade: present > no_show > cancelled_late
+    const presents = sortedDay.filter((e) => e.status === "present");
+    if (presents.length > 0) {
+      buckets.push({
+        date,
+        startTime: presents[0].startTime,
+        status: "present",
+        events: presents,
+      });
+      continue;
+    }
+
+    const noShows = sortedDay.filter((e) => e.status === "no_show");
+    if (noShows.length > 0) {
+      buckets.push({
+        date,
+        startTime: noShows[0].startTime,
+        status: "no_show",
+        events: noShows,
+      });
+      continue;
+    }
+
+    const cancelledLate = sortedDay.filter(
+      (e) => e.status === "cancelled_late",
+    );
+    if (cancelledLate.length > 0) {
+      buckets.push({
+        date,
+        startTime: cancelledLate[0].startTime,
+        status: "cancelled_late",
+        events: cancelledLate,
+      });
+    }
+  }
+
+  return buckets.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+/**
  * Decide o alerta pra UM aluno baseado no histórico recente de eventos.
  * Retorna null se o aluno não está em risco.
+ *
+ * Regra crítica: "2 faltas seguidas" significa **2 dias distintos** —
+ * 2 events no mesmo dia colapsam em 1 dia-falta via `collapseByDay`.
  */
 export function evaluateStudent(events: AttendanceEvent[]): RiskAlert | null {
   if (events.length === 0) return null;
@@ -73,61 +159,61 @@ export function evaluateStudent(events: AttendanceEvent[]): RiskAlert | null {
 
   const sorted = sortChronological(events);
 
-  // 1) Última presença pro contexto da mensagem (qualquer status 'present')
-  const lastPresent = [...sorted].reverse().find((e) => e.status === "present");
-  const lastAttendedAt = lastPresent ? lastPresent.date : null;
-
-  // 2) Filtrar pra eventos que CONTAM (present / no_show / cancelled_late) — ignora
-  //    cancelled_on_time (não quebra streak nem conta como falta) e scheduled (futuro).
+  // 1) Filtra pra eventos que CONTAM (present / no_show / cancelled_late)
   const countable = sorted.filter((e) => COUNTABLE_STATUSES.has(e.status));
-
   if (countable.length === 0) return null;
 
-  // 3) Olhar do mais recente pro mais antigo, pegando a streak final de faltas.
-  const trailingMisses: AttendanceEvent[] = [];
-  for (let i = countable.length - 1; i >= 0; i--) {
-    const ev = countable[i];
-    if (MISS_STATUSES.has(ev.status)) {
-      trailingMisses.unshift(ev);
-    } else {
-      break; // streak quebra na primeira presença
-    }
+  // 2) Colapsa em buckets por dia (1 bucket por data)
+  const buckets = collapseByDay(countable);
+  if (buckets.length === 0) return null;
+
+  // 3) Última presença pro contexto da mensagem (último bucket present)
+  const lastPresentBucket = [...buckets]
+    .reverse()
+    .find((b) => b.status === "present");
+  const lastAttendedAt = lastPresentBucket?.date ?? null;
+
+  // 4) Streak final de dias-falta (no_show ou cancelled_late), do mais
+  //    recente pro mais antigo, parando na primeira presença.
+  const trailingMissBuckets: DayBucket[] = [];
+  for (let i = buckets.length - 1; i >= 0; i--) {
+    const b = buckets[i];
+    if (b.status === "present") break;
+    trailingMissBuckets.unshift(b);
   }
+  if (trailingMissBuckets.length === 0) return null;
 
-  if (trailingMisses.length === 0) return null;
+  // 5) Flat de todos os events dos dias-falta (pra preencher missedSessionIds)
+  const allTrailingEvents = trailingMissBuckets.flatMap((b) => b.events);
 
-  // 4) Decisão de tipo de alerta.
-  //    Se QUALQUER falta na streak é em sessão personal → trata como PT (1 falta basta).
-  const hasPersonalMiss = trailingMisses.some((e) => e.sessionType === "personal");
+  // 6) Decisão de tipo de alerta.
+  //    Se QUALQUER event na streak é personal → PT (1 dia-falta basta).
+  const hasPersonalMiss = allTrailingEvents.some(
+    (e) => e.sessionType === "personal" && MISS_STATUSES.has(e.status),
+  );
 
   let alertType: AlertType;
-  let relevantMisses: AttendanceEvent[];
-
   if (hasPersonalMiss) {
     alertType = "pt_1_miss";
-    // Pra PT, o gatilho é a primeira falta personal (geralmente a única).
-    // Mas levamos toda a streak pra contextualizar.
-    relevantMisses = trailingMisses;
   } else {
-    // Apenas grupo — precisa de 2+ faltas seguidas.
-    if (trailingMisses.length < 2) return null;
+    // Apenas grupo — precisa de 2+ DIAS-falta distintos.
+    if (trailingMissBuckets.length < 2) return null;
     alertType = "group_2_misses";
-    relevantMisses = trailingMisses;
   }
 
-  // 5) Treinador "principal" pra alerta = treinador da falta mais recente.
-  const mostRecent = relevantMisses[relevantMisses.length - 1];
+  // 7) Treinador "principal" = do event mais recente da streak.
+  const mostRecentEvent = allTrailingEvents[allTrailingEvents.length - 1];
 
   return {
     studentId,
     alertType,
-    missedSessionIds: relevantMisses.map((e) => e.sessionId),
-    missedBookingIds: relevantMisses
+    missedSessionIds: allTrailingEvents.map((e) => e.sessionId),
+    missedBookingIds: allTrailingEvents
       .map((e) => e.bookingId)
       .filter((x): x is string => x !== null),
-    missedDates: relevantMisses.map((e) => e.date),
+    missedDates: trailingMissBuckets.map((b) => b.date),
     lastAttendedAt,
-    primaryTrainerId: mostRecent.trainerId,
+    primaryTrainerId: mostRecentEvent.trainerId,
   };
 }
 
@@ -143,6 +229,52 @@ export function evaluateAll(
     if (alert) alerts.push(alert);
   }
   return alerts;
+}
+
+// ─────────── Assinatura de alerta histórico ───────────
+
+/**
+ * Assinatura canônica de um alerta pra detecção de duplicata histórica.
+ *
+ * Critério: mesma multiset de `missed_dates` (ordenada) + mesmo
+ * `alert_type`. NÃO usamos overlap parcial — apenas igualdade exata da
+ * lista de datas. Datas dedup'das + ordenadas pra ser invariante a
+ * ordem de inserção.
+ */
+export function alertSignature(args: {
+  alertType: AlertType;
+  missedDates: ReadonlyArray<string>;
+}): string {
+  const uniqueSorted = Array.from(new Set(args.missedDates)).sort();
+  return `${args.alertType}|${uniqueSorted.join(",")}`;
+}
+
+/**
+ * Retorna `true` se algum alerta histórico do aluno tem a MESMA
+ * assinatura que o novo alerta candidato.
+ *
+ * Histórico é geralmente alimentado por todos os alertas do aluno (de
+ * qualquer status: pending, acknowledged, escalated, resolved,
+ * suppressed). Caller decide o escopo.
+ */
+export function isHistoricalDuplicate(
+  candidate: { alertType: AlertType; missedDates: ReadonlyArray<string> },
+  history: ReadonlyArray<{
+    alert_type: AlertType;
+    missed_dates: ReadonlyArray<string>;
+  }>,
+): boolean {
+  const target = alertSignature({
+    alertType: candidate.alertType,
+    missedDates: candidate.missedDates,
+  });
+  return history.some(
+    (h) =>
+      alertSignature({
+        alertType: h.alert_type,
+        missedDates: h.missed_dates,
+      }) === target,
+  );
 }
 
 // ─────────── Janela de envio (horário social) ───────────
