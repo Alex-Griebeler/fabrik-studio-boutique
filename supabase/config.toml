@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.refresh-attendance-message-status]
 verify_jwt = false
+
+[functions.attendance-channel-healthcheck]
+verify_jwt = false
