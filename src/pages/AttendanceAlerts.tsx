@@ -7,7 +7,9 @@ import {
   CheckCircle2,
   Clock,
   Filter,
+  Loader2,
   MessageSquare,
+  RefreshCw,
   Send,
   ShieldCheck,
 } from "lucide-react";
@@ -41,6 +43,7 @@ import {
 import {
   useAcknowledgeAttendanceAlert,
   useAttendanceAlerts,
+  useRefreshAttendanceMessageStatus,
   useResolveAttendanceAlert,
   alertModeLabels,
   alertStatusLabels,
@@ -139,6 +142,7 @@ export default function AttendanceAlerts() {
 
   const ack = useAcknowledgeAttendanceAlert();
   const resolveMut = useResolveAttendanceAlert();
+  const refreshStatus = useRefreshAttendanceMessageStatus();
 
   const filtered = useMemo(() => {
     if (!alerts) return [];
@@ -211,8 +215,12 @@ export default function AttendanceAlerts() {
                 showActions
                 onAck={(id) => ack.mutate(id)}
                 onResolve={(id) => resolveMut.mutate(id)}
+                onRefreshStatus={(id) => refreshStatus.mutate(id)}
                 ackPending={ack.isPending}
                 resolvePending={resolveMut.isPending}
+                refreshPendingId={
+                  refreshStatus.isPending ? refreshStatus.variables : null
+                }
               />
             </TabsContent>
 
@@ -222,6 +230,10 @@ export default function AttendanceAlerts() {
                 isLoading={isLoading}
                 emptyMessage="Sem histórico ainda."
                 showActions={false}
+                onRefreshStatus={(id) => refreshStatus.mutate(id)}
+                refreshPendingId={
+                  refreshStatus.isPending ? refreshStatus.variables : null
+                }
               />
             </TabsContent>
           </Tabs>
@@ -238,8 +250,10 @@ interface AlertsTableProps {
   showActions: boolean;
   onAck?: (id: string) => void;
   onResolve?: (id: string) => void;
+  onRefreshStatus?: (id: string) => void;
   ackPending?: boolean;
   resolvePending?: boolean;
+  refreshPendingId?: string | null;
 }
 
 function AlertsTable({
@@ -249,8 +263,10 @@ function AlertsTable({
   showActions,
   onAck,
   onResolve,
+  onRefreshStatus,
   ackPending,
   resolvePending,
+  refreshPendingId,
 }: AlertsTableProps) {
   if (isLoading) {
     return (
@@ -386,7 +402,11 @@ function AlertsTable({
                 </TableRow>
                 <TableRow>
                   <TableCell colSpan={showActions ? 9 : 8} className="p-0">
-                    <AlertAudit alert={a} />
+                    <AlertAudit
+                      alert={a}
+                      onRefreshStatus={onRefreshStatus}
+                      refreshPending={refreshPendingId === a.id}
+                    />
                   </TableCell>
                 </TableRow>
               </Fragment>
@@ -398,7 +418,17 @@ function AlertsTable({
   );
 }
 
-function AlertAudit({ alert }: { alert: AttendanceAlert }) {
+function AlertAudit({
+  alert,
+  onRefreshStatus,
+  refreshPending,
+}: {
+  alert: AttendanceAlert;
+  onRefreshStatus?: (id: string) => void;
+  refreshPending?: boolean;
+}) {
+  const hasProviderSid = !!alert.message_sid || !!alert.escalation_message_sid;
+
   return (
     <Accordion type="single" collapsible>
       <AccordionItem value={`audit-${alert.id}`} className="border-0">
@@ -409,6 +439,22 @@ function AlertAudit({ alert }: { alert: AttendanceAlert }) {
           </span>
         </AccordionTrigger>
         <AccordionContent className="px-4 pb-4">
+          <div className="mb-3 flex justify-end">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-2 text-xs"
+              disabled={!hasProviderSid || !onRefreshStatus || refreshPending}
+              onClick={() => onRefreshStatus?.(alert.id)}
+            >
+              {refreshPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Atualizar status
+            </Button>
+          </div>
           <div className="grid gap-3 rounded-md border bg-muted/30 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <AuditItem
               icon={<MessageSquare className="h-3.5 w-3.5" />}

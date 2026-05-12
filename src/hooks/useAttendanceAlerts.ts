@@ -211,3 +211,41 @@ export function useResolveAttendanceAlert() {
     },
   });
 }
+
+interface RefreshAttendanceMessageStatusSummary {
+  dry_run: boolean;
+  checked: number;
+  updated: number;
+  errors?: string[];
+}
+
+export function useRefreshAttendanceMessageStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase.functions.invoke(
+        "refresh-attendance-message-status",
+        {
+          body: {
+            dryRun: false,
+            alertId: id,
+          },
+        },
+      );
+      if (error) throw error;
+
+      const summary = data as RefreshAttendanceMessageStatusSummary;
+      if (summary.errors?.length) {
+        throw new Error(summary.errors[0]);
+      }
+      return summary;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["attendance_alerts"] });
+      toast.success("Status Twilio atualizado.");
+    },
+    onError: (e: Error) => {
+      toast.error(`Erro ao atualizar Twilio: ${e.message}`);
+    },
+  });
+}
