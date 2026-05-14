@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.attendance-channel-healthcheck]
 verify_jwt = false
+
+[functions.attendance-prelive-check]
+verify_jwt = false
