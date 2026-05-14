@@ -285,7 +285,6 @@ async function loadAttendanceEvents(
       .select("id, student_id, event_date, status, trainer_id")
       .gte("event_date", startStr)
       .lte("event_date", endStr)
-      .neq("status", "scheduled")
       .order("id", { ascending: true })
       .range(offset, offset + EVENTS_PAGE_SIZE - 1);
     if (error) throw new Error(`load attendance_events: ${error.message}`);
