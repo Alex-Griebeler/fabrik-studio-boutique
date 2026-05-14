@@ -99,15 +99,16 @@ Deno.serve(async (req) => {
       (policyRows ?? []).map((r) => [r.key as string, r.value]),
     );
 
-    const mode = (policies.get("attendance_agent.mode") as string) ?? null;
-    const shadowPhone =
-      (policies.get("attendance_agent.shadow_phone") as string) ?? null;
-    const fallbackTrainerId =
-      (policies.get("attendance_agent.fallback_trainer_id") as string | null) ??
-      null;
-    const sendWindow =
-      (policies.get("attendance_agent.send_window") as PreLiveSendWindow) ??
-      null;
+    const mode = jsonbString(policies.get("attendance_agent.mode"));
+    const shadowPhone = jsonbString(
+      policies.get("attendance_agent.shadow_phone"),
+    );
+    const fallbackTrainerId = jsonbString(
+      policies.get("attendance_agent.fallback_trainer_id"),
+    );
+    const sendWindow = parseSendWindow(
+      policies.get("attendance_agent.send_window"),
+    );
 
     // 2) runtime_config
     const { data: rcRows, error: rcErr } = await supabase
@@ -173,6 +174,8 @@ Deno.serve(async (req) => {
       .map((c) => c.jobname);
 
     // ─── Avaliação ───
+    // Se alguma query de coleta falhou, o estado pode estar parcial —
+    // o helper devolve INDETERMINATE em vez de um NO-GO enganoso.
     const report = evaluatePreLiveChecks({
       mode,
       shadowPhone,
@@ -192,6 +195,7 @@ Deno.serve(async (req) => {
       expectedCrons: EXPECTED_CRONS,
       presentCrons,
       now: new Date(),
+      collectionFailed: errors.length > 0,
     });
 
     return jsonOk({
@@ -207,6 +211,39 @@ Deno.serve(async (req) => {
     return jsonError(500, (err as Error).message ?? "internal error");
   }
 });
+
+/**
+ * Extrai string de um valor jsonb de `policies.value`. jsonb string
+ * deserializa pra string JS; qualquer outra coisa (null, objeto,
+ * número) vira null. Substitui o `as string` que mentia pro TS.
+ */
+function jsonbString(raw: unknown): string | null {
+  if (typeof raw === "string" && raw.trim().length > 0) return raw;
+  return null;
+}
+
+/**
+ * Valida o shape de `attendance_agent.send_window` vindo do jsonb.
+ * Retorna null se malformado — o helper `isValidSendWindow` ainda
+ * revalida, mas aqui já garantimos que o tipo não é uma mentira.
+ */
+function parseSendWindow(raw: unknown): PreLiveSendWindow | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (
+    typeof o.start_hour !== "number" ||
+    typeof o.end_hour !== "number" ||
+    !Array.isArray(o.days_of_week)
+  ) {
+    return null;
+  }
+  if (!o.days_of_week.every((d) => typeof d === "number")) return null;
+  return {
+    start_hour: o.start_hour,
+    end_hour: o.end_hour,
+    days_of_week: o.days_of_week as number[],
+  };
+}
 
 function jsonOk(payload: unknown): Response {
   return new Response(JSON.stringify(payload), {

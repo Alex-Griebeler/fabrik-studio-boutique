@@ -61,6 +61,19 @@ describe("isValidSendWindow", () => {
     ).toBe(false);
   });
 
+  it("rejeita days_of_week com duplicata", () => {
+    expect(
+      isValidSendWindow({ start_hour: 9, end_hour: 19, days_of_week: [1, 1, 2] }),
+    ).toBe(false);
+    expect(
+      isValidSendWindow({
+        start_hour: 9,
+        end_hour: 19,
+        days_of_week: [1, 2, 3, 3],
+      }),
+    ).toBe(false);
+  });
+
   it("rejeita horas fora do range", () => {
     expect(
       isValidSendWindow({ start_hour: -1, end_hour: 19, days_of_week: [1] }),
@@ -85,9 +98,20 @@ describe("isValidSendWindow", () => {
 describe("hoursSince", () => {
   const now = new Date("2026-05-14T12:00:00Z");
 
-  it("calcula horas corretamente", () => {
+  it("calcula horas corretamente com timezone Z", () => {
     expect(hoursSince("2026-05-14T10:00:00Z", now)).toBeCloseTo(2);
     expect(hoursSince("2026-05-13T12:00:00Z", now)).toBeCloseTo(24);
+  });
+
+  it("aceita offset explícito ±HH:MM", () => {
+    expect(hoursSince("2026-05-14T07:00:00-03:00", now)).toBeCloseTo(2);
+    expect(hoursSince("2026-05-14T07:00:00-0300", now)).toBeCloseTo(2);
+  });
+
+  it("rejeita ISO SEM timezone (ambíguo) → null", () => {
+    expect(hoursSince("2026-05-14T10:00:00", now)).toBeNull();
+    expect(hoursSince("2026-05-14 10:00:00", now)).toBeNull();
+    expect(hoursSince("2026-05-14", now)).toBeNull();
   });
 
   it("retorna null pra input inválido", () => {
@@ -129,12 +153,13 @@ function validInput(overrides: Partial<PreLiveInput> = {}): PreLiveInput {
       "attendance-channel-healthcheck-7h-sp",
     ],
     now: new Date("2026-05-14T12:00:00Z"),
+    collectionFailed: false,
     ...overrides,
   };
 }
 
 describe("evaluatePreLiveChecks — cenário GO", () => {
-  it("estado totalmente saudável → GO, zero blockers", () => {
+  it("estado totalmente saudável → GO, zero blockers/warnings", () => {
     const r = evaluatePreLiveChecks(validInput());
     expect(r.decision).toBe("GO");
     expect(r.blockers).toHaveLength(0);
@@ -150,12 +175,32 @@ describe("evaluatePreLiveChecks — cenário GO", () => {
     expect(r.warnings.map((w) => w.id)).toContain("shadow_phone_present");
   });
 
-  it("healthcheck stale (>48h) é warning, não blocker", () => {
+  it("checks sempre tem 12 entradas (cobertura total)", () => {
+    const r = evaluatePreLiveChecks(validInput());
+    expect(r.checks).toHaveLength(12);
+  });
+});
+
+describe("evaluatePreLiveChecks — INDETERMINATE", () => {
+  it("collectionFailed=true → INDETERMINATE mesmo com estado válido", () => {
+    const r = evaluatePreLiveChecks(validInput({ collectionFailed: true }));
+    expect(r.decision).toBe("INDETERMINATE");
+    // checks ainda são retornados pra debug
+    expect(r.checks).toHaveLength(12);
+  });
+
+  it("collectionFailed=true tem precedência sobre blockers", () => {
+    // estado cheio de blockers MAS collectionFailed → INDETERMINATE,
+    // não NO-GO (não dá pra confiar que os blockers são reais)
     const r = evaluatePreLiveChecks(
-      validInput({ healthcheckLastOkAt: "2026-05-10T10:00:00Z" }),
+      validInput({
+        collectionFailed: true,
+        fallbackTrainerId: null,
+        cronSecretPresent: false,
+      }),
     );
-    expect(r.decision).toBe("GO");
-    expect(r.warnings.map((w) => w.id)).toContain("healthcheck_recent");
+    expect(r.decision).toBe("INDETERMINATE");
+    expect(r.blockers.length).toBeGreaterThan(0); // blockers ainda listados
   });
 });
 
@@ -230,6 +275,47 @@ describe("evaluatePreLiveChecks — blockers individuais", () => {
     );
   });
 
+  it("healthcheck nunca rodou (last_ok_at null) → NO-GO blocker", () => {
+    const r = evaluatePreLiveChecks(
+      validInput({ healthcheckLastOkAt: null }),
+    );
+    expect(r.decision).toBe("NO-GO");
+    expect(r.blockers.map((b) => b.id)).toContain("healthcheck_recent");
+  });
+
+  it("healthcheck stale >48h → NO-GO blocker (não warning)", () => {
+    const r = evaluatePreLiveChecks(
+      // 4 dias atrás vs now 2026-05-14T12:00Z
+      validInput({ healthcheckLastOkAt: "2026-05-10T10:00:00Z" }),
+    );
+    expect(r.decision).toBe("NO-GO");
+    const block = r.blockers.find((b) => b.id === "healthcheck_recent");
+    expect(block).toBeDefined();
+    expect(block!.severity).toBe("blocker");
+  });
+
+  it("healthcheck OK recente (<48h) → check passa", () => {
+    const r = evaluatePreLiveChecks(
+      validInput({ healthcheckLastOkAt: "2026-05-13T18:00:00Z" }),
+    );
+    const hc = r.checks.find((c) => c.id === "healthcheck_recent");
+    expect(hc!.status).toBe("pass");
+  });
+
+  it("healthcheck last_ok_at sem timezone → NO-GO (timestamp inconfiável)", () => {
+    const r = evaluatePreLiveChecks(
+      validInput({ healthcheckLastOkAt: "2026-05-14T10:00:00" }),
+    );
+    expect(r.decision).toBe("NO-GO");
+    expect(r.blockers.map((b) => b.id)).toContain("healthcheck_recent");
+  });
+
+  it("nenhum trainer ativo → NO-GO blocker has_active_trainers", () => {
+    const r = evaluatePreLiveChecks(validInput({ activeTrainers: [] }));
+    expect(r.decision).toBe("NO-GO");
+    expect(r.blockers.map((b) => b.id)).toContain("has_active_trainers");
+  });
+
   it("trainer ativo sem phone → NO-GO", () => {
     const r = evaluatePreLiveChecks(
       validInput({
@@ -277,8 +363,15 @@ describe("evaluatePreLiveChecks — múltiplos blockers", () => {
     expect(ids).toContain("healthcheck_not_failed");
   });
 
-  it("checks sempre tem 11 entradas (cobertura total)", () => {
-    const r = evaluatePreLiveChecks(validInput());
-    expect(r.checks).toHaveLength(11);
+  it("activeTrainers vazio dispara has_active_trainers, não active_trainers_have_phone como falso-pass", () => {
+    const r = evaluatePreLiveChecks(validInput({ activeTrainers: [] }));
+    const hasActive = r.checks.find((c) => c.id === "has_active_trainers");
+    const havePhone = r.checks.find(
+      (c) => c.id === "active_trainers_have_phone",
+    );
+    expect(hasActive!.status).toBe("fail");
+    // com lista vazia, o check de telefone também NÃO passa (evita
+    // o falso-pass por vacuidade que era o bug original)
+    expect(havePhone!.status).toBe("fail");
   });
 });

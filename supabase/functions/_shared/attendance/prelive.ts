@@ -3,9 +3,13 @@
 // Antes de virar `attendance_agent.mode = 'live'`, o agente passa a
 // mandar WhatsApp pros TREINADORES de verdade (não mais só pro
 // shadow_phone). Esse helper consolida os checks que precisam estar
-// verdes pra esse switch ser seguro, e devolve um relatório GO/NO-GO.
+// verdes pra esse switch ser seguro, e devolve um relatório
+// GO / NO-GO / INDETERMINATE.
 //
-// `blocker` = impede ir live. `warning` = não impede, mas vale revisar.
+// - `blocker` = impede ir live.
+// - `warning` = não impede, mas vale revisar.
+// - `INDETERMINATE` = a coleta de estado falhou; não dá pra afirmar
+//   GO nem NO-GO com confiança (precedência sobre tudo).
 
 export type CheckSeverity = "blocker" | "warning";
 export type CheckStatus = "pass" | "fail";
@@ -49,10 +53,17 @@ export interface PreLiveInput {
   presentCrons: string[];
   /** referência temporal (chamador passa new Date()) */
   now: Date;
+  /**
+   * true quando alguma query de coleta de estado falhou. Quando true,
+   * o relatório vira INDETERMINATE — os checks abaixo podem estar
+   * baseados em dados parciais/vazios e não devem virar um NO-GO
+   * enganoso (que seria confundido com "estado ruim de verdade").
+   */
+  collectionFailed: boolean;
 }
 
 export interface PreLiveReport {
-  decision: "GO" | "NO-GO";
+  decision: "GO" | "NO-GO" | "INDETERMINATE";
   checks: PreLiveCheck[];
   blockers: PreLiveCheck[];
   warnings: PreLiveCheck[];
@@ -64,7 +75,10 @@ export function isE164(phone: string | null | undefined): boolean {
   return /^\+[1-9]\d{7,14}$/.test(phone.trim());
 }
 
-/** Valida send_window: horas no range, start < end, dias 0-6 não-vazio. */
+/**
+ * Valida send_window: horas no range, start < end, dias 0-6 não-vazio
+ * e SEM duplicatas (dia da semana repetido é sempre erro de config).
+ */
 export function isValidSendWindow(
   w: PreLiveSendWindow | null | undefined,
 ): boolean {
@@ -78,13 +92,22 @@ export function isValidSendWindow(
   if (!Array.isArray(w.days_of_week) || w.days_of_week.length === 0) {
     return false;
   }
+  if (new Set(w.days_of_week).size !== w.days_of_week.length) return false;
   return w.days_of_week.every((d) => Number.isInteger(d) && d >= 0 && d <= 6);
 }
 
-/** Horas desde um timestamp ISO até `now`. null se input inválido. */
+/**
+ * Horas desde um timestamp ISO até `now`. Retorna `null` se o input
+ * for vazio, não-parseável, OU não tiver indicador de timezone
+ * explícito (`Z` ou `±HH:MM`) — sem timezone o `Date.parse` interpreta
+ * como hora local, dando resultado ambíguo. Tratar `null` como
+ * "não dá pra confiar na data".
+ */
 export function hoursSince(iso: string | null, now: Date): number | null {
   if (!iso) return null;
-  const t = Date.parse(iso);
+  const trimmed = iso.trim();
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/.test(trimmed)) return null;
+  const t = Date.parse(trimmed);
   if (Number.isNaN(t)) return null;
   return (now.getTime() - t) / 3_600_000;
 }
@@ -92,7 +115,12 @@ export function hoursSince(iso: string | null, now: Date): number | null {
 const HEALTHCHECK_STALE_HOURS = 48;
 
 /**
- * Roda todos os checks pré-live e consolida o relatório GO/NO-GO.
+ * Roda todos os checks pré-live e consolida o relatório.
+ *
+ * Decisão:
+ *   - `INDETERMINATE` se `input.collectionFailed` (precedência total).
+ *   - `NO-GO` se houver ≥1 blocker em falha.
+ *   - `GO` caso contrário (warnings não impedem).
  */
 export function evaluatePreLiveChecks(input: PreLiveInput): PreLiveReport {
   const checks: PreLiveCheck[] = [];
@@ -169,7 +197,7 @@ export function evaluatePreLiveChecks(input: PreLiveInput): PreLiveReport {
     "blocker",
     isValidSendWindow(input.sendWindow)
       ? `${input.sendWindow!.start_hour}h-${input.sendWindow!.end_hour}h, ${input.sendWindow!.days_of_week.length} dia(s)`
-      : "send_window ausente ou inválido (start>=end, dias vazios, etc.)",
+      : "send_window ausente ou inválido (start>=end, dias vazios/duplicados, etc.)",
   );
 
   // 6) healthcheck não está em estado de falha
@@ -197,38 +225,55 @@ export function evaluatePreLiveChecks(input: PreLiveInput): PreLiveReport {
       : `${input.healthcheckConsecutiveFailures} falha(s) consecutiva(s)`,
   );
 
-  // 8) healthcheck rodou recentemente (warning, não blocker)
+  // 8) healthcheck rodou recentemente com sucesso — BLOCKER.
+  //    Pra ir live precisa de um `ok` confirmado nas últimas 48h.
+  //    `hoursSince` null = nunca rodou OU timestamp inconfiável → falha.
   const hcHours = hoursSince(input.healthcheckLastOkAt, input.now);
   add(
     "healthcheck_recent",
     `healthcheck OK nas últimas ${HEALTHCHECK_STALE_HOURS}h`,
     hcHours !== null && hcHours <= HEALTHCHECK_STALE_HOURS,
-    "warning",
+    "blocker",
     hcHours === null
-      ? "nunca houve healthcheck OK registrado"
+      ? "nenhum healthcheck OK confiável registrado (nunca rodou ou timestamp inválido)"
       : hcHours <= HEALTHCHECK_STALE_HOURS
         ? `último OK há ${hcHours.toFixed(1)}h`
-        : `último OK há ${hcHours.toFixed(1)}h (stale)`,
+        : `último OK há ${hcHours.toFixed(1)}h (stale, limite ${HEALTHCHECK_STALE_HOURS}h)`,
   );
 
-  // 9) todos os trainers ativos têm phone E.164 (blocker — em live as
-  //    mensagens vão pros treinadores)
+  // 9) há pelo menos 1 trainer ativo — sem isso ninguém recebe alerta
+  //    em live. (Precede o check de telefones: lista vazia "passaria"
+  //    o check de telefones por vacuidade.)
+  add(
+    "has_active_trainers",
+    "existe pelo menos 1 trainer ativo",
+    input.activeTrainers.length >= 1,
+    "blocker",
+    input.activeTrainers.length >= 1
+      ? `${input.activeTrainers.length} trainer(s) ativo(s)`
+      : "nenhum trainer ativo — ninguém receberia alerta em live",
+  );
+
+  // 10) todos os trainers ativos têm phone E.164 (blocker — em live as
+  //     mensagens vão pros treinadores)
   const trainersNoPhone = input.activeTrainers.filter(
     (t) => !isE164(t.phone),
   );
   add(
     "active_trainers_have_phone",
     "todos os trainers ativos têm telefone E.164",
-    trainersNoPhone.length === 0,
+    input.activeTrainers.length >= 1 && trainersNoPhone.length === 0,
     "blocker",
-    trainersNoPhone.length === 0
-      ? `${input.activeTrainers.length} trainer(s) ativo(s), todos com phone`
-      : `${trainersNoPhone.length} sem phone E.164: ${trainersNoPhone
-          .map((t) => t.full_name)
-          .join(", ")}`,
+    input.activeTrainers.length === 0
+      ? "sem trainers ativos pra verificar (ver has_active_trainers)"
+      : trainersNoPhone.length === 0
+        ? `${input.activeTrainers.length} trainer(s) ativo(s), todos com phone`
+        : `${trainersNoPhone.length} sem phone E.164: ${trainersNoPhone
+            .map((t) => t.full_name)
+            .join(", ")}`,
   );
 
-  // 10) todos os crons esperados presentes
+  // 11) todos os crons esperados presentes
   const missingCrons = input.expectedCrons.filter(
     (c) => !input.presentCrons.includes(c),
   );
@@ -242,7 +287,7 @@ export function evaluatePreLiveChecks(input: PreLiveInput): PreLiveReport {
       : `faltando: ${missingCrons.join(", ")}`,
   );
 
-  // 11) shadow_phone presente (warning — em live não é usado, mas é
+  // 12) shadow_phone presente (warning — em live não é usado, mas é
   //     bom ter pra poder voltar pra shadow rapidamente)
   add(
     "shadow_phone_present",
@@ -261,10 +306,12 @@ export function evaluatePreLiveChecks(input: PreLiveInput): PreLiveReport {
     (c) => c.severity === "warning" && c.status === "fail",
   );
 
-  return {
-    decision: blockers.length === 0 ? "GO" : "NO-GO",
-    checks,
-    blockers,
-    warnings,
-  };
+  let decision: PreLiveReport["decision"];
+  if (input.collectionFailed) {
+    decision = "INDETERMINATE";
+  } else {
+    decision = blockers.length === 0 ? "GO" : "NO-GO";
+  }
+
+  return { decision, checks, blockers, warnings };
 }
