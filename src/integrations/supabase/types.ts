@@ -3047,6 +3047,13 @@ export type Database = {
           request_id: number
         }[]
       }
+      attendance_cron_jobnames: {
+        Args: never
+        Returns: {
+          active: boolean
+          jobname: string
+        }[]
+      }
       calculate_monthly_kpis: { Args: { p_date: string }; Returns: undefined }
       has_role: {
         Args: {
