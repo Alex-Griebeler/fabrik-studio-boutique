@@ -107,11 +107,8 @@ Deno.serve(async (req) => {
     const todayStr = todayInTimezone(policies.timezone);
     const lookbackStart = addDaysStr(todayStr, -policies.lookbackDays);
 
-    const { eventsByStudent, dataStart, dataEnd } = await loadAttendanceEvents(
-      supabase,
-      lookbackStart,
-      todayStr,
-    );
+    const { eventsByStudent, dataStart, dataEnd, primaryTrainerByStudent } =
+      await loadAttendanceEvents(supabase, lookbackStart, todayStr);
 
     const summary = {
       mode: policies.mode,
@@ -161,12 +158,11 @@ Deno.serve(async (req) => {
       return jsonOk(summary);
     }
 
-    // Contexto pra persistir: students ativos + treinador principal.
+    // Contexto pra persistir: quais dos alunos em risco ainda estão
+    // ativos no CRM. (O treinador principal já veio de
+    // `loadAttendanceEvents`, na mesma varredura.)
     const studentIds = atRisk.map((r) => r.studentId);
-    const [activeStudents, primaryTrainerByStudent] = await Promise.all([
-      loadActiveStudentIds(supabase, studentIds),
-      loadPrimaryTrainerByStudent(supabase, studentIds),
-    ]);
+    const activeStudents = await loadActiveStudentIds(supabase, studentIds);
 
     for (const r of atRisk) {
       try {
@@ -252,6 +248,8 @@ async function loadPolicies(
   };
 }
 
+const EVENTS_PAGE_SIZE = 1000;
+
 async function loadAttendanceEvents(
   supabase: SupabaseClient,
   startStr: string,
@@ -260,40 +258,77 @@ async function loadAttendanceEvents(
   eventsByStudent: Map<string, ChurnEvent[]>;
   dataStart: string | null;
   dataEnd: string | null;
+  /**
+   * Treinador "principal" de cada aluno = treinador do evento de
+   * presença mais recente na janela. Inferência best-effort pra
+   * roteamento futuro do alerta. Capturada nesta mesma varredura pra
+   * evitar uma segunda query.
+   */
+  primaryTrainerByStudent: Map<string, string>;
 }> {
-  // Só eventos que já aconteceram (exclui `scheduled` — futuro não
-  // entra na janela de dados, senão `data_end` vazaria pra frente).
-  const { data, error } = await supabase
-    .from("attendance_events")
-    .select("student_id, event_date, status")
-    .gte("event_date", startStr)
-    .lte("event_date", endStr)
-    .neq("status", "scheduled");
-  if (error) throw new Error(`load attendance_events: ${error.message}`);
-
   const eventsByStudent = new Map<string, ChurnEvent[]>();
+  const latestPresent = new Map<string, { date: string; trainerId: string }>();
   let dataStart: string | null = null;
   let dataEnd: string | null = null;
 
-  for (const row of (data ?? []) as Array<{
-    student_id: string;
-    event_date: string;
-    status: string;
-  }>) {
-    const date = row.event_date;
-    if (dataStart === null || date < dataStart) dataStart = date;
-    if (dataEnd === null || date > dataEnd) dataEnd = date;
+  // Paginação EXPLÍCITA: o PostgREST trunca em 1000 linhas por padrão e
+  // não avisa. Com lookback de 90 dias e ~115 alunos, o volume passa de
+  // 1000 fácil — sem paginar, a baseline sairia de dados truncados
+  // silenciosamente. Ordena por `id` (PK uuid) pra ter um total order
+  // estável entre as páginas.
+  let offset = 0;
+  for (;;) {
+    // Só eventos que já aconteceram (exclui `scheduled` — futuro não
+    // entra na janela de dados, senão `data_end` vazaria pra frente).
+    const { data, error } = await supabase
+      .from("attendance_events")
+      .select("id, student_id, event_date, status, trainer_id")
+      .gte("event_date", startStr)
+      .lte("event_date", endStr)
+      .neq("status", "scheduled")
+      .order("id", { ascending: true })
+      .range(offset, offset + EVENTS_PAGE_SIZE - 1);
+    if (error) throw new Error(`load attendance_events: ${error.message}`);
 
-    const ev: ChurnEvent = {
-      occurredDate: date,
-      isPresence: row.status === "present",
-    };
-    const list = eventsByStudent.get(row.student_id);
-    if (list) list.push(ev);
-    else eventsByStudent.set(row.student_id, [ev]);
+    const rows = (data ?? []) as Array<{
+      student_id: string;
+      event_date: string;
+      status: string;
+      trainer_id: string | null;
+    }>;
+
+    for (const row of rows) {
+      const date = row.event_date;
+      if (dataStart === null || date < dataStart) dataStart = date;
+      if (dataEnd === null || date > dataEnd) dataEnd = date;
+
+      const isPresence = row.status === "present";
+      const ev: ChurnEvent = { occurredDate: date, isPresence };
+      const list = eventsByStudent.get(row.student_id);
+      if (list) list.push(ev);
+      else eventsByStudent.set(row.student_id, [ev]);
+
+      if (isPresence && row.trainer_id) {
+        const cur = latestPresent.get(row.student_id);
+        if (!cur || date >= cur.date) {
+          latestPresent.set(row.student_id, {
+            date,
+            trainerId: row.trainer_id,
+          });
+        }
+      }
+    }
+
+    if (rows.length < EVENTS_PAGE_SIZE) break;
+    offset += EVENTS_PAGE_SIZE;
   }
 
-  return { eventsByStudent, dataStart, dataEnd };
+  const primaryTrainerByStudent = new Map<string, string>();
+  for (const [studentId, v] of latestPresent) {
+    primaryTrainerByStudent.set(studentId, v.trainerId);
+  }
+
+  return { eventsByStudent, dataStart, dataEnd, primaryTrainerByStudent };
 }
 
 async function loadActiveStudentIds(
@@ -311,40 +346,6 @@ async function loadActiveStudentIds(
       .filter((s) => (s as { is_active: boolean }).is_active)
       .map((s) => (s as { id: string }).id),
   );
-}
-
-/**
- * Treinador "principal" de cada aluno = treinador do evento de presença
- * mais recente dentro da janela. Inferência best-effort pra roteamento
- * futuro do alerta; null quando não dá pra inferir.
- */
-async function loadPrimaryTrainerByStudent(
-  supabase: SupabaseClient,
-  ids: string[],
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  if (ids.length === 0) return out;
-
-  const { data, error } = await supabase
-    .from("attendance_events")
-    .select("student_id, trainer_id, event_date")
-    .in("student_id", ids)
-    .eq("status", "present")
-    .not("trainer_id", "is", null)
-    .order("event_date", { ascending: false });
-  if (error) throw new Error(`load primary trainers: ${error.message}`);
-
-  for (const row of (data ?? []) as Array<{
-    student_id: string;
-    trainer_id: string | null;
-  }>) {
-    // Linhas vêm da mais recente pra mais antiga — primeira ocorrência
-    // por aluno é o treinador mais recente.
-    if (row.trainer_id && !out.has(row.student_id)) {
-      out.set(row.student_id, row.trainer_id);
-    }
-  }
-  return out;
 }
 
 // ─────────── Parsing de jsonb ───────────
