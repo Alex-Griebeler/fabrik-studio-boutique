@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.attendance-prelive-check]
 verify_jwt = false
+
+[functions.detect-churn-risk]
+verify_jwt = false
