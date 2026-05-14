@@ -535,6 +535,90 @@ export type Database = {
           },
         ]
       }
+      churn_alerts: {
+        Row: {
+          acknowledged_at: string | null
+          baseline_weekly_avg: number
+          baseline_weeks_used: number
+          confidence: string
+          created_at: string
+          data_end: string
+          data_start: string
+          detected_at: string
+          drop_pct: number
+          id: string
+          mode: string
+          recent_weekly_avg: number
+          recent_weeks_used: number
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          student_id: string
+          threshold_applied: number
+          trainer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          baseline_weekly_avg: number
+          baseline_weeks_used: number
+          confidence: string
+          created_at?: string
+          data_end: string
+          data_start: string
+          detected_at?: string
+          drop_pct: number
+          id?: string
+          mode?: string
+          recent_weekly_avg: number
+          recent_weeks_used: number
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          student_id: string
+          threshold_applied: number
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          baseline_weekly_avg?: number
+          baseline_weeks_used?: number
+          confidence?: string
+          created_at?: string
+          data_end?: string
+          data_start?: string
+          detected_at?: string
+          drop_pct?: number
+          id?: string
+          mode?: string
+          recent_weekly_avg?: number
+          recent_weeks_used?: number
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          student_id?: string
+          threshold_applied?: number
+          trainer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "churn_alerts_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "churn_alerts_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       class_bookings: {
         Row: {
           booked_at: string
