@@ -1,4 +1,9 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireStaffRole } from "../_shared/requireStaffRole.ts";
+
+// Auth: APENAS usuário autenticado com role admin OU manager.
+// service_role NÃO é aceito (não há fluxo interno que precise emitir
+// NFSe — emissão é decisão financeira manual). Aluno, recepção e
+// instrutor não podem emitir.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,33 +21,14 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    // --- JWT Validation ---
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    const supabaseAuth = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
+    const auth = await requireStaffRole({
+      req,
+      allowed: ["admin", "manager"],
+      allowServiceRole: false,
     });
-    const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-    // --- End JWT Validation ---
+    if (auth instanceof Response) return auth;
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase = auth.adminClient;
 
     const { invoice_id } = (await req.json()) as EmitNfsePayload;
 

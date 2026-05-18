@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireStaffRole } from "../_shared/requireStaffRole.ts";
+
+// Auth: service_role bearer (chamadas internas — outras edge
+// functions, cron) OU usuário autenticado com role em
+// (admin, manager, reception). Aluno autenticado NÃO pode disparar
+// mensagem via essa function — fluxo antigo aceitava qualquer JWT
+// válido sem checar role.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,35 +19,12 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    // --- JWT Validation (allows user JWT or service_role key) ---
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-
-    // Allow internal calls using service_role key
-    if (token !== serviceRoleKey) {
-      const supabaseAuth = createClient(supabaseUrl, anonKey, {
-        global: { headers: { Authorization: authHeader } },
-      });
-      const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
-      if (claimsError || !claimsData?.claims) {
-        return new Response(
-          JSON.stringify({ error: "Unauthorized" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-    // --- End JWT Validation ---
+    const auth = await requireStaffRole({
+      req,
+      allowed: ["admin", "manager", "reception"],
+      allowServiceRole: true,
+    });
+    if (auth instanceof Response) return auth;
 
     const { to, message } = await req.json();
 

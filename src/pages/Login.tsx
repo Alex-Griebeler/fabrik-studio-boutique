@@ -10,15 +10,21 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { Moon, Sun } from "lucide-react";
 import logoFabrik from "@/assets/logo-fabrik.png";
 
+// Self-signup foi REMOVIDO. O app é administrativo: contas novas são
+// criadas pela administração diretamente no Supabase (auth.users +
+// user_roles). Login e "esqueci minha senha" continuam funcionando
+// normalmente. Detalhes em src/contexts/AuthContext.tsx.
+
+type Mode = "login" | "forgot";
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
+  const [mode, setMode] = useState<Mode>("login");
 
-  const { signIn, signUp, resetPassword } = useAuth();
+  const { signIn, resetPassword } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -35,19 +41,6 @@ export default function Login() {
     }
   };
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    const { error } = await signUp(email, password, fullName);
-    setIsLoading(false);
-    if (error) {
-      toast({ title: "Erro ao criar conta", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Conta criada!", description: "Você já pode fazer login." });
-      setMode("login");
-    }
-  };
-
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -61,9 +54,8 @@ export default function Login() {
     }
   };
 
-  const titles = {
+  const titles: Record<Mode, { h1: string; p: string }> = {
     login: { h1: "Entrar", p: "Acesse o sistema de gestão Fabrik." },
-    signup: { h1: "Criar conta", p: "Preencha os dados para criar sua conta." },
     forgot: { h1: "Recuperar senha", p: "Informe seu email para receber o link de recuperação." },
   };
 
@@ -111,32 +103,6 @@ export default function Login() {
             </form>
           )}
 
-          {mode === "signup" && (
-            <form onSubmit={handleSignUp} className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="fullName" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Nome completo</Label>
-                <Input id="fullName" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Seu nome" required className="h-11" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Email</Label>
-                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" required className="h-11" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Senha</Label>
-                <div className="relative">
-                  <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required className="h-11 pr-10" />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              <Button type="submit" className="w-full h-11 font-semibold" disabled={isLoading}>
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Criar conta
-              </Button>
-              <button type="button" onClick={() => setMode("login")} className="block w-full text-center text-sm text-muted-foreground hover:text-primary transition-colors">Já tenho conta</button>
-            </form>
-          )}
-
           {mode === "login" && (
             <form onSubmit={handleLogin} className="space-y-5">
               <div className="space-y-2">
@@ -155,9 +121,11 @@ export default function Login() {
               <Button type="submit" className="w-full h-11 font-semibold" disabled={isLoading}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Entrar
               </Button>
-              <div className="flex justify-between">
+              <div className="flex flex-col items-center gap-2">
                 <button type="button" onClick={() => setMode("forgot")} className="text-sm text-muted-foreground hover:text-primary transition-colors">Esqueci minha senha</button>
-                <button type="button" onClick={() => setMode("signup")} className="text-sm text-muted-foreground hover:text-primary transition-colors">Criar conta</button>
+                <p className="text-xs text-muted-foreground text-center pt-2">
+                  Acessos são criados pela administração. Solicite cadastro ao gestor do studio.
+                </p>
               </div>
             </form>
           )}

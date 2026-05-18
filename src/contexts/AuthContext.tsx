@@ -3,12 +3,18 @@ import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 import { toast } from "sonner";
 
+// IMPORTANTE — `signUp` foi removido propositalmente do contexto.
+// O app é administrativo e self-signup público criava conta com role
+// `admin` por default (via trigger `handle_new_user`). Acesso novo é
+// criado pela administração inserindo manualmente em `user_roles` após
+// um convite/criação de usuário fora do app. Se um dia precisar
+// reintroduzir, faça via fluxo admin-only (não na UI pública).
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
 }
@@ -54,27 +60,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, fullName: string) => {
-    try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: window.location.origin,
-          data: { full_name: fullName },
-        },
-      });
-      if (error) {
-        toast.error(error.message);
-      }
-      return { error: error as Error | null };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error("Erro inesperado ao criar conta");
-      toast.error(error.message);
-      return { error };
-    }
-  };
-
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
@@ -102,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, resetPassword }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signOut, resetPassword }}>
       {children}
     </AuthContext.Provider>
   );
