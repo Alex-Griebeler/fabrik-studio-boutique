@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 // A tabela `churn_alerts` ainda não está em
@@ -121,6 +122,83 @@ export function useChurnAlerts(filters: ChurnAlertFilters = {}) {
       const { data, error } = await query.limit(500);
       if (error) throw error as Error;
       return ((data ?? []) as unknown) as ChurnAlert[];
+    },
+  });
+}
+
+// ─────────── Mutations manuais ───────────
+// As 3 ações abaixo são as ÚNICAS escritas permitidas na UI sobre
+// `churn_alerts` (mediadas pela policy `churn_alerts_update_staff` +
+// column-level grant criado em
+// 20260519100000_churn_alerts_update_policy.sql). Cada uma altera só
+// o status + UM timestamp do ciclo de vida. Nada de service_role no
+// frontend — usuário autenticado normal + RLS.
+
+export function useAcknowledgeChurnAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await sb
+        .from("churn_alerts")
+        .update({
+          status: "acknowledged",
+          acknowledged_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw error as Error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["churn_alerts"] });
+      toast.success("Alerta marcado como tratado.");
+    },
+    onError: (e: Error) => {
+      toast.error(`Erro: ${e.message}`);
+    },
+  });
+}
+
+export function useResolveChurnAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await sb
+        .from("churn_alerts")
+        .update({
+          status: "resolved",
+          resolved_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw error as Error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["churn_alerts"] });
+      toast.success("Alerta resolvido.");
+    },
+    onError: (e: Error) => {
+      toast.error(`Erro: ${e.message}`);
+    },
+  });
+}
+
+export function useSuppressChurnAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await sb
+        .from("churn_alerts")
+        .update({
+          status: "suppressed",
+          resolved_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw error as Error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["churn_alerts"] });
+      toast.success("Alerta silenciado.");
+    },
+    onError: (e: Error) => {
+      toast.error(`Erro: ${e.message}`);
     },
   });
 }

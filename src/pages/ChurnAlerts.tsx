@@ -4,6 +4,8 @@ import { format, parseISO, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   AlertTriangle,
+  BellOff,
+  Check,
   CheckCircle2,
   Clock,
   Filter,
@@ -12,6 +14,7 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -30,7 +33,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  useAcknowledgeChurnAlert,
   useChurnAlerts,
+  useResolveChurnAlert,
+  useSuppressChurnAlert,
   churnConfidenceLabels,
   churnModeLabels,
   churnStatusLabels,
@@ -96,6 +102,23 @@ export default function ChurnAlerts() {
   const { data: alerts, isLoading, error } = useChurnAlerts({});
   const { data: trainers } = useTrainers();
 
+  const ack = useAcknowledgeChurnAlert();
+  const resolveMut = useResolveChurnAlert();
+  const suppress = useSuppressChurnAlert();
+
+  const handleSuppress = (id: string) => {
+    // Único confirm — silenciar é a ação de menor reversibilidade visual
+    // (some da fila sem virar "resolvido"). Ack e Resolve são suaves.
+    if (
+      !window.confirm(
+        "Silenciar este alerta de churn? Ele sairá da fila de abertos.",
+      )
+    ) {
+      return;
+    }
+    suppress.mutate(id);
+  };
+
   const filtered = useMemo(() => {
     const list = alerts ?? [];
     return list.filter((a) => {
@@ -134,6 +157,11 @@ export default function ChurnAlerts() {
         title="Alertas de churn"
         description="Alunos com queda de frequência detectada pelo agente em modo shadow."
       />
+
+      <p className="-mt-3 text-xs text-muted-foreground">
+        Ações manuais (tratado / resolver / silenciar) não enviam WhatsApp
+        nem alteram o detector — só atualizam o status do alerta.
+      </p>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
@@ -243,6 +271,13 @@ export default function ChurnAlerts() {
                 alerts={filtered}
                 isLoading={isLoading}
                 emptyMessage="Nenhum aluno em risco de churn no momento."
+                showActions
+                onAck={(id) => ack.mutate(id)}
+                onResolve={(id) => resolveMut.mutate(id)}
+                onSuppress={handleSuppress}
+                ackPending={ack.isPending}
+                resolvePending={resolveMut.isPending}
+                suppressPending={suppress.isPending}
               />
             </TabsContent>
 
@@ -251,6 +286,7 @@ export default function ChurnAlerts() {
                 alerts={filtered}
                 isLoading={isLoading}
                 emptyMessage="Sem histórico de churn ainda."
+                showActions={false}
               />
             </TabsContent>
           </Tabs>
@@ -297,9 +333,31 @@ interface ChurnTableProps {
   alerts: ChurnAlert[];
   isLoading: boolean;
   emptyMessage: string;
+  showActions: boolean;
+  onAck?: (id: string) => void;
+  onResolve?: (id: string) => void;
+  onSuppress?: (id: string) => void;
+  ackPending?: boolean;
+  resolvePending?: boolean;
+  suppressPending?: boolean;
 }
 
-function ChurnTable({ alerts, isLoading, emptyMessage }: ChurnTableProps) {
+function ChurnTable({
+  alerts,
+  isLoading,
+  emptyMessage,
+  showActions,
+  onAck,
+  onResolve,
+  onSuppress,
+  ackPending,
+  resolvePending,
+  suppressPending,
+}: ChurnTableProps) {
+  // Qualquer mutation in-flight desabilita TODAS as ações da tabela —
+  // simples e suficiente pra 6-10 alertas. Pattern espelha
+  // AttendanceAlerts.
+  const anyPending = !!(ackPending || resolvePending || suppressPending);
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -334,6 +392,7 @@ function ChurnTable({ alerts, isLoading, emptyMessage }: ChurnTableProps) {
             <TableHead>Semanas</TableHead>
             <TableHead>Janela</TableHead>
             <TableHead>Detectado</TableHead>
+            {showActions && <TableHead className="w-[220px] text-right">Ações</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -404,6 +463,45 @@ function ChurnTable({ alerts, isLoading, emptyMessage }: ChurnTableProps) {
                   addSuffix: false,
                 })}
               </TableCell>
+              {showActions && (
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5 text-xs"
+                      disabled={anyPending}
+                      onClick={() => onAck?.(a.id)}
+                      title="Marcar como tratado"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Tratado
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5 text-xs"
+                      disabled={anyPending}
+                      onClick={() => onResolve?.(a.id)}
+                      title="Resolver"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      Resolver
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                      disabled={anyPending}
+                      onClick={() => onSuppress?.(a.id)}
+                      title="Silenciar (sai da fila sem virar resolvido)"
+                    >
+                      <BellOff className="h-3.5 w-3.5" />
+                      Silenciar
+                    </Button>
+                  </div>
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
