@@ -37,6 +37,8 @@ DO $$ BEGIN
     FOR UPDATE
     TO authenticated
     USING (
+      status = 'open'
+      AND
       EXISTS (
         SELECT 1 FROM public.user_roles
         WHERE user_id = auth.uid()
@@ -44,6 +46,8 @@ DO $$ BEGIN
       )
     )
     WITH CHECK (
+      status IN ('acknowledged', 'resolved', 'suppressed')
+      AND
       EXISTS (
         SELECT 1 FROM public.user_roles
         WHERE user_id = auth.uid()
