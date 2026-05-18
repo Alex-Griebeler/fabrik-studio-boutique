@@ -19,12 +19,14 @@ import {
   Smartphone,
   Zap,
   FileUp,
+  TrendingDown,
 } from "lucide-react";
 import { AlertTriangle } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserRoles, type AppRole } from "@/hooks/useUserRoles";
 import { useOpenAttendanceAlertsCount } from "@/hooks/useAttendanceAlerts";
+import { useOpenChurnAlertsCount } from "@/hooks/useChurnAlerts";
 import logoFabrik from "@/assets/logo-fabrik.png";
 import {
   Sidebar,
@@ -69,6 +71,7 @@ const financeItems: MenuItem[] = [
 const operationalItems: MenuItem[] = [
   { title: "Agenda", url: "/schedule", icon: CalendarDays, roles: ["admin", "manager", "instructor", "reception"] },
   { title: "Alertas de Faltas", url: "/alertas-faltas", icon: AlertTriangle, roles: ["admin", "manager", "reception"] },
+  { title: "Risco de Evasão", url: "/alertas-churn", icon: TrendingDown, roles: ["admin", "manager", "reception"] },
   { title: "Instrutores", url: "/instructors", icon: GraduationCap, roles: ["admin", "manager"] },
   { title: "Trainer App", url: "/trainer-app", icon: Smartphone, roles: ["admin", "instructor"] },
   { title: "Student App", url: "/student-app", icon: Users, roles: ["admin", "student"] },
@@ -89,13 +92,19 @@ export function AppSidebar() {
   const { signOut } = useAuth();
   const { hasAnyRole } = useUserRoles();
   const { data: openAlertsCount } = useOpenAttendanceAlertsCount();
+  const { data: openChurnCount } = useOpenChurnAlertsCount();
 
   const renderItems = (items: MenuItem[]) =>
     items
       .filter((item) => !item.roles || hasAnyRole(item.roles))
       .map((item) => {
-        const showBadge =
-          item.url === "/alertas-faltas" && (openAlertsCount ?? 0) > 0;
+        const badgeCount =
+          item.url === "/alertas-faltas"
+            ? openAlertsCount ?? 0
+            : item.url === "/alertas-churn"
+              ? openChurnCount ?? 0
+              : 0;
+        const showBadge = badgeCount > 0;
         return (
           <SidebarMenuItem key={item.title}>
             <SidebarMenuButton asChild>
@@ -110,7 +119,7 @@ export function AppSidebar() {
                     {item.title}
                     {showBadge && (
                       <span className="ml-2 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-yellow-100 px-1.5 text-[10px] font-semibold text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">
-                        {openAlertsCount}
+                        {badgeCount}
                       </span>
                     )}
                   </span>

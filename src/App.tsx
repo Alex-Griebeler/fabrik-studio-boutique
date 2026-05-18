@@ -33,6 +33,7 @@ import ResetPassword from "@/pages/ResetPassword";
 import Import from "@/pages/Import";
 import Anamnese from "@/pages/Anamnese";
 import AttendanceAlerts from "@/pages/AttendanceAlerts";
+import ChurnAlerts from "@/pages/ChurnAlerts";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -231,6 +232,14 @@ const App = () => (
                  element={
                    <ProtectedRoute allowedRoles={["admin", "manager", "reception"]}>
                      <AppLayout><AttendanceAlerts /></AppLayout>
+                   </ProtectedRoute>
+                 }
+               />
+               <Route
+                 path="/alertas-churn"
+                 element={
+                   <ProtectedRoute allowedRoles={["admin", "manager", "reception"]}>
+                     <AppLayout><ChurnAlerts /></AppLayout>
                    </ProtectedRoute>
                  }
                />
