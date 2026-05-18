@@ -42,6 +42,7 @@ export interface Task {
   tipo: TaskType;
   lead_id: string | null;
   student_id: string | null;
+  churn_alert_id: string | null;
   assignee_id: string;
   titulo: string;
   descricao: string | null;
@@ -61,6 +62,7 @@ export interface TaskFormData {
   tipo: TaskType;
   lead_id?: string;
   student_id?: string;
+  churn_alert_id?: string;
   assignee_id: string;
   titulo: string;
   descricao?: string;
@@ -138,7 +140,10 @@ export function useCreateTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: TaskFormData) => {
-      const insertData: Database["public"]["Tables"]["tasks"]["Insert"] = {
+      type TaskInsertWithChurn = Database["public"]["Tables"]["tasks"]["Insert"] & {
+        churn_alert_id?: string | null;
+      };
+      const insertData: TaskInsertWithChurn = {
         tipo: data.tipo,
         assignee_id: data.assignee_id,
         titulo: data.titulo,
@@ -147,8 +152,9 @@ export function useCreateTask() {
         prioridade: data.prioridade,
         lead_id: data.lead_id ?? null,
         student_id: data.student_id ?? null,
+        churn_alert_id: data.churn_alert_id ?? null,
       };
-      const { error } = await supabase.from("tasks").insert([insertData]);
+      const { error } = await supabase.from("tasks").insert([insertData as never]);
       if (error) throw error;
     },
     onSuccess: () => {

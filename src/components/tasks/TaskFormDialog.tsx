@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -13,9 +13,29 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultLeadId?: string;
+  defaultStudentId?: string;
+  defaultChurnAlertId?: string;
+  defaultAssigneeId?: string | null;
+  defaultTitle?: string;
+  defaultDescription?: string;
+  defaultPriority?: TaskFormData["prioridade"];
+  defaultType?: TaskFormData["tipo"];
+  onCreated?: () => void;
 }
 
-export function TaskFormDialog({ open, onOpenChange, defaultLeadId }: Props) {
+export function TaskFormDialog({
+  open,
+  onOpenChange,
+  defaultLeadId,
+  defaultStudentId,
+  defaultChurnAlertId,
+  defaultAssigneeId,
+  defaultTitle,
+  defaultDescription,
+  defaultPriority = "media",
+  defaultType = "ligar",
+  onCreated,
+}: Props) {
   const create = useCreateTask();
   const { data: profiles } = useQuery({
     queryKey: ["profiles-list"],
@@ -26,13 +46,31 @@ export function TaskFormDialog({ open, onOpenChange, defaultLeadId }: Props) {
     },
   });
 
-  const [form, setForm] = useState<TaskFormData>({
-    tipo: "ligar",
-    assignee_id: "",
-    titulo: "",
-    prioridade: "media",
+  const initialForm = useMemo<TaskFormData>(() => ({
+    tipo: defaultType,
+    assignee_id: defaultAssigneeId ?? "",
+    titulo: defaultTitle ?? "",
+    descricao: defaultDescription,
+    prioridade: defaultPriority,
     lead_id: defaultLeadId,
-  });
+    student_id: defaultStudentId,
+    churn_alert_id: defaultChurnAlertId,
+  }), [
+    defaultAssigneeId,
+    defaultChurnAlertId,
+    defaultDescription,
+    defaultLeadId,
+    defaultPriority,
+    defaultStudentId,
+    defaultTitle,
+    defaultType,
+  ]);
+
+  const [form, setForm] = useState<TaskFormData>(initialForm);
+
+  useEffect(() => {
+    if (open) setForm(initialForm);
+  }, [initialForm, open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +78,7 @@ export function TaskFormDialog({ open, onOpenChange, defaultLeadId }: Props) {
       onSuccess: () => {
         onOpenChange(false);
         setForm({ tipo: "ligar", assignee_id: "", titulo: "", prioridade: "media" });
+        onCreated?.();
       },
     });
   };

@@ -48,6 +48,7 @@ export interface ChurnAlertStudent {
 export interface ChurnAlertTrainer {
   id: string;
   full_name: string;
+  profile_id: string | null;
 }
 
 export interface ChurnAlert {
@@ -83,7 +84,7 @@ export interface ChurnAlert {
 const SELECT = `
   *,
   student:students!churn_alerts_student_id_fkey(id, full_name, email, phone),
-  trainer:trainers!churn_alerts_trainer_id_fkey(id, full_name)
+  trainer:trainers!churn_alerts_trainer_id_fkey(id, full_name, profile_id)
 ` as const;
 
 export interface ChurnAlertFilters {

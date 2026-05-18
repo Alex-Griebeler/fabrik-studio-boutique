@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Clock,
   Filter,
+  ListTodo,
   TrendingDown,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -46,6 +47,7 @@ import {
   type ChurnConfidence,
 } from "@/hooks/useChurnAlerts";
 import { useTrainers } from "@/hooks/useTrainers";
+import { TaskFormDialog } from "@/components/tasks/TaskFormDialog";
 
 // ─────────── Formatters ───────────
 
@@ -95,6 +97,7 @@ export default function ChurnAlerts() {
   >("all");
   const [modeFilter, setModeFilter] = useState<ChurnAlertMode | "all">("all");
   const [trainerFilter, setTrainerFilter] = useState<string>("all");
+  const [taskAlert, setTaskAlert] = useState<ChurnAlert | null>(null);
 
   // Fetch único (todos os status). Filtros aplicados client-side pra
   // os summary cards refletirem o universo completo e a tabela
@@ -275,6 +278,7 @@ export default function ChurnAlerts() {
                 onAck={(id) => ack.mutate(id)}
                 onResolve={(id) => resolveMut.mutate(id)}
                 onSuppress={handleSuppress}
+                onCreateTask={setTaskAlert}
                 ackPending={ack.isPending}
                 resolvePending={resolveMut.isPending}
                 suppressPending={suppress.isPending}
@@ -292,6 +296,35 @@ export default function ChurnAlerts() {
           </Tabs>
         </CardContent>
       </Card>
+
+      <TaskFormDialog
+        open={!!taskAlert}
+        onOpenChange={(open) => {
+          if (!open) setTaskAlert(null);
+        }}
+        defaultStudentId={taskAlert?.student_id}
+        defaultChurnAlertId={taskAlert?.id}
+        defaultAssigneeId={taskAlert?.trainer?.profile_id ?? null}
+        defaultType="ligar"
+        defaultPriority={taskAlert?.drop_pct && taskAlert.drop_pct >= 0.7 ? "alta" : "media"}
+        defaultTitle={
+          taskAlert?.student?.full_name
+            ? `Contato de retenção — ${taskAlert.student.full_name}`
+            : "Contato de retenção"
+        }
+        defaultDescription={
+          taskAlert
+            ? [
+                "Alerta de churn gerado em modo shadow.",
+                `Queda de frequência: ${fmtPct(taskAlert.drop_pct)}.`,
+                `Média recente: ${fmtAvg(taskAlert.recent_weekly_avg)}; baseline: ${fmtAvg(taskAlert.baseline_weekly_avg)}.`,
+                `Janela analisada: ${fmtShort(taskAlert.data_start)} a ${fmtShort(taskAlert.data_end)}.`,
+                `Confidence: ${churnConfidenceLabels[taskAlert.confidence]}.`,
+              ].join("\n")
+            : undefined
+        }
+        onCreated={() => setTaskAlert(null)}
+      />
     </div>
   );
 }
@@ -337,6 +370,7 @@ interface ChurnTableProps {
   onAck?: (id: string) => void;
   onResolve?: (id: string) => void;
   onSuppress?: (id: string) => void;
+  onCreateTask?: (alert: ChurnAlert) => void;
   ackPending?: boolean;
   resolvePending?: boolean;
   suppressPending?: boolean;
@@ -350,6 +384,7 @@ function ChurnTable({
   onAck,
   onResolve,
   onSuppress,
+  onCreateTask,
   ackPending,
   resolvePending,
   suppressPending,
@@ -392,7 +427,7 @@ function ChurnTable({
             <TableHead>Semanas</TableHead>
             <TableHead>Janela</TableHead>
             <TableHead>Detectado</TableHead>
-            {showActions && <TableHead className="w-[220px] text-right">Ações</TableHead>}
+            {showActions && <TableHead className="w-[310px] text-right">Ações</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -466,6 +501,17 @@ function ChurnTable({
               {showActions && (
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5 text-xs"
+                      disabled={anyPending}
+                      onClick={() => onCreateTask?.(a)}
+                      title="Criar tarefa manual de retenção"
+                    >
+                      <ListTodo className="h-3.5 w-3.5" />
+                      Tarefa
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
