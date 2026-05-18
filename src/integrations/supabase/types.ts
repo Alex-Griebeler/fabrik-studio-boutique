@@ -135,8 +135,16 @@ export type Database = {
           escalated_at: string | null
           escalated_to_trainer_id: string | null
           escalation_message_sid: string | null
+          escalation_provider_checked_at: string | null
+          escalation_provider_error_code: string | null
+          escalation_provider_error_message: string | null
+          escalation_provider_status: string | null
           id: string
           last_attended_at: string | null
+          message_provider_checked_at: string | null
+          message_provider_error_code: string | null
+          message_provider_error_message: string | null
+          message_provider_status: string | null
           message_sid: string | null
           message_to: string | null
           missed_booking_ids: string[]
@@ -163,8 +171,16 @@ export type Database = {
           escalated_at?: string | null
           escalated_to_trainer_id?: string | null
           escalation_message_sid?: string | null
+          escalation_provider_checked_at?: string | null
+          escalation_provider_error_code?: string | null
+          escalation_provider_error_message?: string | null
+          escalation_provider_status?: string | null
           id?: string
           last_attended_at?: string | null
+          message_provider_checked_at?: string | null
+          message_provider_error_code?: string | null
+          message_provider_error_message?: string | null
+          message_provider_status?: string | null
           message_sid?: string | null
           message_to?: string | null
           missed_booking_ids?: string[]
@@ -191,8 +207,16 @@ export type Database = {
           escalated_at?: string | null
           escalated_to_trainer_id?: string | null
           escalation_message_sid?: string | null
+          escalation_provider_checked_at?: string | null
+          escalation_provider_error_code?: string | null
+          escalation_provider_error_message?: string | null
+          escalation_provider_status?: string | null
           id?: string
           last_attended_at?: string | null
+          message_provider_checked_at?: string | null
+          message_provider_error_code?: string | null
+          message_provider_error_message?: string | null
+          message_provider_status?: string | null
           message_sid?: string | null
           message_to?: string | null
           missed_booking_ids?: string[]
