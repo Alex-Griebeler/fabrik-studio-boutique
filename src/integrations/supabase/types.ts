@@ -2739,6 +2739,7 @@ export type Database = {
       tasks: {
         Row: {
           assignee_id: string
+          churn_alert_id: string | null
           created_at: string
           data_conclusao: string | null
           data_prevista: string | null
@@ -2755,6 +2756,7 @@ export type Database = {
         }
         Insert: {
           assignee_id: string
+          churn_alert_id?: string | null
           created_at?: string
           data_conclusao?: string | null
           data_prevista?: string | null
@@ -2771,6 +2773,7 @@ export type Database = {
         }
         Update: {
           assignee_id?: string
+          churn_alert_id?: string | null
           created_at?: string
           data_conclusao?: string | null
           data_prevista?: string | null
@@ -2791,6 +2794,13 @@ export type Database = {
             columns: ["assignee_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_churn_alert_id_fkey"
+            columns: ["churn_alert_id"]
+            isOneToOne: false
+            referencedRelation: "churn_alerts"
             referencedColumns: ["id"]
           },
           {
