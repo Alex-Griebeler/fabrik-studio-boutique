@@ -7,12 +7,14 @@ import {
   type AlertType,
   type RiskAlert,
 } from "../_shared/attendance/detection.ts";
-import {
-  buildTrainerAlertMessage,
-  type AlertMessageContext,
-} from "../_shared/attendance/messaging.ts";
 import { newAlertInitialState } from "../_shared/attendance/escalation.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import {
+  buildTrainerAlertBody,
+  currentWhatsappProvider,
+  type TrainerAlertData,
+  type WhatsappSendBody,
+} from "../_shared/whatsapp/attendanceTemplates.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -134,6 +136,13 @@ Deno.serve(async (req) => {
     const policies = await loadPolicies(supabase);
     const effectiveMode = body.forceMode ?? policies.mode;
 
+    // Provider de WhatsApp pra essa rodada inteira. Default `twilio`
+    // (zero diff vs comportamento atual em produção). Lê uma vez aqui
+    // pra coerência entre o ping principal e o `sendPendingAlerts`.
+    const provider = currentWhatsappProvider(
+      Deno.env.get("WHATSAPP_PROVIDER") ?? undefined,
+    );
+
     // Janela de envio: se fora, ainda detectamos e gravamos, mas não disparamos.
     const nowInTz = nowInTimezone(policies.timezone);
     const inSendWindow = isWithinSendWindow(nowInTz, {
@@ -169,6 +178,7 @@ Deno.serve(async (req) => {
           supabaseUrl,
           serviceKey,
           policies,
+          provider,
         });
         summary.unnotified_candidates = pending.candidates;
         summary.unnotified_sent = pending.sent;
@@ -253,16 +263,6 @@ Deno.serve(async (req) => {
         const ackToken = generateAckToken();
         const ackUrl = `${ackBaseUrl}?token=${ackToken}`;
 
-        const msgCtx: AlertMessageContext = {
-          studentName: student.full_name,
-          planLabel: formatPlanLabel(planSnapshot),
-          lastAttendedAt: alert.lastAttendedAt,
-          missedDates: alert.missedDates,
-          ackUrl,
-          alertType: alert.alertType,
-        };
-        const messageBody = buildTrainerAlertMessage(msgCtx);
-
         if (body.dryRun) {
           summary.created++;
           continue;
@@ -324,11 +324,22 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        const trainerAlertData: TrainerAlertData = {
+          to: targetPhone,
+          ackToken,
+          ackUrl,
+          studentName: student.full_name,
+          planLabel: formatPlanLabel(planSnapshot),
+          lastAttendedAt: alert.lastAttendedAt,
+          missedDates: alert.missedDates,
+          alertType: alert.alertType,
+        };
+        const sendBody = buildTrainerAlertBody(trainerAlertData, provider);
+
         const sendResult = await sendWhatsapp(
           supabaseUrl,
           serviceKey,
-          targetPhone,
-          messageBody,
+          sendBody,
         );
 
         await supabase
@@ -362,8 +373,9 @@ async function sendPendingAlerts(args: {
   supabaseUrl: string;
   serviceKey: string;
   policies: AgentPolicies;
+  provider: "twilio" | "meta";
 }): Promise<{ candidates: number; sent: number; errors: string[] }> {
-  const { supabase, supabaseUrl, serviceKey, policies } = args;
+  const { supabase, supabaseUrl, serviceKey, policies, provider } = args;
   const { data, error } = await supabase
     .from("attendance_alerts")
     .select(
@@ -404,20 +416,22 @@ async function sendPendingAlerts(args: {
       }
 
       const ackUrl = `${ackBaseUrl}?token=${row.ack_token}`;
-      const messageBody = buildTrainerAlertMessage({
+      const trainerAlertData: TrainerAlertData = {
+        to: targetPhone,
+        ackToken: row.ack_token,
+        ackUrl,
         studentName: row.student?.full_name ?? "Aluno",
         planLabel: formatPlanLabel(row.plan_snapshot),
         lastAttendedAt: row.last_attended_at,
         missedDates: row.missed_dates,
-        ackUrl,
         alertType: row.alert_type,
-      });
+      };
+      const sendBody = buildTrainerAlertBody(trainerAlertData, provider);
 
       const sendResult = await sendWhatsapp(
         supabaseUrl,
         serviceKey,
-        targetPhone,
-        messageBody,
+        sendBody,
       );
 
       const { error: updateErr } = await supabase
@@ -687,11 +701,15 @@ function formatPlanLabel(plan: PlanSnapshot | null): string {
   return plan.plan_name;
 }
 
+/**
+ * Chama `send-whatsapp` passando o body completo já moldado pelo
+ * provider escolhido (Twilio `{to,message}` ou Meta
+ * `{to,template:{...}}`). `send-whatsapp` despacha pro adapter certo.
+ */
 async function sendWhatsapp(
   supabaseUrl: string,
   serviceKey: string,
-  to: string,
-  message: string,
+  body: WhatsappSendBody,
 ): Promise<{ sid: string | null }> {
   const res = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
     method: "POST",
@@ -699,7 +717,7 @@ async function sendWhatsapp(
       "Content-Type": "application/json",
       Authorization: `Bearer ${serviceKey}`,
     },
-    body: JSON.stringify({ to, message }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();

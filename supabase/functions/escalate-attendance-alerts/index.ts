@@ -1,11 +1,13 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isWithinSendWindow } from "../_shared/attendance/detection.ts";
-import {
-  buildEscalationMessage,
-  type EscalationMessageContext,
-} from "../_shared/attendance/messaging.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 import { shouldEscalate } from "../_shared/attendance/escalation.ts";
+import {
+  buildEscalationBody,
+  currentWhatsappProvider,
+  type EscalationData,
+  type WhatsappSendBody,
+} from "../_shared/whatsapp/attendanceTemplates.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -125,23 +127,17 @@ Deno.serve(async (req) => {
 
     const ackBaseUrl = `${supabaseUrl}/functions/v1/acknowledge-attendance-alert`;
 
+    // Provider escolhido pra TODA a rodada — lê WHATSAPP_PROVIDER 1x
+    // pra coerência e debugging. Default `twilio` (zero diff vs hoje).
+    const provider = currentWhatsappProvider(
+      Deno.env.get("WHATSAPP_PROVIDER") ?? undefined,
+    );
+
     for (const a of eligibleAlerts) {
       try {
         const ackUrl = `${ackBaseUrl}?token=${a.ack_token}`;
         const planLabel = formatPlanLabel(a.plan_snapshot);
         const trainerName = a.trainer?.full_name ?? "treinador";
-
-        const ctx: EscalationMessageContext = {
-          studentName: a.student?.full_name ?? "aluno",
-          planLabel,
-          lastAttendedAt: a.last_attended_at,
-          missedDates: a.missed_dates,
-          ackUrl,
-          alertType: "group_2_misses",
-          trainerName,
-          hoursOpen: policies.escalationHours,
-        };
-        const message = buildEscalationMessage(ctx);
 
         // Destino: shadow_phone em modo shadow, fallback.phone em modo live
         const targetPhone =
@@ -154,7 +150,21 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const sent = await sendWhatsapp(supabaseUrl, serviceKey, targetPhone, message);
+        const escalationData: EscalationData = {
+          to: targetPhone,
+          ackToken: a.ack_token,
+          ackUrl,
+          studentName: a.student?.full_name ?? "aluno",
+          planLabel,
+          lastAttendedAt: a.last_attended_at,
+          missedDates: a.missed_dates,
+          alertType: "group_2_misses",
+          trainerName,
+          hoursOpen: policies.escalationHours,
+        };
+        const body = buildEscalationBody(escalationData, provider);
+
+        const sent = await sendWhatsapp(supabaseUrl, serviceKey, body);
 
         const { error: updErr } = await supabase
           .from("attendance_alerts")
@@ -233,11 +243,16 @@ function formatPlanLabel(
   return plan.plan_name;
 }
 
+/**
+ * Chama `send-whatsapp` passando o body completo. `send-whatsapp`
+ * aceita o legado `{to,message}` (Twilio) e o novo
+ * `{to,template:{...}}` (Meta) — quem decide é
+ * `buildEscalationBody` baseado em `WHATSAPP_PROVIDER`.
+ */
 async function sendWhatsapp(
   supabaseUrl: string,
   serviceKey: string,
-  to: string,
-  message: string,
+  body: WhatsappSendBody,
 ): Promise<{ sid: string | null }> {
   const res = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
     method: "POST",
@@ -245,7 +260,7 @@ async function sendWhatsapp(
       "Content-Type": "application/json",
       Authorization: `Bearer ${serviceKey}`,
     },
-    body: JSON.stringify({ to, message }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();
