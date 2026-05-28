@@ -1,11 +1,35 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { requireStaffRole } from "../_shared/requireStaffRole.ts";
+import {
+  buildAdapter,
+  parseOutgoing,
+  WhatsappBodyError,
+  type FactoryEnv,
+} from "../_shared/whatsapp/factory.ts";
 
-// Auth: service_role bearer (chamadas internas — outras edge
-// functions, cron) OU usuário autenticado com role em
-// (admin, manager, reception). Aluno autenticado NÃO pode disparar
-// mensagem via essa function — fluxo antigo aceitava qualquer JWT
-// válido sem checar role.
+// Edge function `send-whatsapp` — fina por design.
+//
+// Quem decide qual provider usar é o factory (`_shared/whatsapp`),
+// baseado na env `WHATSAPP_PROVIDER`. Default `twilio`, preservando
+// 100% o comportamento original (Twilio sandbox + free-form). Meta
+// Cloud API está disponível como opção (`WHATSAPP_PROVIDER=meta`) mas
+// inativo até o cutover.
+//
+// Contrato de body (backward compatible):
+//   - Legado: `{to, message}` — vira freeform. Twilio aceita; Meta
+//     rejeita (precisa template).
+//   - Novo:   `{to, template: {name, language, components?}}` — vira
+//     template. Meta aceita; Twilio rejeita.
+//
+// Contrato de resposta (preservado pra callers existentes):
+//   - 200: `{success: true, sid, status, provider}` (provider novo,
+//          callers antigos ignoram)
+//   - 400: `{error: "..."}` — body inválido
+//   - 401/403: vindos do `requireStaffRole`
+//   - 500: `{error: "..."}` — falha do provider ou interna
+//
+// Auth: service_role bearer (chamadas internas) OU usuário com role
+// em (admin, manager, reception).
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,66 +50,76 @@ serve(async (req) => {
     });
     if (auth instanceof Response) return auth;
 
-    const { to, message } = await req.json();
+    const rawBody = await req.json().catch(() => null);
 
-    if (!to || !message) {
-      return new Response(
-        JSON.stringify({ error: "Campos 'to' e 'message' são obrigatórios" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Parse + validação do body
+    let outgoing;
+    try {
+      outgoing = parseOutgoing(rawBody);
+    } catch (err) {
+      if (err instanceof WhatsappBodyError) {
+        return jsonError(400, err.message);
+      }
+      throw err;
     }
 
-    const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
-    const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
-    const fromNumber = Deno.env.get("TWILIO_WHATSAPP_SANDBOX_NUMBER");
-
-    if (!accountSid || !authToken || !fromNumber) {
-      return new Response(
-        JSON.stringify({ error: "Credenciais Twilio não configuradas" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Construção do adapter (lê env do Deno via FactoryEnv).
+    // Erro de config → 500 (problema do operador, não do caller).
+    let adapter;
+    try {
+      adapter = buildAdapter(readFactoryEnv());
+    } catch (err) {
+      console.error("send-whatsapp: factory error:", (err as Error).message);
+      return jsonError(500, "Credenciais do provider WhatsApp não configuradas");
     }
 
-    const cleanFrom = fromNumber.trim().replace(/^whatsapp:/, "");
-    const toWhatsApp = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
-    const fromWhatsApp = `whatsapp:${cleanFrom}`;
-
-    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-
-    const body = new URLSearchParams({
-      To: toWhatsApp,
-      From: fromWhatsApp,
-      Body: message,
-    });
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: "Basic " + btoa(`${accountSid}:${authToken}`),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("Twilio error:", data);
-      return new Response(
-        JSON.stringify({ error: "Erro ao enviar mensagem", code: data?.code ?? null }),
-        { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    try {
+      const result = await adapter.send(outgoing);
+      return jsonOk({
+        success: true,
+        sid: result.sid,
+        status: result.status,
+        provider: adapter.provider,
+      });
+    } catch (err) {
+      const message = (err as Error).message ?? String(err);
+      console.error(`send-whatsapp [${adapter.provider}] send error:`, message);
+      // Mantém status 500 pra erros do provider; caller decide reagir.
+      // Em vez do body antigo `{error, code}`, padronizamos `{error}` —
+      // `code` Twilio agora vem dentro da string de error (parseável se
+      // alguém precisar mas não quebra contrato JSON).
+      return jsonError(500, `Erro ao enviar mensagem: ${message.slice(0, 200)}`);
     }
-
-    return new Response(
-      JSON.stringify({ success: true, sid: data.sid, status: data.status }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
   } catch (error) {
     console.error("send-whatsapp fatal:", (error as Error).message);
-    return new Response(
-      JSON.stringify({ error: "Erro interno" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return jsonError(500, "Erro interno");
   }
 });
+
+function readFactoryEnv(): FactoryEnv {
+  return {
+    WHATSAPP_PROVIDER: Deno.env.get("WHATSAPP_PROVIDER") ?? undefined,
+    TWILIO_ACCOUNT_SID: Deno.env.get("TWILIO_ACCOUNT_SID") ?? undefined,
+    TWILIO_AUTH_TOKEN: Deno.env.get("TWILIO_AUTH_TOKEN") ?? undefined,
+    TWILIO_WHATSAPP_SANDBOX_NUMBER:
+      Deno.env.get("TWILIO_WHATSAPP_SANDBOX_NUMBER") ?? undefined,
+    META_WA_PHONE_NUMBER_ID:
+      Deno.env.get("META_WA_PHONE_NUMBER_ID") ?? undefined,
+    META_WA_ACCESS_TOKEN: Deno.env.get("META_WA_ACCESS_TOKEN") ?? undefined,
+    META_WA_API_VERSION: Deno.env.get("META_WA_API_VERSION") ?? undefined,
+  };
+}
+
+function jsonOk(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function jsonError(status: number, message: string): Response {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
