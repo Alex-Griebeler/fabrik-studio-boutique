@@ -17,6 +17,7 @@
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { normalizeTwilioMessageStatus } from "../_shared/attendance/twilio-status.ts";
+import { providerForSid } from "../_shared/whatsapp/provider.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -53,20 +54,6 @@ interface RefreshResult {
   provider_error_message: string | null;
   would_update: boolean;
   note?: string;
-}
-
-/**
- * Decide o provider efetivo de um SID: usa a coluna se preenchida;
- * senão infere por prefixo (`wamid.` = Meta, resto = Twilio). Mantém
- * compat com linhas antigas onde a coluna provider ainda é null.
- */
-function providerForSid(
-  column: string | null,
-  sid: string,
-): "twilio" | "meta" {
-  if (column === "meta") return "meta";
-  if (column === "twilio") return "twilio";
-  return sid.startsWith("wamid.") ? "meta" : "twilio";
 }
 
 interface RefreshSummary {
@@ -134,16 +121,36 @@ Deno.serve(async (req) => {
     const dryRun = body.dryRun !== undefined ? !!body.dryRun : true;
     const limit = clamp(body.limit ?? DEFAULT_LIMIT, 1, MAX_LIMIT);
 
-    // Twilio env
+    // Carrega alertas alvo PRIMEIRO. Twilio só é exigido se de fato
+    // houver algum SID Twilio na leva — assim, num cenário 100% Meta
+    // (pós-cutover, Twilio removido), o refresh não falha por env
+    // ausente. Status Meta chega via webhook (`receive-whatsapp-meta`),
+    // não por pull aqui.
+    const alerts = await loadAlerts(supabase, body.alertId, limit);
+
+    // Twilio env — lazy: só valida se existir item Twilio de verdade.
+    const hasTwilioItem = alerts.some(
+      (row) =>
+        (row.message_sid &&
+          providerForSid(row.message_provider, row.message_sid) === "twilio") ||
+        (row.escalation_message_sid &&
+          providerForSid(
+            row.escalation_provider,
+            row.escalation_message_sid,
+          ) === "twilio"),
+    );
+
     const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
     const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
-    if (!accountSid || !authToken) {
+    if (hasTwilioItem && (!accountSid || !authToken)) {
       return jsonError(500, "Twilio env not configured");
     }
-    const twilioAuth = "Basic " + btoa(`${accountSid}:${authToken}`);
-
-    // Carrega alertas alvo
-    const alerts = await loadAlerts(supabase, body.alertId, limit);
+    // `undefined` quando não há Twilio configurado/necessário —
+    // `refreshOne` só usa isso no ramo provider==="twilio".
+    const twilioAuth =
+      accountSid && authToken
+        ? "Basic " + btoa(`${accountSid}:${authToken}`)
+        : undefined;
 
     const summary: RefreshSummary = {
       dry_run: dryRun,
@@ -223,8 +230,10 @@ async function loadAlerts(
 
 interface RefreshArgs {
   supabase: SupabaseClient;
-  accountSid: string;
-  twilioAuth: string;
+  /** undefined quando não há Twilio configurado (cenário 100% Meta). */
+  accountSid?: string;
+  /** undefined quando não há Twilio configurado. */
+  twilioAuth?: string;
   alertId: string;
   kind: RefreshKind;
   sid: string;
@@ -263,6 +272,15 @@ async function refreshOne(args: RefreshArgs): Promise<RefreshResult | null> {
       would_update: false,
       note: "meta_status_via_webhook",
     };
+  }
+
+  // Twilio: precisa de env. Se faltar (item Twilio mas sem credencial),
+  // registra erro por item e segue — não derruba o lote.
+  if (!accountSid || !twilioAuth) {
+    summary.errors.push(
+      `alert ${alertId} (${kind}) sid ${sid}: twilio env ausente`,
+    );
+    return null;
   }
 
   let payload: unknown;
