@@ -37,6 +37,8 @@ interface AlertRow {
   id: string;
   message_sid: string | null;
   escalation_message_sid: string | null;
+  message_provider: string | null;
+  escalation_provider: string | null;
 }
 
 type RefreshKind = "message" | "escalation";
@@ -45,10 +47,26 @@ interface RefreshResult {
   alert_id: string;
   kind: RefreshKind;
   sid: string;
+  provider: string;
   provider_status: string | null;
   provider_error_code: string | null;
   provider_error_message: string | null;
   would_update: boolean;
+  note?: string;
+}
+
+/**
+ * Decide o provider efetivo de um SID: usa a coluna se preenchida;
+ * senão infere por prefixo (`wamid.` = Meta, resto = Twilio). Mantém
+ * compat com linhas antigas onde a coluna provider ainda é null.
+ */
+function providerForSid(
+  column: string | null,
+  sid: string,
+): "twilio" | "meta" {
+  if (column === "meta") return "meta";
+  if (column === "twilio") return "twilio";
+  return sid.startsWith("wamid.") ? "meta" : "twilio";
 }
 
 interface RefreshSummary {
@@ -145,6 +163,7 @@ Deno.serve(async (req) => {
           alertId: row.id,
           kind: "message",
           sid: row.message_sid,
+          provider: providerForSid(row.message_provider, row.message_sid),
           dryRun,
           summary,
         });
@@ -159,6 +178,10 @@ Deno.serve(async (req) => {
           alertId: row.id,
           kind: "escalation",
           sid: row.escalation_message_sid,
+          provider: providerForSid(
+            row.escalation_provider,
+            row.escalation_message_sid,
+          ),
           dryRun,
           summary,
         });
@@ -181,7 +204,7 @@ async function loadAlerts(
   if (alertId) {
     const { data, error } = await supabase
       .from("attendance_alerts")
-      .select("id, message_sid, escalation_message_sid")
+      .select("id, message_sid, escalation_message_sid, message_provider, escalation_provider")
       .eq("id", alertId)
       .maybeSingle();
     if (error) throw new Error(`load alert ${alertId}: ${error.message}`);
@@ -190,7 +213,7 @@ async function loadAlerts(
   }
   const { data, error } = await supabase
     .from("attendance_alerts")
-    .select("id, message_sid, escalation_message_sid")
+    .select("id, message_sid, escalation_message_sid, message_provider, escalation_provider")
     .or("message_sid.not.is.null,escalation_message_sid.not.is.null")
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -205,13 +228,42 @@ interface RefreshArgs {
   alertId: string;
   kind: RefreshKind;
   sid: string;
+  provider: "twilio" | "meta";
   dryRun: boolean;
   summary: RefreshSummary;
 }
 
 async function refreshOne(args: RefreshArgs): Promise<RefreshResult | null> {
-  const { supabase, accountSid, twilioAuth, alertId, kind, sid, dryRun, summary } = args;
+  const { supabase, accountSid, twilioAuth, alertId, kind, sid, provider, dryRun, summary } = args;
   summary.checked++;
+
+  // Meta: status chega via webhook push (`receive-whatsapp-meta`), não
+  // por pull. NÃO consultamos Twilio nem Graph API aqui — só reportamos
+  // o que já está gravado, sem marcar erro.
+  if (provider === "meta") {
+    const { data: row } = await supabase
+      .from("attendance_alerts")
+      .select(
+        kind === "message"
+          ? "message_provider_status, message_provider_error_code, message_provider_error_message"
+          : "escalation_provider_status, escalation_provider_error_code, escalation_provider_error_message",
+      )
+      .eq("id", alertId)
+      .maybeSingle();
+    const r = (row ?? {}) as Record<string, string | null>;
+    const prefix = kind === "message" ? "message" : "escalation";
+    return {
+      alert_id: alertId,
+      kind,
+      sid,
+      provider: "meta",
+      provider_status: r[`${prefix}_provider_status`] ?? null,
+      provider_error_code: r[`${prefix}_provider_error_code`] ?? null,
+      provider_error_message: r[`${prefix}_provider_error_message`] ?? null,
+      would_update: false,
+      note: "meta_status_via_webhook",
+    };
+  }
 
   let payload: unknown;
   try {
@@ -272,6 +324,7 @@ async function refreshOne(args: RefreshArgs): Promise<RefreshResult | null> {
     alert_id: alertId,
     kind,
     sid,
+    provider: "twilio",
     provider_status: normalized.status,
     provider_error_code: normalized.errorCode,
     provider_error_message: normalized.errorMessage,

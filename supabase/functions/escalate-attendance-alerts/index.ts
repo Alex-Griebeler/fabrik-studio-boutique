@@ -173,6 +173,7 @@ Deno.serve(async (req) => {
             escalated_at: new Date().toISOString(),
             escalated_to_trainer_id: fallbackTrainer.id,
             escalation_message_sid: sent.sid,
+            escalation_provider: sent.provider ?? provider,
           })
           .eq("id", a.id);
         if (updErr) {
@@ -253,7 +254,7 @@ async function sendWhatsapp(
   supabaseUrl: string,
   serviceKey: string,
   body: WhatsappSendBody,
-): Promise<{ sid: string | null }> {
+): Promise<{ sid: string | null; provider: string | null }> {
   const res = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
     method: "POST",
     headers: {
@@ -269,8 +270,12 @@ async function sendWhatsapp(
   const json = (await res.json().catch(() => ({}))) as {
     sid?: string;
     messageSid?: string;
+    provider?: string;
   };
-  return { sid: json.sid ?? json.messageSid ?? null };
+  return {
+    sid: json.sid ?? json.messageSid ?? null,
+    provider: json.provider ?? null,
+  };
 }
 
 function nowInTimezone(timezone: string): Date {

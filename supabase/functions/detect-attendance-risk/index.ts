@@ -348,6 +348,7 @@ Deno.serve(async (req) => {
             notified_at: new Date().toISOString(),
             message_sid: sendResult.sid,
             message_to: targetPhone,
+            message_provider: sendResult.provider ?? provider,
           })
           .eq("id", inserted.id);
 
@@ -440,6 +441,7 @@ async function sendPendingAlerts(args: {
           notified_at: new Date().toISOString(),
           message_sid: sendResult.sid,
           message_to: targetPhone,
+          message_provider: sendResult.provider ?? provider,
         })
         .eq("id", row.id)
         .is("notified_at", null);
@@ -710,7 +712,7 @@ async function sendWhatsapp(
   supabaseUrl: string,
   serviceKey: string,
   body: WhatsappSendBody,
-): Promise<{ sid: string | null }> {
+): Promise<{ sid: string | null; provider: string | null }> {
   const res = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
     method: "POST",
     headers: {
@@ -726,8 +728,12 @@ async function sendWhatsapp(
   const json = (await res.json().catch(() => ({}))) as {
     sid?: string;
     messageSid?: string;
+    provider?: string;
   };
-  return { sid: json.sid ?? json.messageSid ?? null };
+  return {
+    sid: json.sid ?? json.messageSid ?? null,
+    provider: json.provider ?? null,
+  };
 }
 
 function generateAckToken(): string {
