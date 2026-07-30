@@ -1,6 +1,31 @@
 -- P0-1: contain privileged SECURITY DEFINER RPCs and replace the public
 -- lead-id-only anamnese flow with expiring, single-use links.
 
+DO $$
+DECLARE
+  v_pgcrypto_schema text;
+BEGIN
+  SELECT n.nspname
+  INTO v_pgcrypto_schema
+  FROM pg_catalog.pg_extension e
+  JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
+  WHERE e.extname = 'pgcrypto';
+
+  IF v_pgcrypto_schema IS DISTINCT FROM 'extensions' THEN
+    RAISE EXCEPTION
+      'P0-1 preflight failed: pgcrypto must be installed in schema extensions (found: %)',
+      COALESCE(v_pgcrypto_schema, 'not installed')
+      USING ERRCODE = '55000';
+  END IF;
+
+  IF pg_catalog.to_regclass('public.anamnese_link_tokens') IS NOT NULL THEN
+    RAISE EXCEPTION
+      'P0-1 preflight failed: public.anamnese_link_tokens already exists; reconcile partial/manual deployment first'
+      USING ERRCODE = '55000';
+  END IF;
+END;
+$$;
+
 CREATE TABLE public.anamnese_link_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   lead_id uuid NOT NULL REFERENCES public.leads(id) ON DELETE CASCADE,
@@ -87,7 +112,7 @@ GRANT EXECUTE ON FUNCTION public.issue_anamnese_link(uuid, interval)
   TO authenticated;
 
 -- Drop the vulnerable overload before creating the token-bound replacement.
-DROP FUNCTION public.update_lead_anamnese(uuid, jsonb, text, text, text);
+DROP FUNCTION IF EXISTS public.update_lead_anamnese(uuid, jsonb, text, text, text);
 
 CREATE FUNCTION public.update_lead_anamnese(
   p_lead_id uuid,
@@ -229,7 +254,7 @@ REVOKE ALL ON FUNCTION public.update_lead_anamnese(
 ) FROM PUBLIC, authenticated;
 GRANT EXECUTE ON FUNCTION public.update_lead_anamnese(
   uuid, text, jsonb, text, text, text
-) TO anon;
+) TO anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.mark_overdue_invoices()
 RETURNS void

@@ -49,17 +49,34 @@ DML. Isso evita depender da autorização do frontend.
 
 ## Validação obrigatória antes do merge
 
-1. Aplicar a migration em clone/staging compatível com produção.
-2. Executar `supabase test db`.
-3. Repetir a matriz de autorização acima com usuários reais de teste.
-4. Confirmar que:
+1. Executar o preflight read-only no ambiente alvo:
+
+   ```sql
+   SELECT e.extname, n.nspname AS schema
+   FROM pg_extension e
+   JOIN pg_namespace n ON n.oid = e.extnamespace
+   WHERE e.extname = 'pgcrypto';
+
+   SELECT to_regclass('public.anamnese_link_tokens') AS token_table;
+   SELECT to_regprocedure(
+     'public.update_lead_anamnese(uuid,jsonb,text,text,text)'
+   ) AS old_anamnese_overload;
+   ```
+
+   O schema de `pgcrypto` deve ser `extensions` e a tabela deve ser nula. A
+   migration também verifica essas duas pré-condições e aborta com erro
+   explícito se houver mismatch.
+2. Aplicar a migration em clone/staging compatível com produção.
+3. Executar `supabase test db` (30 asserts).
+4. Repetir a matriz de autorização acima com usuários reais de teste.
+5. Confirmar que:
    - o overload antigo
      `update_lead_anamnese(uuid,jsonb,text,text,text)` não existe;
    - nenhum papel possui `SELECT` em `anamnese_link_tokens`;
    - link correto atualiza somente o lead vinculado;
    - segunda submissão, token errado, expirado ou bloqueado falham;
    - gerar um segundo link invalida o primeiro.
-5. Executar `npm run test`, `npm run build` e lint dos arquivos alterados.
+6. Executar `npm run test`, `npm run build` e lint dos arquivos alterados.
 
 ## Rollback
 
