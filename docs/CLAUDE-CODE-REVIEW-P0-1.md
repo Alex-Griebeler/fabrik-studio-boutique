@@ -114,3 +114,23 @@ Riscos baixos restantes:
 
 Produção continua bloqueada até pgTAP e matriz PostgREST verdes em staging,
 preflight read-only no alvo e plano de reemissão dos links antigos.
+
+# Preflight read-only no ambiente alvo
+
+Executado em 2026-07-30 pelo SQL editor do Lovable Cloud, sem DDL, DML ou
+invocação de RPC. Resultado observado:
+
+| Verificação | Resultado |
+|---|---|
+| `pgcrypto` | versão `1.3`, schema `extensions` |
+| `public.anamnese_link_tokens` | ausente (`NULL`) |
+| overload antigo de `update_lead_anamnese` | presente |
+| `public.has_role(uuid, app_role)` | presente |
+| views dependentes do overload antigo | `0` |
+| crons com chamada textual direta a KPI/vencimentos | `0` |
+| colunas requeridas em `public.leads` | `5/5` |
+
+O ambiente alvo satisfaz as pré-condições estáticas da migration. Isso remove o
+gap de preflight, mas **não muda o veredito para produção**: ainda faltam
+aplicação em staging compatível, os 30 asserts pgTAP, a matriz PostgREST com
+usuários reais de teste e o plano de reemissão de links antigos.

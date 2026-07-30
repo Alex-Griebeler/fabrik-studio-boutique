@@ -78,6 +78,17 @@ DML. Isso evita depender da autorização do frontend.
    - gerar um segundo link invalida o primeiro.
 6. Executar `npm run test`, `npm run build` e lint dos arquivos alterados.
 
+### Evidência do preflight no alvo
+
+Em 2026-07-30, o preflight foi executado no SQL editor do Lovable Cloud apenas
+com `SELECT`. O ambiente retornou `pgcrypto` `1.3` no schema `extensions`,
+tabela `anamnese_link_tokens` ausente, overload antigo e `has_role` presentes,
+zero views dependentes, zero chamadas textuais diretas nos crons auditados e as
+cinco colunas requeridas em `public.leads`.
+
+Este resultado autoriza somente avançar para staging. Ele não substitui os
+testes pgTAP, a matriz PostgREST nem autoriza aplicação em produção.
+
 ## Rollback
 
 Não restaurar a RPC antiga em produção: isso reabre o P0 crítico.
