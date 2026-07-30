@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Link2Off, Loader2 } from "lucide-react";
 import logoFabrik from "@/assets/logo-fabrik.png";
 
 type FormData = {
@@ -195,9 +195,18 @@ export default function Anamnese() {
   const { leadId } = useParams<{ leadId: string }>();
   const [searchParams] = useSearchParams();
   const leadName = searchParams.get("nome") || "";
+  const [token] = useState(
+    () => new URLSearchParams(window.location.hash.slice(1)).get("token") || "",
+  );
   const [form, setForm] = useState<FormData>({ ...initialForm, nome: leadName });
   const [step, setStep] = useState(0); // 0=form, 1=submitting, 2=done
   const [errors, setErrors] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (token && window.location.hash) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+  }, [token]);
 
   const update = <K extends keyof FormData>(key: K, value: FormData[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -283,9 +292,10 @@ export default function Anamnese() {
     };
 
     try {
-      if (leadId) {
-        const { error } = await supabase.rpc("update_lead_anamnese", {
+      if (leadId && token) {
+        const { data, error } = await supabase.rpc("update_lead_anamnese", {
           p_lead_id: leadId,
+          p_token: token,
           p_qualification_details: qualificationData,
           p_name: form.nome || null,
           p_phone: form.telefone || null,
@@ -293,14 +303,37 @@ export default function Anamnese() {
         });
 
         if (error) throw error;
+        const result = data as { ok?: boolean } | null;
+        if (!result?.ok) throw new Error("Link de anamnese inválido ou expirado");
+      } else {
+        throw new Error("Link de anamnese incompleto");
       }
       setStep(2);
     } catch (err) {
       console.error("Erro ao salvar anamnese:", err);
-      toast.error("Erro ao enviar formulário. Tente novamente.");
+      toast.error("Link inválido, expirado ou já utilizado. Solicite um novo link à Fabrik.");
       setStep(0);
     }
   };
+
+  if (!leadId || !token) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center space-y-6">
+          <div className="mx-auto w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
+            <Link2Off className="w-8 h-8 text-destructive" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground mb-2">Link inválido</h1>
+            <p className="text-muted-foreground">
+              Solicite à Fabrik um novo link seguro para preencher sua anamnese.
+            </p>
+          </div>
+          <img src={logoFabrik} alt="Fabrik" className="h-8 mx-auto opacity-60" />
+        </div>
+      </div>
+    );
+  }
 
   if (step === 2) {
     return (

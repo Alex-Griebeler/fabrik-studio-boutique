@@ -18,7 +18,7 @@ import { TemplateSelector } from "./TemplateSelector";
 import { calculateLeadScore, gradeColors } from "@/lib/leadScoring";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { MessageSquare, UserCheck, XCircle, CalendarCheck } from "lucide-react";
+import { CalendarCheck, ClipboardCopy, MessageSquare, UserCheck, XCircle } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -27,10 +27,22 @@ interface Props {
   onNewInteraction: () => void;
   onConvert: () => void;
   onScheduleTrial?: () => void;
+  onCopyAnamneseLink?: () => void;
+  isIssuingAnamneseLink?: boolean;
   onMarkLost?: () => void;
 }
 
-export function LeadDetailDialog({ open, onOpenChange, lead, onNewInteraction, onConvert, onScheduleTrial, onMarkLost }: Props) {
+export function LeadDetailDialog({
+  open,
+  onOpenChange,
+  lead,
+  onNewInteraction,
+  onConvert,
+  onScheduleTrial,
+  onCopyAnamneseLink,
+  isIssuingAnamneseLink,
+  onMarkLost,
+}: Props) {
   const { data: interactions, isLoading } = useInteractions(lead?.id ?? "");
   const [messageTab, setMessageTab] = useState("templates");
 
@@ -108,6 +120,16 @@ export function LeadDetailDialog({ open, onOpenChange, lead, onNewInteraction, o
                 <Button size="sm" variant="outline" onClick={onNewInteraction}>
                   <MessageSquare className="h-4 w-4 mr-1" /> Nova Interação
                 </Button>
+                {onCopyAnamneseLink && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isIssuingAnamneseLink}
+                    onClick={onCopyAnamneseLink}
+                  >
+                    <ClipboardCopy className="h-4 w-4 mr-1" /> Copiar anamnese
+                  </Button>
+                )}
                 {status !== "converted" && status !== "trial_scheduled" && onScheduleTrial && (
                   <Button size="sm" variant="outline" onClick={onScheduleTrial}>
                     <CalendarCheck className="h-4 w-4 mr-1" /> Agendar Trial

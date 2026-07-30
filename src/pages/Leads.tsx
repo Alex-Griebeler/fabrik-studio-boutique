@@ -5,7 +5,14 @@ import { KPICard } from "@/components/shared/KPICard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLeads, useConvertLead, useUpdateLeadStatus, type Lead, type LeadStatus } from "@/hooks/useLeads";
+import {
+  useLeads,
+  useConvertLead,
+  useIssueAnamneseLink,
+  useUpdateLeadStatus,
+  type Lead,
+  type LeadStatus,
+} from "@/hooks/useLeads";
 import { LeadFormDialog } from "@/components/leads/LeadFormDialog";
 import { LeadKanban } from "@/components/leads/LeadKanban";
 import { LeadTable } from "@/components/leads/LeadTable";
@@ -25,11 +32,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 
 export default function Leads() {
   const [search, setSearch] = useState("");
   const { data: leads, isLoading } = useLeads({ search });
   const convertLead = useConvertLead();
+  const issueAnamneseLink = useIssueAnamneseLink();
   const updateStatus = useUpdateLeadStatus();
 
   const [view, setView] = useState<"kanban" | "list">("kanban");
@@ -67,6 +76,17 @@ export default function Leads() {
   const handleScheduleTrial = (leadId: string) => {
     setTrialLeadId(leadId);
     setTrialOpen(true);
+  };
+
+  const handleCopyAnamneseLink = async (leadId: string) => {
+    try {
+      const link = await issueAnamneseLink.mutateAsync(leadId);
+      await navigator.clipboard.writeText(link);
+      toast.success("Link seguro da anamnese copiado. Validade: 7 dias e uso único.");
+    } catch (error) {
+      console.error("Erro ao gerar link da anamnese:", error);
+      toast.error("Não foi possível gerar e copiar o link da anamnese.");
+    }
   };
 
   const handleConvert = () => {
@@ -141,6 +161,8 @@ export default function Leads() {
               onSelectLead={handleSelectLead}
               onNewInteraction={handleNewInteraction}
               onScheduleTrial={handleScheduleTrial}
+              onCopyAnamneseLink={handleCopyAnamneseLink}
+              isIssuingAnamneseLink={issueAnamneseLink.isPending}
               onConvert={(id) => setConvertDialog(id)}
               onMarkLost={(id) => setLostDialog(id)}
             />
@@ -164,6 +186,10 @@ export default function Leads() {
         onScheduleTrial={() => {
           if (selectedLead) handleScheduleTrial(selectedLead.id);
         }}
+        onCopyAnamneseLink={() => {
+          if (selectedLead) void handleCopyAnamneseLink(selectedLead.id);
+        }}
+        isIssuingAnamneseLink={issueAnamneseLink.isPending}
         onMarkLost={() => {
           if (selectedLead) setLostDialog(selectedLead.id);
         }}

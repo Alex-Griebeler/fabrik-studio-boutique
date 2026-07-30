@@ -14,7 +14,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, MessageSquare, CalendarCheck, UserCheck, XCircle, Eye } from "lucide-react";
+import {
+  CalendarCheck,
+  ClipboardCopy,
+  Eye,
+  MessageSquare,
+  MoreHorizontal,
+  UserCheck,
+  XCircle,
+} from "lucide-react";
 import { type Lead, type LeadStatus, leadStatusLabels, leadStatusColors } from "@/hooks/useLeads";
 import { calculateLeadScore, gradeColors } from "@/lib/leadScoring";
 import { formatDistanceToNow } from "date-fns";
@@ -25,11 +33,22 @@ interface Props {
   onSelectLead: (lead: Lead) => void;
   onNewInteraction: (leadId: string) => void;
   onScheduleTrial: (leadId: string) => void;
+  onCopyAnamneseLink: (leadId: string) => void;
+  isIssuingAnamneseLink: boolean;
   onConvert: (leadId: string) => void;
   onMarkLost: (leadId: string) => void;
 }
 
-export function LeadTable({ leads, onSelectLead, onNewInteraction, onScheduleTrial, onConvert, onMarkLost }: Props) {
+export function LeadTable({
+  leads,
+  onSelectLead,
+  onNewInteraction,
+  onScheduleTrial,
+  onCopyAnamneseLink,
+  isIssuingAnamneseLink,
+  onConvert,
+  onMarkLost,
+}: Props) {
   if (!leads.length) {
     return (
       <div className="text-center text-muted-foreground py-12 border rounded-lg bg-card">
@@ -89,6 +108,12 @@ export function LeadTable({ leads, onSelectLead, onNewInteraction, onScheduleTri
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => onNewInteraction(lead.id)}>
                         <MessageSquare className="h-4 w-4 mr-2" /> Nova interação
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={isIssuingAnamneseLink}
+                        onClick={() => onCopyAnamneseLink(lead.id)}
+                      >
+                        <ClipboardCopy className="h-4 w-4 mr-2" /> Copiar link da anamnese
                       </DropdownMenuItem>
                       {status !== "converted" && status !== "trial_scheduled" && (
                         <DropdownMenuItem onClick={() => onScheduleTrial(lead.id)}>
