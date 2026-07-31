@@ -1,9 +1,10 @@
--- Minimal production-contract fixture for the P0-1 migration tests.
+-- Minimal production-contract fixture for the P0-1 and P0-4 migrations.
 -- This file is used only by GitHub Actions in an ephemeral Supabase project.
 -- It intentionally models only objects referenced by the target migration and
 -- its pgTAP suite; it is not a production migration or schema snapshot.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
 
 CREATE TYPE public.app_role AS ENUM (
   'admin',
@@ -112,6 +113,43 @@ CREATE TABLE public.monthly_kpis (
   alunos_novos integer NOT NULL DEFAULT 0,
   alunos_perdidos integer NOT NULL DEFAULT 0,
   calculado_em timestamptz NOT NULL DEFAULT now()
+);
+
+-- Minimal pre-P0-4 nurturing model. The unsafe cron is intentional: the
+-- target migration must remove it without scheduling a replacement.
+CREATE TABLE public.nurturing_sequences (
+  id uuid PRIMARY KEY DEFAULT extensions.gen_random_uuid(),
+  name text NOT NULL
+);
+
+CREATE TABLE public.sequence_steps (
+  id uuid PRIMARY KEY DEFAULT extensions.gen_random_uuid(),
+  sequence_id uuid NOT NULL REFERENCES public.nurturing_sequences(id),
+  step_number integer NOT NULL,
+  channel text NOT NULL DEFAULT 'whatsapp'
+);
+
+CREATE TABLE public.sequence_executions (
+  id uuid PRIMARY KEY DEFAULT extensions.gen_random_uuid(),
+  sequence_id uuid NOT NULL REFERENCES public.nurturing_sequences(id),
+  lead_id uuid NOT NULL REFERENCES public.leads(id),
+  current_step integer NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'running',
+  next_step_at timestamptz
+);
+
+CREATE TABLE public.sequence_step_events (
+  id uuid PRIMARY KEY DEFAULT extensions.gen_random_uuid(),
+  execution_id uuid NOT NULL REFERENCES public.sequence_executions(id),
+  step_id uuid NOT NULL REFERENCES public.sequence_steps(id),
+  event_type text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+SELECT cron.schedule(
+  'execute-nurturing-steps-every-5min',
+  '*/5 * * * *',
+  'SELECT 1'
 );
 
 -- Recreate the vulnerable overload so the target migration must remove it.

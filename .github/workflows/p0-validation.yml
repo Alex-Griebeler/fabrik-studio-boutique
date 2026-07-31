@@ -64,7 +64,9 @@ jobs:
           cp supabase/config.toml "$P0_WORKDIR/supabase/config.toml"
           cp .github/p0-test-fixtures/base.sql "$P0_WORKDIR/supabase/migrations/20260101000000_p0_base.sql"
           cp supabase/migrations/20260730180938_secure_privileged_rpcs_and_anamnese_links.sql "$P0_WORKDIR/supabase/migrations/"
+          cp supabase/migrations/20260731195550_p0_4_secure_nurturing_cron.sql "$P0_WORKDIR/supabase/migrations/"
           cp supabase/tests/p0_1_secure_rpcs.test.sql "$P0_WORKDIR/supabase/tests/"
+          cp supabase/tests/p0_4_secure_nurturing_cron.test.sql "$P0_WORKDIR/supabase/tests/"
 
       - name: Start isolated database
         env:

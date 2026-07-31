@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: p0-validation-${{ github.event.pull_request.number }}
+  group: p0-3-validation-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
