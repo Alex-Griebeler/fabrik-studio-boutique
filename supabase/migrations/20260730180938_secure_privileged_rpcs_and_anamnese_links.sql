@@ -138,16 +138,18 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'code', 'invalid_or_expired');
   END IF;
 
+  -- The partial unique index guarantees a single active row. Do not choose by
+  -- created_at: now() is transaction-stable, so multiple issued links in one
+  -- transaction can have identical timestamps.
   SELECT *
   INTO v_link
   FROM public.anamnese_link_tokens
   WHERE lead_id = p_lead_id
-  ORDER BY created_at DESC
+    AND used_at IS NULL
   LIMIT 1
   FOR UPDATE;
 
   IF NOT FOUND
-     OR v_link.used_at IS NOT NULL
      OR v_link.expires_at <= now()
   THEN
     RETURN jsonb_build_object('ok', false, 'code', 'invalid_or_expired');
