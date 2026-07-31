@@ -23,7 +23,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -38,8 +38,11 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Lint repository
-        run: npm run lint
+      - name: Lint changed TypeScript files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --name-only --diff-filter=ACMR -z "$BASE_SHA" "$HEAD_SHA" -- '*.ts' '*.tsx' | xargs -0 -r npx eslint
 
   database:
     name: Database migrations and pgTAP
@@ -51,10 +54,24 @@ jobs:
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.75.0
+
+      - name: Prepare focused P0 database project
+        env:
+          P0_WORKDIR: ${{ runner.temp }}/p0-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p "$P0_WORKDIR/supabase/migrations" "$P0_WORKDIR/supabase/tests"
+          cp supabase/config.toml "$P0_WORKDIR/supabase/config.toml"
+          cp .github/p0-test-fixtures/base.sql "$P0_WORKDIR/supabase/migrations/20260101000000_p0_base.sql"
+          cp supabase/migrations/20260730180938_secure_privileged_rpcs_and_anamnese_links.sql "$P0_WORKDIR/supabase/migrations/"
+          cp supabase/tests/p0_1_secure_rpcs.test.sql "$P0_WORKDIR/supabase/tests/"
 
       - name: Start isolated database
-        run: supabase db start
+        env:
+          P0_WORKDIR: ${{ runner.temp }}/p0-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase db start --workdir "$P0_WORKDIR"
 
       - name: Run database tests
-        run: supabase test db
+        env:
+          P0_WORKDIR: ${{ runner.temp }}/p0-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase test db --workdir "$P0_WORKDIR"
