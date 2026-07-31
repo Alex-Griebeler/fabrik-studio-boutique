@@ -1,0 +1,77 @@
+name: P0 validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  application:
+    name: Application checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Check TypeScript
+        run: npx tsc --noEmit
+
+      - name: Build application
+        run: npm run build
+
+      - name: Lint changed TypeScript files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --name-only --diff-filter=ACMR -z "$BASE_SHA" "$HEAD_SHA" -- '*.ts' '*.tsx' | xargs -0 -r npx eslint
+
+  database:
+    name: Database migrations and pgTAP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+
+      - name: Prepare focused P0 database project
+        env:
+          P0_WORKDIR: ${{ runner.temp }}/p0-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p "$P0_WORKDIR/supabase/migrations" "$P0_WORKDIR/supabase/tests"
+          cp supabase/config.toml "$P0_WORKDIR/supabase/config.toml"
+          cp .github/p0-test-fixtures/base.sql "$P0_WORKDIR/supabase/migrations/20260101000000_p0_base.sql"
+          cp supabase/migrations/20260730180938_secure_privileged_rpcs_and_anamnese_links.sql "$P0_WORKDIR/supabase/migrations/"
+          cp supabase/tests/p0_1_secure_rpcs.test.sql "$P0_WORKDIR/supabase/tests/"
+
+      - name: Start isolated database
+        env:
+          P0_WORKDIR: ${{ runner.temp }}/p0-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase db start --workdir "$P0_WORKDIR"
+
+      - name: Run database tests
+        env:
+          P0_WORKDIR: ${{ runner.temp }}/p0-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase test db --workdir "$P0_WORKDIR"

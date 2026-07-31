@@ -227,6 +227,21 @@ export function useUpdateLeadStatus() {
   });
 }
 
+export function useIssueAnamneseLink() {
+  return useMutation({
+    mutationFn: async (leadId: string) => {
+      const { data, error } = await supabase.rpc("issue_anamnese_link", {
+        p_lead_id: leadId,
+      });
+
+      if (error) throw error;
+      if (!data) throw new Error("Token de anamnese não retornado");
+
+      return `${window.location.origin}/anamnese/${leadId}#token=${encodeURIComponent(data)}`;
+    },
+  });
+}
+
 // Keep old name for compat
 export const useUpdateLeadStage = useUpdateLeadStatus;
 
