@@ -54,7 +54,7 @@ export function usePolicyValue<T = number>(key: string, fallback: T): T {
 export function useUpdatePolicy() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ key, value }: { key: string; value: any }) => {
+    mutationFn: async ({ key, value }: { key: string; value: Policy["value"] }) => {
       const { error } = await supabase
         .from("policies")
         .update({ value: JSON.stringify(value) })
