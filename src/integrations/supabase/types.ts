@@ -100,50 +100,6 @@ export type Database = {
           },
         ]
       }
-      anamnese_link_tokens: {
-        Row: {
-          created_at: string
-          created_by: string
-          expires_at: string
-          failed_attempts: number
-          id: string
-          last_failed_at: string | null
-          lead_id: string
-          token_hash: string
-          used_at: string | null
-        }
-        Insert: {
-          created_at?: string
-          created_by: string
-          expires_at: string
-          failed_attempts?: number
-          id?: string
-          last_failed_at?: string | null
-          lead_id: string
-          token_hash: string
-          used_at?: string | null
-        }
-        Update: {
-          created_at?: string
-          created_by?: string
-          expires_at?: string
-          failed_attempts?: number
-          id?: string
-          last_failed_at?: string | null
-          lead_id?: string
-          token_hash?: string
-          used_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "anamnese_link_tokens_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "leads"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       attendance_agent_runtime_config: {
         Row: {
           created_at: string
@@ -3144,10 +3100,6 @@ export type Database = {
       is_own_invoice: { Args: { _invoice_id: string }; Returns: boolean }
       is_own_profile: { Args: { _profile_id: string }; Returns: boolean }
       is_own_student: { Args: { _student_id: string }; Returns: boolean }
-      issue_anamnese_link: {
-        Args: { p_lead_id: string; p_ttl?: string }
-        Returns: string
-      }
       mark_overdue_invoices: { Args: never; Returns: undefined }
       update_lead_anamnese: {
         Args: {
@@ -3156,9 +3108,8 @@ export type Database = {
           p_name?: string
           p_phone?: string
           p_qualification_details: Json
-          p_token: string
         }
-        Returns: Json
+        Returns: undefined
       }
     }
     Enums: {
