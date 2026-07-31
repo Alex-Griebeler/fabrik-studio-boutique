@@ -71,11 +71,26 @@ SELECT ok(
   'cron secret has the expected high-entropy format'
 );
 
-SELECT has_column('public', 'sequence_step_events', 'idempotency_key');
-SELECT has_column('public', 'sequence_step_events', 'request_id');
-SELECT has_column('public', 'sequence_step_events', 'provider_message_id');
-SELECT has_column('public', 'sequence_step_events', 'error');
-SELECT has_column('public', 'sequence_step_events', 'updated_at');
+SELECT has_column(
+  'public', 'sequence_step_events', 'idempotency_key',
+  'step events have an idempotency key'
+);
+SELECT has_column(
+  'public', 'sequence_step_events', 'request_id',
+  'step events carry the correlation request id'
+);
+SELECT has_column(
+  'public', 'sequence_step_events', 'provider_message_id',
+  'step events retain the provider message id'
+);
+SELECT has_column(
+  'public', 'sequence_step_events', 'error',
+  'step events retain a bounded operational error'
+);
+SELECT has_column(
+  'public', 'sequence_step_events', 'updated_at',
+  'step events record lifecycle updates'
+);
 
 SELECT has_index(
   'public',
