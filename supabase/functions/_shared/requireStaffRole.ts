@@ -18,11 +18,13 @@
 //
 // Em falha, retorna Response 401 (sem Bearer / JWT inválido) ou 403
 // (autenticado mas sem role). Body genérico, sem expor detalhes.
+//
+// `createClient` entra por injeção (2º argumento) em vez de import
+// direto: o helper fica sem import de valor do SDK, então o teste
+// unitário roda com client fake sem baixar/carregar o supabase-js.
+// O tipo continua vindo do SDK via `import type` (apagado no bundle).
 
-import {
-  createClient,
-  type SupabaseClient,
-} from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,14 +56,27 @@ export interface AuthorizedContext {
   adminClient: SupabaseClient;
 }
 
+/** Fábrica de client injetada pelo caller (o `createClient` do SDK). */
+export interface RequireStaffRoleDependencies {
+  createClient: (
+    supabaseUrl: string,
+    supabaseKey: string,
+    options?: { global?: { headers?: Record<string, string> } },
+  ) => SupabaseClient;
+}
+
 /**
  * Valida auth + role. Use:
- *   const auth = await requireStaffRole({ req, allowed: ["admin"] });
+ *   const auth = await requireStaffRole(
+ *     { req, allowed: ["admin"] },
+ *     { createClient },
+ *   );
  *   if (auth instanceof Response) return auth;
  *   // segue com auth.adminClient / auth.userId
  */
 export async function requireStaffRole(
   opts: RequireStaffRoleOptions,
+  dependencies: RequireStaffRoleDependencies,
 ): Promise<AuthorizedContext | Response> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -81,7 +96,7 @@ export async function requireStaffRole(
   }
   const token = authHeader.replace("Bearer ", "");
 
-  const adminClient = createClient(supabaseUrl, serviceRoleKey);
+  const adminClient = dependencies.createClient(supabaseUrl, serviceRoleKey);
 
   // 1) Service role bypass (opcional).
   if (allowServiceRole && token === serviceRoleKey) {
@@ -94,7 +109,7 @@ export async function requireStaffRole(
   }
 
   // 2) Valida JWT de usuário.
-  const userClient = createClient(supabaseUrl, anonKey, {
+  const userClient = dependencies.createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authHeader } },
   });
   const { data: claimsData, error: claimsError } =
@@ -113,7 +128,7 @@ export async function requireStaffRole(
     .from("user_roles")
     .select("role")
     .eq("user_id", userId)
-    .in("role", allowed as unknown as string[])
+    .in("role", opts.allowed as unknown as string[])
     .limit(1)
     .maybeSingle();
 

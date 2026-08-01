@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireStaffRole } from "../_shared/requireStaffRole.ts";
 import {
   buildAdapter,
@@ -43,11 +44,14 @@ serve(async (req) => {
   }
 
   try {
-    const auth = await requireStaffRole({
-      req,
-      allowed: ["admin", "manager", "reception"],
-      allowServiceRole: true,
-    });
+    const auth = await requireStaffRole(
+      {
+        req,
+        allowed: ["admin", "manager", "reception"],
+        allowServiceRole: true,
+      },
+      { createClient },
+    );
     if (auth instanceof Response) return auth;
 
     const rawBody = await req.json().catch(() => null);
