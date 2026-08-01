@@ -1945,6 +1945,27 @@ export type Database = {
           },
         ]
       }
+      nurturing_runtime_config: {
+        Row: {
+          description: string | null
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          description?: string | null
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          description?: string | null
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
       nurturing_sequences: {
         Row: {
           created_at: string
@@ -2350,24 +2371,39 @@ export type Database = {
       sequence_step_events: {
         Row: {
           created_at: string
+          error: string | null
           event_type: string
           execution_id: string
           id: string
+          idempotency_key: string | null
+          provider_message_id: string | null
+          request_id: string | null
           step_id: string
+          updated_at: string
         }
         Insert: {
           created_at?: string
+          error?: string | null
           event_type: string
           execution_id: string
           id?: string
+          idempotency_key?: string | null
+          provider_message_id?: string | null
+          request_id?: string | null
           step_id: string
+          updated_at?: string
         }
         Update: {
           created_at?: string
+          error?: string | null
           event_type?: string
           execution_id?: string
           id?: string
+          idempotency_key?: string | null
+          provider_message_id?: string | null
+          request_id?: string | null
           step_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
