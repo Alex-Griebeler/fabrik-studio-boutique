@@ -1,3 +1,4 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireStaffRole } from "../_shared/requireStaffRole.ts";
 
 // Auth: APENAS usuário autenticado com role admin OU manager.
@@ -21,11 +22,14 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const auth = await requireStaffRole({
-      req,
-      allowed: ["admin", "manager"],
-      allowServiceRole: false,
-    });
+    const auth = await requireStaffRole(
+      {
+        req,
+        allowed: ["admin", "manager"],
+        allowServiceRole: false,
+      },
+      { createClient },
+    );
     if (auth instanceof Response) return auth;
 
     const supabase = auth.adminClient;
