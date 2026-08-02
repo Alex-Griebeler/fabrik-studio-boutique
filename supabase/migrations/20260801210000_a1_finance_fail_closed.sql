@@ -156,7 +156,7 @@ BEGIN
         'A migration substitui somente headers em literal SQL convertido para jsonb e preserva o body original. Normalize os headers antes de aplicar; ela nao tenta editar expressoes arbitrarias.';
   END IF;
 
-  -- ── Passagem 1c: contexto de execucao. ──────────────────────────────
+  -- ── Passagem 1c: contexto de execucao. ──────────────────────────────────
   --
   -- cron.schedule registra o job recriado como ATIVO, pertencente ao usuario
   -- e database da sessao corrente. Para job que sera de fato reescrito, isso
