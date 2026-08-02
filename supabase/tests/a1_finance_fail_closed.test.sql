@@ -3,9 +3,9 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(28);
+SELECT plan(31);
 
--- ─── Tabela de runtime config ────────────────────────────────────────────
+-- ─── Tabela de runtime config ────────────────────────────────────
 
 SELECT has_table(
   'public',
@@ -66,7 +66,7 @@ SELECT ok(
   'service role can validate the finance cron secret server-side'
 );
 
--- ─── Segredo ─────────────────────────────────────────────────────────────
+-- ─── Segredo ─────────────────────────────────────────────────────
 
 SELECT is(
   (
@@ -87,7 +87,7 @@ SELECT ok(
   'finance cron secret has the expected high-entropy format'
 );
 
--- ─── Jobs financeiros no pg_cron ─────────────────────────────────────────
+-- ─── Jobs financeiros no pg_cron ───────────────────────────────────
 --
 -- Todas as asserções abaixo são contagens de VIOLAÇÃO, comparadas com zero.
 -- Isso as torna tolerantes a "nenhum job financeiro existe" (o caso em que a
@@ -159,7 +159,58 @@ SELECT is(
   'no finance cron job still sends an Authorization header'
 );
 
--- ─── Regra suportada pela migration ──────────────────────────────────────
+-- ─── Contexto de execucao preservado (A1.1) ──────────────────────────
+--
+-- A migration recria os jobs na mesma sessao e aborta (passagem 1c) se
+-- encontrar job inativo ou de outro usuario/database. No estado final,
+-- nenhum job financeiro pode ter mudado de contexto.
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE (
+        command LIKE '%/daily-finance-cron%'
+        OR command LIKE '%/generate-monthly-invoices%'
+        OR command LIKE '%/calculate-invoice-penalties%'
+      )
+      AND NOT active
+  ),
+  0::bigint,
+  'every finance cron job remains active after the rewrite'
+);
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE (
+        command LIKE '%/daily-finance-cron%'
+        OR command LIKE '%/generate-monthly-invoices%'
+        OR command LIKE '%/calculate-invoice-penalties%'
+      )
+      AND username <> current_user
+  ),
+  0::bigint,
+  'every finance cron job keeps the executing username'
+);
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE (
+        command LIKE '%/daily-finance-cron%'
+        OR command LIKE '%/generate-monthly-invoices%'
+        OR command LIKE '%/calculate-invoice-penalties%'
+      )
+      AND database <> current_database()
+  ),
+  0::bigint,
+  'every finance cron job keeps the target database'
+);
+
+-- ─── Regra suportada pela migration ──────────────────────────────────
 --
 -- A migration só reescreve job com `net.http_post` e headers em literal SQL
 -- convertido para jsonb, e aborta antes do primeiro unschedule se encontrar
@@ -213,7 +264,7 @@ SELECT is(
   'the finance cron secret is never materialized into any cron command'
 );
 
--- ─── Fidelidade e idempotencia do reagendamento ─────────────────────────
+-- ─── Fidelidade e idempotencia do reagendamento ───────────────────────
 --
 -- O fixture aplica esta migration duas vezes. Estas assercoes provam que a
 -- segunda execucao nao duplica jobs e que nome, schedule e body sobrevivem.
