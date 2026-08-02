@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ALLOWED_BANK_ROLES,
   MAX_FILE_CONTENT_CHARS,
+  MAX_REQUEST_BYTES,
   isBankRequestError,
   parseBankStatementRequest,
   parseMatchRequest,
+  requestTooLarge,
   requireBankStaff,
   type BankDependencies,
 } from "./bankAuth";
@@ -110,7 +112,10 @@ describe("requireBankStaff", () => {
     expect(query.in).toHaveBeenCalledWith("role", ["admin", "manager"]);
   });
 
-  it("autoriza chamada interna com service_role", async () => {
+  // Não há cron nem edge function chamando estas duas; sem caso de uso
+  // interno, o bearer de service_role não é aceito — e assim toda conciliação
+  // e toda importação ficam com autor humano registrado.
+  it("nega service_role: sem chamador interno, o bearer não é aceito", async () => {
     setup(null);
 
     const result = await requireBankStaff(
@@ -118,8 +123,8 @@ describe("requireBankStaff", () => {
       dependencies,
     );
 
-    expect(result).not.toBeInstanceOf(Response);
-    expect(result).toMatchObject({ authorized: true, service: true });
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(403);
   });
 });
 
@@ -199,14 +204,49 @@ describe("parseBankStatementRequest", () => {
   });
 });
 
+describe("requestTooLarge", () => {
+  function withLength(value?: string) {
+    return new Request("https://example.test/f", {
+      method: "POST",
+      headers: value === undefined ? {} : { "content-length": value },
+      body: "{}",
+    });
+  }
+
+  it("barra corpo declarado acima do teto", () => {
+    expect(requestTooLarge(withLength(String(MAX_REQUEST_BYTES + 1)))).toBe(true);
+  });
+
+  it("deixa passar corpo no limite", () => {
+    expect(requestTooLarge(withLength(String(MAX_REQUEST_BYTES)))).toBe(false);
+  });
+
+  it("deixa passar payload normal", () => {
+    expect(requestTooLarge(withLength("2048"))).toBe(false);
+  });
+
+  // Sem header confiável, a checagem por campo (413 em parseBankStatementRequest)
+  // continua sendo a rede de segurança.
+  it.each([
+    ["header ausente", undefined],
+    ["header vazio", ""],
+    ["header não numérico", "muito-grande"],
+  ])("não bloqueia com %s", (_label, value) => {
+    expect(requestTooLarge(withLength(value))).toBe(false);
+  });
+});
+
 describe("parseMatchRequest", () => {
   it("usa os valores enviados pelo frontend", () => {
     expect(parseMatchRequest({ import_id: "imp-1", auto_apply: true }))
       .toEqual({ importId: "imp-1", autoApply: true });
   });
 
-  it("trata import_id ausente como varredura completa", () => {
-    expect(parseMatchRequest({ auto_apply: false }))
+  it.each([
+    ["ausente", {}],
+    ["explicitamente nulo", { import_id: null }],
+  ])("trata import_id %s como varredura completa", (_label, body) => {
+    expect(parseMatchRequest({ ...body, auto_apply: false }))
       .toEqual({ importId: null, autoApply: false });
   });
 
@@ -218,15 +258,25 @@ describe("parseMatchRequest", () => {
     ["objeto", {}],
     ["ausente", undefined],
   ])("só o booleano true liga autoApply (%s não liga)", (_label, value) => {
-    expect(parseMatchRequest({ auto_apply: value }).autoApply).toBe(false);
+    const result = parseMatchRequest({ auto_apply: value });
+
+    expect(isBankRequestError(result)).toBe(false);
+    expect((result as { autoApply: boolean }).autoApply).toBe(false);
   });
 
+  // Normalizar id inválido para null era PIOR que o comportamento antigo:
+  // sem filtro, `auto_apply` varreria todas as importações de uma vez.
   it.each([
     ["import_id vazio", ""],
     ["import_id numérico", 42],
-    ["import_id nulo", null],
-  ])("normaliza %s para null", (_label, value) => {
-    expect(parseMatchRequest({ import_id: value }).importId).toBeNull();
+    ["import_id objeto", { id: "x" }],
+    ["import_id array", ["imp-1"]],
+    ["import_id booleano", true],
+  ])("rejeita %s com 400 em vez de virar varredura global", (_label, value) => {
+    const result = parseMatchRequest({ import_id: value, auto_apply: true });
+
+    expect(isBankRequestError(result)).toBe(true);
+    expect((result as { status: number }).status).toBe(400);
   });
 
   it("aceita corpo inválido sem quebrar, no modo mais restrito", () => {

@@ -3,6 +3,7 @@ import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import {
   isBankRequestError,
   parseBankStatementRequest,
+  requestTooLarge,
   requireBankStaff,
 } from "../_shared/bank/bankAuth.ts";
 
@@ -447,6 +448,14 @@ Deno.serve(async (req) => {
 
     const supabase = auth.adminClient;
     const importedBy = auth.userId;
+
+    // Teto antes de materializar o JSON: o limite por campo so pode agir
+    // depois do parse, e o parse ja custa a memoria que queremos poupar.
+    if (requestTooLarge(req)) {
+      return new Response(JSON.stringify({ error: "Arquivo excede o tamanho máximo suportado" }), {
+        status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Corpo lido UMA vez. O codigo anterior desestruturava fileContent/
     // fileName/fileType aqui e depois lia `body.forceImport` de uma variavel
