@@ -1,5 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+import {
+  isBankRequestError,
+  parseBankStatementRequest,
+  requireBankStaff,
+} from "../_shared/bank/bankAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -158,7 +163,7 @@ function splitCSVLine(line: string, sep: string): string[] {
 
 function normalizeDate(raw: string): string | null {
   // dd/mm/yyyy or dd-mm-yyyy
-  const brMatch = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  const brMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (brMatch) {
     const [, d, m, y] = brMatch;
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
@@ -202,7 +207,7 @@ function parseXLSXDate(cell: string | number | null): { dd: string; mm: string; 
   const s = String(cell).trim();
 
   // dd/mm/yyyy
-  const full = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  const full = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (full) return { dd: full[1], mm: full[2], year: parseInt(full[3]) };
 
   // dd/mm (short numeric)
@@ -210,7 +215,7 @@ function parseXLSXDate(cell: string | number | null): { dd: string; mm: string; 
   if (shortNum) return { dd: shortNum[1], mm: shortNum[2], year: null };
 
   // dd/Mon or dd/Mon (month abbreviation like 19/Mar, 04/Aug)
-  const abbr = s.match(/^(\d{1,2})[\/\-]([A-Za-zçã]+)$/i);
+  const abbr = s.match(/^(\d{1,2})[/-]([A-Za-zçã]+)$/i);
   if (abbr) {
     const monthKey = abbr[2].toLowerCase().substring(0, 3);
     const mm = MONTH_ABBR[monthKey];
@@ -235,10 +240,8 @@ function parseXLSX(base64Content: string): ParsedResult {
 
   const rows: (string | number | null)[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
 
+  // Conteudo bruto do extrato (nomes, CPF/CNPJ, valores) nao vai para o log.
   console.log(`XLSX: Total rows = ${rows.length}, sheet = ${workbook.SheetNames[0]}`);
-  for (let i = 0; i < Math.min(rows.length, 20); i++) {
-    console.log(`Row ${i}: ${JSON.stringify(rows[i])}`);
-  }
 
   // Extract metadata
   let vencimento: string | null = null;
@@ -257,7 +260,7 @@ function parseXLSX(base64Content: string): ParsedResult {
     if (agMatch) result.accountId = agMatch[1];
 
     // Look for card number patterns
-    const cardMatch = rowStr.match(/(\d{4}[\.\*xX]+[\.\*xX\d]+\d{4})/);
+    const cardMatch = rowStr.match(/(\d{4}[.*xX]+[.*xX\d]+\d{4})/);
     if (cardMatch && !result.accountId) result.accountId = cardMatch[1];
 
     for (let c = 0; c < row.length; c++) {
@@ -300,7 +303,7 @@ function parseXLSX(base64Content: string): ParsedResult {
       result.periodEnd = `${baseYear}-${parsed.mm.padStart(2, "0")}-${parsed.dd.padStart(2, "0")}`;
     } else {
       // Try dd/mm/yyyy in string
-      const match = vencimento.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      const match = vencimento.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
       if (match) {
         baseYear = parseInt(match[3]);
         vencMonth = parseInt(match[2]);
@@ -436,37 +439,26 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
+    // Fail-closed: exige staff admin/manager (ou service_role interno) ANTES
+    // de ler o corpo e antes do parser pesado. Antes bastava estar
+    // autenticado, e o parse de XLSX arbitrario rodava para qualquer conta.
+    const auth = await requireBankStaff(req, { createClient });
+    if (auth instanceof Response) return auth;
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Não autorizado" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const supabase = auth.adminClient;
+    const importedBy = auth.userId;
+
+    // Corpo lido UMA vez. O codigo anterior desestruturava fileContent/
+    // fileName/fileType aqui e depois lia `body.forceImport` de uma variavel
+    // `body` que nunca existiu — ReferenceError em toda chamada, ou seja, a
+    // importacao bancaria respondia 500 sempre.
+    const request = parseBankStatementRequest(await req.json().catch(() => null));
+    if (isBankRequestError(request)) {
+      return new Response(JSON.stringify({ error: request.error }), {
+        status: request.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey;
-    const { data: { user }, error: authErr } = await createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    }).auth.getUser();
-
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Não autorizado" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { fileContent, fileName, fileType } = await req.json();
-    if (!fileContent || !fileName)
-      return new Response(JSON.stringify({ error: "Arquivo obrigatório" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    if (fileType !== "ofx" && fileType !== "csv" && fileType !== "xlsx" && fileType !== "xls")
-      return new Response(JSON.stringify({ error: "Formato não suportado. Use OFX, CSV ou Excel." }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const { fileContent, fileName, fileType, forceImport } = request;
 
     let parsed: ParsedResult;
     if (fileType === "ofx") parsed = parseOFX(fileContent);
@@ -478,8 +470,6 @@ Deno.serve(async (req) => {
     const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(fileContent));
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const fileHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-
-    const forceImport = body.forceImport === true;
 
     // Check for duplicate import
     if (!forceImport) {
@@ -504,7 +494,7 @@ Deno.serve(async (req) => {
       file_name: fileName, file_type: fileType,
       bank_id: parsed.bankId, account_id: parsed.accountId,
       period_start: parsed.periodStart, period_end: parsed.periodEnd,
-      status: "processing", imported_by: user.id,
+      status: "processing", imported_by: importedBy,
       file_hash: fileHash,
     }).select().single();
 
