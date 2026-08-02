@@ -308,10 +308,16 @@ export async function handleMatchBankTransactions(
         const feeCents = pendingFees.get(m.transaction_id);
         if (feeCents && feeCents > 0) updateData.processor_fee_cents = feeCents;
 
-        const { error } = await supabase
+        // A reserva e condicional ao estado lido (`match_status = 'unmatched'`)
+        // e confirma a linha afetada. Sem isso, duas execucoes simultaneas —
+        // duas abas, dois usuarios — reservariam a mesma transacao, e cada uma
+        // quitaria uma obrigacao diferente com a mesma entrada bancaria.
+        const { data: reserved, error } = await supabase
           .from("bank_transactions")
           .update(updateData)
-          .eq("id", m.transaction_id);
+          .eq("id", m.transaction_id)
+          .eq("match_status", "unmatched")
+          .select("id");
 
         if (error) {
           // Nada foi alterado: a obrigacao segue em aberto e a transacao segue
@@ -320,6 +326,17 @@ export async function handleMatchBankTransactions(
           console.error(
             "match-bank-transactions: falha ao reservar a transação",
             error.message,
+          );
+          continue;
+        }
+
+        if (!reserved || reserved.length === 0) {
+          // Outra execucao reservou esta transacao entre a leitura e agora.
+          // Nada a fazer: ela ja esta sendo conciliada la.
+          failed++;
+          console.warn(
+            "match-bank-transactions: transação já reservada por outra execução",
+            m.transaction_id,
           );
           continue;
         }

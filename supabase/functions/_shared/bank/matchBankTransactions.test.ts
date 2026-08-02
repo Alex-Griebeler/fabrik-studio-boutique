@@ -54,14 +54,29 @@ const REDE_INVOICE = {
   contract_id: "contract-1",
 };
 
-function setup(options: { role?: string | null; invoiceUpdateError?: string } = {}) {
+function setup(options: {
+  role?: string | null;
+  invoiceUpdateError?: string;
+  txUpdateError?: string;
+  /** Simula outra execução tendo reservado a transação antes desta. */
+  reservationLost?: boolean;
+} = {}) {
   const fake = createFakeSupabase((query) => {
     if (query.table === "user_roles") {
       const role = options.role === undefined ? "manager" : options.role;
       return { data: role ? { role } : null };
     }
     if (query.table === "bank_transactions") {
-      if (used(query, "update")) return { data: null };
+      if (used(query, "update")) {
+        if (options.txUpdateError) {
+          return { data: null, error: { message: options.txUpdateError } };
+        }
+        // A reserva confirma a linha afetada; a reversão não usa select.
+        if (used(query, "select")) {
+          return { data: options.reservationLost ? [] : [{ id: REDE_TX.id }] };
+        }
+        return { data: null };
+      }
       return { data: [REDE_TX] };
     }
     if (query.table === "invoices") {
@@ -326,6 +341,52 @@ describe("handleMatchBankTransactions", () => {
         match_status: "auto_matched",
         processor_fee_cents: 300,
       });
+    });
+
+    // Sem a reserva condicional, duas abas abertas conciliariam a mesma
+    // entrada bancária contra faturas diferentes.
+    it("desiste da transação já reservada por outra execução, sem quitar nada", async () => {
+      const fake = setup({ reservationLost: true });
+
+      const res = await handleMatchBankTransactions(
+        request({ auto_apply: true }),
+        dependencies,
+      );
+
+      await expect(res.json()).resolves.toMatchObject({
+        success: false,
+        stats: { auto_applied: 0, auto_failed: 1 },
+      });
+
+      // Nenhuma fatura foi quitada e nenhuma despesa de taxa criada.
+      expect(fake.queries.some((q) => q.table === "invoices" && used(q, "update"))).toBe(false);
+      expect(fake.queries.some((q) => q.table === "expenses" && used(q, "insert"))).toBe(false);
+    });
+
+    it("condiciona a reserva ao estado unmatched lido", async () => {
+      const fake = setup();
+
+      await handleMatchBankTransactions(request({ auto_apply: true }), dependencies);
+
+      const reserva = fake.queries.find(
+        (q) => q.table === "bank_transactions" && used(q, "update") && used(q, "select"),
+      );
+      expect(hasEq(reserva!, "match_status", "unmatched")).toBe(true);
+    });
+
+    it("falha ao reservar não quita nada", async () => {
+      const fake = setup({ txUpdateError: "deadlock detected" });
+
+      const res = await handleMatchBankTransactions(
+        request({ auto_apply: true }),
+        dependencies,
+      );
+
+      await expect(res.json()).resolves.toMatchObject({
+        success: false,
+        stats: { auto_applied: 0, auto_failed: 1 },
+      });
+      expect(fake.queries.some((q) => q.table === "invoices" && used(q, "update"))).toBe(false);
     });
 
     it("filtra por import_id quando informado", async () => {
