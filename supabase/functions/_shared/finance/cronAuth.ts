@@ -62,11 +62,12 @@ export async function requireFinanceAuth(
 
   const adminClient = dependencies.createClient(supabaseUrl, serviceRoleKey);
 
-  // 1) Segredo de cron. Header presente => decide aqui, sem fallback:
-  //    segredo errado nunca "cai" para outro modo de autenticacao.
-  const providedSecret = opts.req.headers.get(FINANCE_CRON_SECRET_HEADER)
-    ?.trim();
-  if (providedSecret) {
+  // 1) Segredo de cron. Header PRESENTE decide aqui, sem fallback — inclusive
+  //    vazio ou so espacos: segredo errado, malformado ou em branco nunca
+  //    "cai" para outro modo de autenticacao.
+  const rawSecret = opts.req.headers.get(FINANCE_CRON_SECRET_HEADER);
+  if (rawSecret !== null) {
+    const providedSecret = rawSecret.trim();
     if (!isFinanceCronSecret(providedSecret)) return unauthorized();
 
     const { data, error } = await adminClient

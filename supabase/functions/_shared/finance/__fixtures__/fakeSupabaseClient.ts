@@ -136,7 +136,7 @@ export function financeRequest(options: {
   body?: unknown;
 }): Request {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (options.cronSecret) headers["x-finance-cron-secret"] = options.cronSecret;
+  if (options.cronSecret !== undefined) headers["x-finance-cron-secret"] = options.cronSecret;
   if (options.bearer) headers["Authorization"] = `Bearer ${options.bearer}`;
 
   return new Request("https://example.test/function", {
