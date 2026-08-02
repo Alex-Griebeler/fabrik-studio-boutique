@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseMatchRequest, requireBankStaff } from "../_shared/bank/bankAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,24 +33,18 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
+    // Fail-closed: exige staff admin/manager (ou service_role interno) ANTES
+    // de qualquer leitura. Antes bastava estar autenticado — JWT de aluno
+    // passava e conseguia conciliar todo o financeiro.
+    const auth = await requireBankStaff(req, { createClient });
+    if (auth instanceof Response) return auth;
 
-    // Auth check
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return json({ error: "Não autorizado" }, 401);
-    }
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey;
-    const { data: { user }, error: authErr } = await createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    }).auth.getUser();
-    if (authErr || !user) return json({ error: "Não autorizado" }, 401);
+    const supabase = auth.adminClient;
+    const matchedBy = auth.userId;
 
-    const body = await req.json().catch(() => ({}));
-    const importId: string | null = body.import_id ?? null;
-    const autoApply: boolean = body.auto_apply ?? false;
+    const { importId, autoApply } = parseMatchRequest(
+      await req.json().catch(() => ({})),
+    );
 
     // 1. Fetch unmatched bank transactions
     let txQuery = supabase
@@ -94,6 +89,8 @@ Deno.serve(async (req) => {
     const suggestions: MatchSuggestion[] = [];
     const usedInvoices = new Set<string>();
     const usedExpenses = new Set<string>();
+    /** Taxas de maquininha detectadas; so gravadas quando autoApply. */
+    const pendingFees = new Map<string, number>();
 
     for (const tx of transactions) {
       const absCents = Math.abs(tx.amount_cents);
@@ -184,12 +181,11 @@ Deno.serve(async (req) => {
           });
           usedInvoices.add(bestMatch.id);
 
-          // Record processor fee if Rede transaction
+          // Taxa de maquininha: so anotada em memoria aqui. A gravacao ficou
+          // no bloco de autoApply — sem isso, o "simular conciliacao" da tela
+          // escrevia em bank_transactions, e preview que grava nao e preview.
           if (bestMatch.feeCents > 0) {
-            await supabase
-              .from("bank_transactions")
-              .update({ processor_fee_cents: bestMatch.feeCents })
-              .eq("id", tx.id);
+            pendingFees.set(tx.id, bestMatch.feeCents);
           }
         }
       } else if (tx.transaction_type === "debit" && expenses) {
@@ -261,13 +257,22 @@ Deno.serve(async (req) => {
     // 5. If auto_apply, apply high-confidence matches directly
     let applied = 0;
     if (autoApply) {
+      // Grava as taxas detectadas na varredura acima (mesmo conjunto de antes,
+      // agora so no caminho que efetivamente aplica).
+      for (const [transactionId, feeCents] of pendingFees) {
+        await supabase
+          .from("bank_transactions")
+          .update({ processor_fee_cents: feeCents })
+          .eq("id", transactionId);
+      }
+
       const highMatches = suggestions.filter(s => s.confidence === "high");
       for (const m of highMatches) {
         const updateData: Record<string, unknown> = {
           match_status: "auto_matched",
           match_confidence: m.confidence,
           matched_at: new Date().toISOString(),
-          matched_by: user.id,
+          matched_by: matchedBy,
         };
         if (m.matched_type === "invoice") {
           updateData.matched_invoice_id = m.matched_id;
