@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      _a1_cron_snapshot_20260802: {
+        Row: {
+          active: boolean | null
+          command: string | null
+          database: string | null
+          jobid: number | null
+          jobname: string | null
+          schedule: string | null
+          taken_at: string | null
+          username: string | null
+        }
+        Insert: {
+          active?: boolean | null
+          command?: string | null
+          database?: string | null
+          jobid?: number | null
+          jobname?: string | null
+          schedule?: string | null
+          taken_at?: string | null
+          username?: string | null
+        }
+        Update: {
+          active?: boolean | null
+          command?: string | null
+          database?: string | null
+          jobid?: number | null
+          jobname?: string | null
+          schedule?: string | null
+          taken_at?: string | null
+          username?: string | null
+        }
+        Relationships: []
+      }
       ai_agent_config: {
         Row: {
           behavior_config: Json
@@ -1399,6 +1432,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      finance_runtime_config: {
+        Row: {
+          created_at: string
+          description: string | null
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
       }
       interactions: {
         Row: {
