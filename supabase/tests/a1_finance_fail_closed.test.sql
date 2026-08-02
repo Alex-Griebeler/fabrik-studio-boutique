@@ -3,7 +3,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(28);
+SELECT plan(31);
 
 -- ─── Tabela de runtime config ────────────────────────────────────────────
 
@@ -157,6 +157,57 @@ SELECT is(
   ),
   0::bigint,
   'no finance cron job still sends an Authorization header'
+);
+
+-- ─── Contexto de execucao preservado (A1.1) ──────────────────────────────
+--
+-- A migration recria os jobs na mesma sessao e aborta (passagem 1c) se
+-- encontrar job inativo ou de outro usuario/database. No estado final,
+-- nenhum job financeiro pode ter mudado de contexto.
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE (
+        command LIKE '%/daily-finance-cron%'
+        OR command LIKE '%/generate-monthly-invoices%'
+        OR command LIKE '%/calculate-invoice-penalties%'
+      )
+      AND NOT active
+  ),
+  0::bigint,
+  'every finance cron job remains active after the rewrite'
+);
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE (
+        command LIKE '%/daily-finance-cron%'
+        OR command LIKE '%/generate-monthly-invoices%'
+        OR command LIKE '%/calculate-invoice-penalties%'
+      )
+      AND username <> current_user
+  ),
+  0::bigint,
+  'every finance cron job keeps the executing username'
+);
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE (
+        command LIKE '%/daily-finance-cron%'
+        OR command LIKE '%/generate-monthly-invoices%'
+        OR command LIKE '%/calculate-invoice-penalties%'
+      )
+      AND database <> current_database()
+  ),
+  0::bigint,
+  'every finance cron job keeps the target database'
 );
 
 -- ─── Regra suportada pela migration ──────────────────────────────────────

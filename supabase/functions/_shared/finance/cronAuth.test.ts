@@ -114,6 +114,43 @@ describe("requireFinanceAuth", () => {
     expect((result as Response).status).toBe(401);
   });
 
+  // A1.1: header PRESENTE porem vazio/em branco tambem decide aqui — nunca
+  // cai para service_role nem para staff.
+  it("nega com 401 header de segredo vazio mesmo com Bearer service_role válido", async () => {
+    const fake = setup();
+
+    const result = await requireFinanceAuth(
+      {
+        req: request({
+          "x-finance-cron-secret": "",
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        }),
+      },
+      dependencies,
+    );
+
+    expect((result as Response).status).toBe(401);
+    // Barrado pelo formato, antes de qualquer I/O.
+    expect(fake.queries).toHaveLength(0);
+  });
+
+  it("nega com 401 header de segredo em branco mesmo com JWT staff permitido", async () => {
+    setup();
+
+    const result = await requireFinanceAuth(
+      {
+        req: request({
+          "x-finance-cron-secret": "   ",
+          Authorization: "Bearer user-jwt",
+        }),
+        allowStaffRoles: ["admin"],
+      },
+      dependencies,
+    );
+
+    expect((result as Response).status).toBe(401);
+  });
+
   // (c) criterio: service_role valido => autorizado
   it("autoriza Bearer service_role sem consultar o banco", async () => {
     const fake = setup();

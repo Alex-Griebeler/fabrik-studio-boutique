@@ -156,6 +156,37 @@ BEGIN
         'A migration substitui somente headers em literal SQL convertido para jsonb e preserva o body original. Normalize os headers antes de aplicar; ela nao tenta editar expressoes arbitrarias.';
   END IF;
 
+  -- ── Passagem 1c: contexto de execucao. ──────────────────────────────────
+  --
+  -- cron.schedule registra o job recriado como ATIVO, pertencente ao usuario
+  -- e database da sessao corrente. Para job que sera de fato reescrito, isso
+  -- reativaria um job pausado ou trocaria o executor em silencio. Fail-closed:
+  -- aborta antes do primeiro unschedule. Job ja seguro fica fora da guarda
+  -- porque a passagem 2 o pula sem recriar (CONTINUE), preservando tudo.
+  SELECT string_agg(COALESCE(jobname, '<sem nome>'), ', ')
+  INTO offending
+  FROM cron.job
+  WHERE (
+      command LIKE '%/daily-finance-cron%'
+      OR command LIKE '%/generate-monthly-invoices%'
+      OR command LIKE '%/calculate-invoice-penalties%'
+    )
+    AND NOT (
+      command ILIKE '%x-finance-cron-secret%'
+      AND command LIKE '%public.finance_runtime_config%'
+      AND command ILIKE '%COALESCE%'
+      AND command NOT ILIKE '%authorization%'
+      AND command ~* $re$body\s*:=$re$
+    )
+    AND (NOT active OR username <> current_user OR database <> current_database());
+
+  IF offending IS NOT NULL THEN
+    RAISE EXCEPTION
+      'A1: job(s) financeiro(s) inativo(s) ou de outro usuario/database: %', offending
+      USING HINT =
+        'Recriar este job mudaria active/username/database em silencio. Reative ou ajuste o job manualmente (ou estenda esta migration) antes de aplicar.';
+  END IF;
+
   -- ── Passagem 2: reescrita. Aqui todo job do snapshot ja e suportado. ─────
   FOR finance_job IN SELECT * FROM jsonb_array_elements(finance_jobs)
   LOOP
