@@ -47,6 +47,33 @@ export type Database = {
         }
         Relationships: []
       }
+      _a21_bank_snapshot_20260802: {
+        Row: {
+          auto_matched: number | null
+          despesas: number | null
+          faturas: number | null
+          imports: number | null
+          taken_at: string | null
+          transacoes: number | null
+        }
+        Insert: {
+          auto_matched?: number | null
+          despesas?: number | null
+          faturas?: number | null
+          imports?: number | null
+          taken_at?: string | null
+          transacoes?: number | null
+        }
+        Update: {
+          auto_matched?: number | null
+          despesas?: number | null
+          faturas?: number | null
+          imports?: number | null
+          taken_at?: string | null
+          transacoes?: number | null
+        }
+        Relationships: []
+      }
       ai_agent_config: {
         Row: {
           behavior_config: Json
