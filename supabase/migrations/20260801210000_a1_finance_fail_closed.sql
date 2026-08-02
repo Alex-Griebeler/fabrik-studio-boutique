@@ -13,15 +13,17 @@
 --   * reaponta os jobs financeiros JA EXISTENTES para mandar o header,
 --     preservando jobname, schedule e body original de cada um.
 --
--- Regra suportada e fail-closed transacional (nao ha como validar contra
--- producao neste gate, entao a migration se recusa a adivinhar):
---   * suportado = job cujo comando usa `net.http_post` E cujo `body` e um
---     literal jsonb entre aspas. Esses sao reescritos com fidelidade;
+-- Regra suportada e fail-closed transacional:
+--   * suportado = job cujo comando usa `net.http_post` e cuja clausula
+--     `headers` e um literal SQL convertido para jsonb, seguida de `body :=`,
+--     OU job que ja contem o contrato seguro gerado por esta migration;
+--   * a migration troca SOMENTE essa clausula de headers no comando original.
+--     URL, body (inclusive expressoes dinamicas com `now()`) e todo o sufixo
+--     permanecem byte a byte como estavam;
 --   * qualquer outra forma de invocacao => RAISE EXCEPTION. Pular o job o
 --     deixaria tomando 401 em silencio depois do deploy;
---   * body dinamico (jsonb_build_object, variavel) => RAISE EXCEPTION. Nao e
---     recuperavel do texto do comando, e trocar o payload por '{}' seria
---     mudanca de comportamento nao autorizada;
+--   * headers dinamicos ou em formato desconhecido => RAISE EXCEPTION. Nao e
+--     seguro tentar editar uma expressao arbitraria;
 --   * as duas validacoes rodam ANTES do primeiro unschedule. Combinadas com a
 --     transacao da migration, garantem tudo-ou-nada: nenhum job fica
 --     parcialmente reagendado;
@@ -81,7 +83,7 @@ DECLARE
   finance_job jsonb;
   target_function text;
   job_name text;
-  legacy_body text;
+  rewritten_command text;
   offending text;
   rewritten integer := 0;
 BEGIN
@@ -136,15 +138,22 @@ BEGIN
   INTO offending
   FROM jsonb_array_elements(finance_jobs) AS job
   WHERE substring(
-    job->>'command'
-    from $re$body\s*:=\s*('(?:[^']|'')*')\s*::\s*jsonb$re$
-  ) IS NULL;
+      job->>'command'
+      from $re$headers\s*:=\s*('(?:[^']|'')*')\s*::\s*jsonb\s*,\s*body\s*:=$re$
+    ) IS NULL
+    AND NOT (
+      job->>'command' ILIKE '%x-finance-cron-secret%'
+      AND job->>'command' LIKE '%public.finance_runtime_config%'
+      AND job->>'command' ILIKE '%COALESCE%'
+      AND job->>'command' NOT ILIKE '%authorization%'
+      AND job->>'command' ~* $re$body\s*:=$re$
+    );
 
   IF offending IS NOT NULL THEN
     RAISE EXCEPTION
-      'A1: job(s) financeiro(s) com body dinamico, impossivel de preservar: %', offending
+      'A1: job(s) financeiro(s) com clausula de headers nao suportada: %', offending
       USING HINT =
-        'Body construido em tempo de execucao (jsonb_build_object, variavel) nao e recuperavel do texto do comando. Converta para literal jsonb antes de aplicar; esta migration nao substitui o payload.';
+        'A migration substitui somente headers em literal SQL convertido para jsonb e preserva o body original. Normalize os headers antes de aplicar; ela nao tenta editar expressoes arbitrarias.';
   END IF;
 
   -- ── Passagem 2: reescrita. Aqui todo job do snapshot ja e suportado. ─────
@@ -174,44 +183,58 @@ BEGIN
       'finance-' || target_function || '-' || (finance_job->>'jobid')
     );
 
-    -- Preserva o body original literalmente. A captura exige literal
-    -- bem-formado (aspas internas dobradas), entao reemiti-lo produz
-    -- exatamente o mesmo literal — nao ha superficie de injecao. A passagem 1
-    -- ja garantiu que todo job do snapshot casa com este padrao, entao aqui
-    -- o resultado nunca e NULL.
-    legacy_body := substring(
-      finance_job->>'command'
-      from $re$body\s*:=\s*('(?:[^']|'')*')\s*::\s*jsonb$re$
-    );
+    -- Idempotencia estrita: se o job ja tem exatamente os marcadores do
+    -- contrato seguro produzido abaixo, nao altera nem mesmo o jobid.
+    IF finance_job->>'command' ILIKE '%x-finance-cron-secret%'
+       AND finance_job->>'command' LIKE '%public.finance_runtime_config%'
+       AND finance_job->>'command' ILIKE '%COALESCE%'
+       AND finance_job->>'command' NOT ILIKE '%authorization%'
+       AND finance_job->>'command' ~* $re$body\s*:=$re$
+    THEN
+      rewritten := rewritten + 1;
+      RAISE NOTICE 'A1: job "%" ja possui headers financeiros seguros; nenhuma alteracao',
+        job_name;
+      CONTINUE;
+    END IF;
 
-    PERFORM cron.unschedule((finance_job->>'jobid')::bigint);
-
-    -- Os headers sao reconstruidos do zero. Esse e o ponto do reagendamento:
-    -- qualquer Authorization legado (JWT anonimo ou service_role literal) que
-    -- estivesse no comando antigo deixa de existir em cron.job.
-    PERFORM cron.schedule(
-      job_name,
-      finance_job->>'schedule',
-      format(
-        $job$
-        SELECT net.http_post(
-          url := 'https://hcfzqeutssngprldtymo.functions.supabase.co/%s',
-          headers := jsonb_build_object(
+    -- Reescreve somente a clausula de headers do comando original. O regex
+    -- consome ate o marcador `body :=` e o reemite; todo o texto posterior
+    -- (a expressao do body, eventual AS request_id e ponto-e-virgula) nao
+    -- participa do match e permanece byte a byte. A passagem 1 garante que
+    -- existe exatamente a forma suportada antes de qualquer unschedule.
+    rewritten_command := regexp_replace(
+      finance_job->>'command',
+      $re$headers\s*:=\s*'(?:[^']|'')*'\s*::\s*jsonb\s*,\s*body\s*:=$re$,
+      $headers$headers := jsonb_build_object(
             'Content-Type', 'application/json',
             'x-finance-cron-secret',
             COALESCE((SELECT value FROM public.finance_runtime_config WHERE key = 'cron_secret'), '')
           ),
-          body := %s::jsonb
-        );
-        $job$,
-        target_function,
-        legacy_body
-      )
+          body :=$headers$,
+      'i'
+    );
+
+    IF rewritten_command = finance_job->>'command'
+       OR rewritten_command ILIKE '%authorization%'
+       OR rewritten_command NOT LIKE '%public.finance_runtime_config%'
+    THEN
+      RAISE EXCEPTION
+        'A1: reescrita de headers nao produziu o contrato seguro para o job "%"', job_name;
+    END IF;
+
+    PERFORM cron.unschedule((finance_job->>'jobid')::bigint);
+
+    -- Os headers foram reconstruidos do zero no proprio comando. Qualquer
+    -- Authorization legado deixa de existir; URL e body permanecem intactos.
+    PERFORM cron.schedule(
+      job_name,
+      finance_job->>'schedule',
+      rewritten_command
     );
 
     rewritten := rewritten + 1;
-    RAISE NOTICE 'A1: job "%" (schedule %) reapontado para %; body preservado: %',
-      job_name, finance_job->>'schedule', target_function, legacy_body;
+    RAISE NOTICE 'A1: job "%" (schedule %) reapontado para %; comando preservado fora dos headers',
+      job_name, finance_job->>'schedule', target_function;
   END LOOP;
 
   IF rewritten = 0 THEN

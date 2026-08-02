@@ -1,7 +1,8 @@
 -- Minimal production-contract fixture for the A1 finance migration tests.
 -- Used only by GitHub Actions in an ephemeral Supabase project.
--- The three intentionally legacy jobs model the state the migration must
--- rewrite without changing names, schedules, targets, or literal JSON bodies.
+-- The three intentionally legacy jobs model the production command shape:
+-- JSON-literal headers plus a dynamic body built with concat(..., now(), ...).
+-- The migration must replace only the headers and preserve everything else.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
@@ -12,12 +13,9 @@ SELECT cron.schedule(
   $job$
     SELECT net.http_post(
       url := 'https://hcfzqeutssngprldtymo.functions.supabase.co/daily-finance-cron',
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer fixture-legacy-token'
-      ),
-      body := '{"source":"fixture","dryRun":false}'::jsonb
-    );
+      headers := '{"Content-Type":"application/json","Authorization":"Bearer fixture-legacy-token"}'::jsonb,
+      body := concat('{"source":"fixture","triggered_at":"', now(), '","dryRun":false}')::jsonb
+    ) AS request_id;
   $job$
 );
 
@@ -27,12 +25,9 @@ SELECT cron.schedule(
   $job$
     SELECT net.http_post(
       url := 'https://hcfzqeutssngprldtymo.functions.supabase.co/generate-monthly-invoices',
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer fixture-legacy-token'
-      ),
-      body := '{"source":"fixture","validateOnly":true}'::jsonb
-    );
+      headers := '{"Content-Type":"application/json","Authorization":"Bearer fixture-legacy-token"}'::jsonb,
+      body := concat('{"source":"fixture","triggered_at":"', now(), '","validateOnly":true}')::jsonb
+    ) AS request_id;
   $job$
 );
 
@@ -43,11 +38,8 @@ SELECT cron.schedule(
   $job$
     SELECT net.http_post(
       url := 'https://hcfzqeutssngprldtymo.functions.supabase.co/calculate-invoice-penalties',
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer fixture-legacy-token'
-      ),
-      body := '{"source":"fixture","apply":false}'::jsonb
-    );
+      headers := '{"Content-Type":"application/json","Authorization":"Bearer fixture-legacy-token"}'::jsonb,
+      body := concat('{"source":"fixture","triggered_at":"', now(), '","apply":false}')::jsonb
+    ) AS request_id;
   $job$
 );

@@ -161,8 +161,9 @@ SELECT is(
 
 -- ─── Regra suportada pela migration ──────────────────────────────────────
 --
--- A migration só reescreve job com `net.http_post` e `body` literal, e aborta
--- (RAISE EXCEPTION, antes de qualquer unschedule) se encontrar outra forma.
+-- A migration só reescreve job com `net.http_post` e headers em literal SQL
+-- convertido para jsonb, e aborta antes do primeiro unschedule se encontrar
+-- outra forma. O body pode ser dinamico porque ele nao e reconstituido.
 -- As duas asserções abaixo são o espelho dessa regra no estado final: se
 -- passarem, todo job financeiro existente está dentro do que a migration
 -- sabe manter fiel.
@@ -191,12 +192,10 @@ SELECT is(
         OR command LIKE '%/generate-monthly-invoices%'
         OR command LIKE '%/calculate-invoice-penalties%'
       )
-      AND substring(
-        command from $re$body\s*:=\s*('(?:[^']|'')*')\s*::\s*jsonb$re$
-      ) IS NULL
+      AND command !~* $re$body\s*:=$re$
   ),
   0::bigint,
-  'every finance cron job carries a preservable literal jsonb body'
+  'every finance cron job retains its body argument'
 );
 
 -- Vale para QUALQUER job, não só os financeiros: o segredo desta tabela não
@@ -281,10 +280,12 @@ SELECT is(
     SELECT count(*)
     FROM cron.job
     WHERE jobname = 'fixture-daily-finance'
-      AND command LIKE '%''{"source":"fixture","dryRun":false}''::jsonb%'
+      AND command LIKE '%concat(''%"source":"fixture"%triggered_at%''%'
+      AND command LIKE '%now()%'
+      AND command LIKE '%"dryRun":false%'
   ),
   1::bigint,
-  'the daily finance JSON body is preserved literally'
+  'the dynamic daily finance body is preserved'
 );
 
 SELECT is(
@@ -292,10 +293,12 @@ SELECT is(
     SELECT count(*)
     FROM cron.job
     WHERE jobname = 'fixture-monthly-invoices'
-      AND command LIKE '%''{"source":"fixture","validateOnly":true}''::jsonb%'
+      AND command LIKE '%concat(''%"source":"fixture"%triggered_at%''%'
+      AND command LIKE '%now()%'
+      AND command LIKE '%"validateOnly":true%'
   ),
   1::bigint,
-  'the monthly invoice JSON body is preserved literally'
+  'the dynamic monthly invoice body is preserved'
 );
 
 SELECT is(
@@ -303,10 +306,12 @@ SELECT is(
     SELECT count(*)
     FROM cron.job
     WHERE jobname LIKE 'finance-calculate-invoice-penalties-%'
-      AND command LIKE '%''{"source":"fixture","apply":false}''::jsonb%'
+      AND command LIKE '%concat(''%"source":"fixture"%triggered_at%''%'
+      AND command LIKE '%now()%'
+      AND command LIKE '%"apply":false%'
   ),
   1::bigint,
-  'the penalty JSON body is preserved literally'
+  'the dynamic penalty body is preserved'
 );
 
 SELECT * FROM finish();
