@@ -166,11 +166,11 @@ export function parseMatchRequest(raw: unknown): MatchRequest | BankRequestError
     return { importId: null, autoApply };
   }
 
-  if (typeof importId !== "string" || importId.length === 0) {
+  if (typeof importId !== "string" || importId.trim().length === 0) {
     return { error: "import_id inválido", status: 400 };
   }
 
-  return { importId, autoApply };
+  return { importId: importId.trim(), autoApply };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

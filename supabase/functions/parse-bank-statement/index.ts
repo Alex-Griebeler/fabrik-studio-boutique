@@ -440,9 +440,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Fail-closed: exige staff admin/manager (ou service_role interno) ANTES
-    // de ler o corpo e antes do parser pesado. Antes bastava estar
-    // autenticado, e o parse de XLSX arbitrario rodava para qualquer conta.
+    // Fail-closed: exige JWT de staff admin/manager ANTES de ler o corpo e
+    // antes do parser pesado. Antes bastava estar autenticado, e o parse de
+    // XLSX arbitrario rodava para qualquer conta.
     const auth = await requireBankStaff(req, { createClient });
     if (auth instanceof Response) return auth;
 

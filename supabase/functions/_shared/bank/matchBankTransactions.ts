@@ -48,9 +48,9 @@ export async function handleMatchBankTransactions(
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Fail-closed: exige staff admin/manager (ou service_role interno) ANTES
-    // de qualquer leitura. Antes bastava estar autenticado — JWT de aluno
-    // passava e conseguia conciliar todo o financeiro.
+    // Fail-closed: exige JWT de staff admin/manager ANTES de qualquer
+    // leitura. Antes bastava estar autenticado — JWT de aluno passava e
+    // conseguia conciliar todo o financeiro.
     const auth = await requireBankStaff(req, deps);
     if (auth instanceof Response) return auth;
 
@@ -273,11 +273,38 @@ export async function handleMatchBankTransactions(
 
     // 5. If auto_apply, apply high-confidence matches directly
     let applied = 0;
+    let failed = 0;
     /** Taxas efetivamente gravadas, por transacao aplicada. Alimenta o passo 6. */
     const appliedFees = new Map<string, number>();
     if (autoApply) {
       const highMatches = suggestions.filter(s => s.confidence === "high");
       for (const m of highMatches) {
+        // Ordem deliberada: quita a fatura/despesa ANTES de marcar a transacao
+        // como conciliada. Se este passo falhar, a transacao segue `unmatched`
+        // e uma nova execucao tenta de novo. No sentido inverso, a transacao
+        // sairia do filtro `unmatched` e o retry nunca mais a alcancaria —
+        // ficaria conciliada com a fatura ainda em aberto, em silencio.
+        const matchedTx = transactions.find(t => t.id === m.transaction_id);
+        const { error: linkError } = m.matched_type === "invoice"
+          ? await supabase.from("invoices").update({
+            status: "paid",
+            payment_date: matchedTx?.posted_date,
+            paid_amount_cents: matchedTx ? Math.abs(matchedTx.amount_cents) : null,
+          }).eq("id", m.matched_id)
+          : await supabase.from("expenses").update({
+            status: "paid",
+            payment_date: matchedTx?.posted_date,
+          }).eq("id", m.matched_id);
+
+        if (linkError) {
+          failed++;
+          console.error(
+            `match-bank-transactions: falha ao quitar ${m.matched_type} do match`,
+            linkError.message,
+          );
+          continue;
+        }
+
         const updateData: Record<string, unknown> = {
           match_status: "auto_matched",
           match_confidence: m.confidence,
@@ -289,43 +316,35 @@ export async function handleMatchBankTransactions(
         } else {
           updateData.matched_expense_id = m.matched_id;
         }
+
+        // Taxa de maquininha: gravada junto do proprio match. Antes o preview
+        // gravava a taxa de qualquer sugestao, e a despesa correspondente so
+        // nascia numa execucao seguinte, quando a transacao era relida ja com
+        // a taxa. Como a transacao aplicada vira `auto_matched` e sai do filtro
+        // `unmatched`, essa segunda passada deixou de existir: o valor
+        // calculado aqui e a unica fonte.
+        const feeCents = pendingFees.get(m.transaction_id);
+        if (feeCents && feeCents > 0) updateData.processor_fee_cents = feeCents;
+
         const { error } = await supabase
           .from("bank_transactions")
           .update(updateData)
           .eq("id", m.transaction_id);
 
-        if (!error) {
-          applied++;
-
-          // Taxa de maquininha: gravada SOMENTE para o match que acabou de ser
-          // aplicado. Antes o preview gravava a taxa de qualquer sugestao, e a
-          // despesa correspondente so nascia numa execucao seguinte, quando a
-          // transacao era relida ja com a taxa. Como a transacao aplicada vira
-          // `auto_matched` e sai do filtro `unmatched`, essa segunda passada
-          // deixou de existir: o valor calculado aqui e a unica fonte.
-          const feeCents = pendingFees.get(m.transaction_id);
-          if (feeCents && feeCents > 0) {
-            const { error: feeErr } = await supabase
-              .from("bank_transactions")
-              .update({ processor_fee_cents: feeCents })
-              .eq("id", m.transaction_id);
-            if (!feeErr) appliedFees.set(m.transaction_id, feeCents);
-          }
-
-          const matchedTx = transactions.find(t => t.id === m.transaction_id);
-          if (m.matched_type === "invoice") {
-            await supabase.from("invoices").update({
-              status: "paid",
-              payment_date: matchedTx?.posted_date,
-              paid_amount_cents: matchedTx ? Math.abs(matchedTx.amount_cents) : null,
-            }).eq("id", m.matched_id);
-          } else {
-            await supabase.from("expenses").update({
-              status: "paid",
-              payment_date: matchedTx?.posted_date,
-            }).eq("id", m.matched_id);
-          }
+        if (error) {
+          // A fatura ja foi quitada acima. Ela sai de `pending`/`overdue`, entao
+          // uma nova execucao nao a casa de novo — nao ha risco de aplicar duas
+          // vezes; a transacao apenas fica para conciliacao manual.
+          failed++;
+          console.error(
+            "match-bank-transactions: falha ao marcar transação conciliada",
+            error.message,
+          );
+          continue;
         }
+
+        applied++;
+        if (feeCents && feeCents > 0) appliedFees.set(m.transaction_id, feeCents);
       }
     }
 
@@ -379,6 +398,10 @@ export async function handleMatchBankTransactions(
         medium_confidence: suggestions.filter(s => s.confidence === "medium").length,
         low_confidence: suggestions.filter(s => s.confidence === "low").length,
         auto_applied: applied,
+        // Match de alta confianca que nao pode ser aplicado. Antes esses erros
+        // eram engolidos e a resposta dizia sucesso mesmo com a fatura em
+        // aberto; agora aparecem para quem chamou.
+        auto_failed: failed,
       },
     });
   } catch (error) {

@@ -54,7 +54,7 @@ const REDE_INVOICE = {
   contract_id: "contract-1",
 };
 
-function setup(options: { role?: string | null } = {}) {
+function setup(options: { role?: string | null; invoiceUpdateError?: string } = {}) {
   const fake = createFakeSupabase((query) => {
     if (query.table === "user_roles") {
       const role = options.role === undefined ? "manager" : options.role;
@@ -65,7 +65,11 @@ function setup(options: { role?: string | null } = {}) {
       return { data: [REDE_TX] };
     }
     if (query.table === "invoices") {
-      if (used(query, "update")) return { data: null };
+      if (used(query, "update")) {
+        return options.invoiceUpdateError
+          ? { data: null, error: { message: options.invoiceUpdateError } }
+          : { data: null };
+      }
       return { data: [REDE_INVOICE] };
     }
     if (query.table === "expenses") {
@@ -262,6 +266,48 @@ describe("handleMatchBankTransactions", () => {
       expect(statusUpdate).toMatchObject({
         match_status: "auto_matched",
         matched_by: "user-for-jwt-manager",
+      });
+    });
+
+    // Antes, o erro de quitação era engolido: a transação virava conciliada,
+    // a despesa de taxa nascia e a resposta dizia sucesso — com a fatura ainda
+    // em aberto e sem retry possível, porque a transação saía do filtro.
+    it("não conta como aplicado quando a quitação da fatura falha", async () => {
+      const fake = setup({ invoiceUpdateError: "permission denied" });
+
+      const res = await handleMatchBankTransactions(
+        request({ auto_apply: true }),
+        dependencies,
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        stats: { auto_applied: 0, auto_failed: 1 },
+      });
+
+      // A transação NÃO foi marcada como conciliada — assim o retry alcança.
+      const txUpdates = fake.queries.filter(
+        (q) => q.table === "bank_transactions" && used(q, "update"),
+      );
+      expect(txUpdates).toHaveLength(0);
+
+      // E nenhuma despesa de taxa nasceu de um match que não fechou.
+      expect(fake.queries.some((q) => q.table === "expenses" && used(q, "insert"))).toBe(false);
+    });
+
+    it("grava a taxa no mesmo update do match, não em escrita separada", async () => {
+      const fake = setup();
+
+      await handleMatchBankTransactions(request({ auto_apply: true }), dependencies);
+
+      const txUpdates = fake.queries
+        .filter((q) => q.table === "bank_transactions" && used(q, "update"))
+        .map((q) => q.ops.find((op) => op.method === "update")?.args[0] as Record<string, unknown>);
+
+      expect(txUpdates).toHaveLength(1);
+      expect(txUpdates[0]).toMatchObject({
+        match_status: "auto_matched",
+        processor_fee_cents: 300,
       });
     });
 
