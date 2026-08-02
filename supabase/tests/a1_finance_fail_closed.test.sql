@@ -3,7 +3,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(18);
+SELECT plan(28);
 
 -- ─── Tabela de runtime config ────────────────────────────────────────────
 
@@ -212,6 +212,101 @@ SELECT is(
   ),
   0::bigint,
   'the finance cron secret is never materialized into any cron command'
+);
+
+-- ─── Fidelidade e idempotencia do reagendamento ─────────────────────────
+--
+-- O fixture aplica esta migration duas vezes. Estas assercoes provam que a
+-- segunda execucao nao duplica jobs e que nome, schedule e body sobrevivem.
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE command LIKE '%/daily-finance-cron%'
+       OR command LIKE '%/generate-monthly-invoices%'
+       OR command LIKE '%/calculate-invoice-penalties%'
+  ),
+  3::bigint,
+  'rerunning the migration leaves exactly the three original finance jobs'
+);
+
+SELECT is(
+  (SELECT count(*) FROM cron.job WHERE jobname = 'fixture-daily-finance'),
+  1::bigint,
+  'the named daily finance job is not duplicated'
+);
+
+SELECT is(
+  (SELECT count(*) FROM cron.job WHERE jobname = 'fixture-monthly-invoices'),
+  1::bigint,
+  'the named monthly invoice job is not duplicated'
+);
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE jobname LIKE 'finance-calculate-invoice-penalties-%'
+      AND command LIKE '%/calculate-invoice-penalties%'
+  ),
+  1::bigint,
+  'the unnamed penalty job receives one deterministic collision-safe name'
+);
+
+SELECT is(
+  (SELECT schedule FROM cron.job WHERE jobname = 'fixture-daily-finance'),
+  '40 21 * * *',
+  'the daily finance schedule is preserved'
+);
+
+SELECT is(
+  (SELECT schedule FROM cron.job WHERE jobname = 'fixture-monthly-invoices'),
+  '5 8 1 * *',
+  'the monthly invoice schedule is preserved'
+);
+
+SELECT is(
+  (
+    SELECT schedule
+    FROM cron.job
+    WHERE jobname LIKE 'finance-calculate-invoice-penalties-%'
+  ),
+  '10 2 * * *',
+  'the unnamed penalty schedule is preserved'
+);
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE jobname = 'fixture-daily-finance'
+      AND command LIKE '%''{"source":"fixture","dryRun":false}''::jsonb%'
+  ),
+  1::bigint,
+  'the daily finance JSON body is preserved literally'
+);
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE jobname = 'fixture-monthly-invoices'
+      AND command LIKE '%''{"source":"fixture","validateOnly":true}''::jsonb%'
+  ),
+  1::bigint,
+  'the monthly invoice JSON body is preserved literally'
+);
+
+SELECT is(
+  (
+    SELECT count(*)
+    FROM cron.job
+    WHERE jobname LIKE 'finance-calculate-invoice-penalties-%'
+      AND command LIKE '%''{"source":"fixture","apply":false}''::jsonb%'
+  ),
+  1::bigint,
+  'the penalty JSON body is preserved literally'
 );
 
 SELECT * FROM finish();
