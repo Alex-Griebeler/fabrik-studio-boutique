@@ -77,7 +77,7 @@ export async function handleMatchBankTransactions(
       return json({ error: "Erro ao buscar transações" }, 500);
     }
     if (!transactions || transactions.length === 0) {
-      return json({ success: true, message: "Nenhuma transação não conciliada", matches: [], stats: { total_transactions: 0, total_matches: 0, high_confidence: 0, medium_confidence: 0, low_confidence: 0, auto_applied: 0 } });
+      return json({ success: true, message: "Nenhuma transação não conciliada", matches: [], stats: { total_transactions: 0, total_matches: 0, high_confidence: 0, medium_confidence: 0, low_confidence: 0, auto_applied: 0, auto_failed: 0 } });
     }
 
     // 2. Fetch pending invoices (for credit matching)
@@ -279,32 +279,15 @@ export async function handleMatchBankTransactions(
     if (autoApply) {
       const highMatches = suggestions.filter(s => s.confidence === "high");
       for (const m of highMatches) {
-        // Ordem deliberada: quita a fatura/despesa ANTES de marcar a transacao
-        // como conciliada. Se este passo falhar, a transacao segue `unmatched`
-        // e uma nova execucao tenta de novo. No sentido inverso, a transacao
-        // sairia do filtro `unmatched` e o retry nunca mais a alcancaria —
-        // ficaria conciliada com a fatura ainda em aberto, em silencio.
         const matchedTx = transactions.find(t => t.id === m.transaction_id);
-        const { error: linkError } = m.matched_type === "invoice"
-          ? await supabase.from("invoices").update({
-            status: "paid",
-            payment_date: matchedTx?.posted_date,
-            paid_amount_cents: matchedTx ? Math.abs(matchedTx.amount_cents) : null,
-          }).eq("id", m.matched_id)
-          : await supabase.from("expenses").update({
-            status: "paid",
-            payment_date: matchedTx?.posted_date,
-          }).eq("id", m.matched_id);
 
-        if (linkError) {
-          failed++;
-          console.error(
-            `match-bank-transactions: falha ao quitar ${m.matched_type} do match`,
-            linkError.message,
-          );
-          continue;
-        }
-
+        // Ordem: reserva a transacao PRIMEIRO, depois quita a obrigacao.
+        //
+        // O inverso parece mais seguro e nao e: se a fatura fosse quitada antes
+        // e a marcacao da transacao falhasse, a fatura sairia de
+        // `pending`/`overdue` enquanto a transacao continuaria `unmatched` —
+        // e na proxima execucao essa MESMA entrada bancaria poderia quitar uma
+        // SEGUNDA fatura de valor parecido. Um pagamento pagando duas contas.
         const updateData: Record<string, unknown> = {
           match_status: "auto_matched",
           match_confidence: m.confidence,
@@ -317,12 +300,11 @@ export async function handleMatchBankTransactions(
           updateData.matched_expense_id = m.matched_id;
         }
 
-        // Taxa de maquininha: gravada junto do proprio match. Antes o preview
-        // gravava a taxa de qualquer sugestao, e a despesa correspondente so
-        // nascia numa execucao seguinte, quando a transacao era relida ja com
-        // a taxa. Como a transacao aplicada vira `auto_matched` e sai do filtro
-        // `unmatched`, essa segunda passada deixou de existir: o valor
-        // calculado aqui e a unica fonte.
+        // Taxa de maquininha vai no mesmo update do match, e nao numa segunda
+        // escrita que poderia falhar sozinha. Antes o preview gravava a taxa de
+        // qualquer sugestao e a despesa so nascia numa execucao seguinte;
+        // como a transacao aplicada sai do filtro `unmatched`, essa segunda
+        // passada deixou de existir e o valor calculado aqui e a unica fonte.
         const feeCents = pendingFees.get(m.transaction_id);
         if (feeCents && feeCents > 0) updateData.processor_fee_cents = feeCents;
 
@@ -332,14 +314,62 @@ export async function handleMatchBankTransactions(
           .eq("id", m.transaction_id);
 
         if (error) {
-          // A fatura ja foi quitada acima. Ela sai de `pending`/`overdue`, entao
-          // uma nova execucao nao a casa de novo — nao ha risco de aplicar duas
-          // vezes; a transacao apenas fica para conciliacao manual.
+          // Nada foi alterado: a obrigacao segue em aberto e a transacao segue
+          // `unmatched`. O retry reencontra exatamente o mesmo par.
           failed++;
           console.error(
-            "match-bank-transactions: falha ao marcar transação conciliada",
+            "match-bank-transactions: falha ao reservar a transação",
             error.message,
           );
+          continue;
+        }
+
+        const { error: linkError } = m.matched_type === "invoice"
+          ? await supabase.from("invoices").update({
+            status: "paid",
+            payment_date: matchedTx?.posted_date,
+            paid_amount_cents: matchedTx ? Math.abs(matchedTx.amount_cents) : null,
+          }).eq("id", m.matched_id)
+          : await supabase.from("expenses").update({
+            status: "paid",
+            payment_date: matchedTx?.posted_date,
+          }).eq("id", m.matched_id);
+
+        if (linkError) {
+          // Compensacao: devolve a transacao ao estado anterior. A obrigacao
+          // continua em aberto, entao o retry reencontra o mesmo par — em vez
+          // de deixar a transacao conciliada apontando para uma fatura que
+          // nunca foi quitada.
+          failed++;
+          console.error(
+            `match-bank-transactions: falha ao quitar ${m.matched_type}; revertendo a reserva`,
+            linkError.message,
+          );
+
+          const { error: revertError } = await supabase
+            .from("bank_transactions")
+            .update({
+              match_status: "unmatched",
+              match_confidence: null,
+              matched_at: null,
+              matched_by: null,
+              matched_invoice_id: null,
+              matched_expense_id: null,
+              processor_fee_cents: null,
+            })
+            .eq("id", m.transaction_id);
+
+          if (revertError) {
+            // Unico caminho que deixa estado parcial, e ele fica gritando no
+            // log: transacao reservada sem obrigacao quitada. Exige conferencia
+            // manual; nao ha reaplicacao automatica porque ela saiu do filtro.
+            console.error(
+              "match-bank-transactions: reversão falhou; transação",
+              m.transaction_id,
+              "ficou reservada sem quitação",
+              revertError.message,
+            );
+          }
           continue;
         }
 
@@ -389,7 +419,9 @@ export async function handleMatchBankTransactions(
     }
 
     return json({
-      success: true,
+      // Deixa de afirmar sucesso quando algum match de alta confianca nao pode
+      // ser aplicado: os numeros abaixo mostram o que ficou de fora.
+      success: failed === 0,
       matches: suggestions,
       stats: {
         total_transactions: transactions.length,

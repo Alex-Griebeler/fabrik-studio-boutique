@@ -272,7 +272,7 @@ describe("handleMatchBankTransactions", () => {
     // Antes, o erro de quitação era engolido: a transação virava conciliada,
     // a despesa de taxa nascia e a resposta dizia sucesso — com a fatura ainda
     // em aberto e sem retry possível, porque a transação saía do filtro.
-    it("não conta como aplicado quando a quitação da fatura falha", async () => {
+    it("não reporta sucesso quando a quitação da fatura falha", async () => {
       const fake = setup({ invoiceUpdateError: "permission denied" });
 
       const res = await handleMatchBankTransactions(
@@ -280,19 +280,36 @@ describe("handleMatchBankTransactions", () => {
         dependencies,
       );
 
-      expect(res.status).toBe(200);
       await expect(res.json()).resolves.toMatchObject({
+        success: false,
         stats: { auto_applied: 0, auto_failed: 1 },
       });
 
-      // A transação NÃO foi marcada como conciliada — assim o retry alcança.
-      const txUpdates = fake.queries.filter(
-        (q) => q.table === "bank_transactions" && used(q, "update"),
-      );
-      expect(txUpdates).toHaveLength(0);
-
-      // E nenhuma despesa de taxa nasceu de um match que não fechou.
+      // Nenhuma despesa de taxa nasce de um match que não fechou.
       expect(fake.queries.some((q) => q.table === "expenses" && used(q, "insert"))).toBe(false);
+    });
+
+    // O cenário que a compensação existe para impedir: sem ela, a transação
+    // ficaria livre com a fatura já quitada e, no retry, poderia quitar uma
+    // SEGUNDA fatura de valor parecido — um pagamento pagando duas contas.
+    it("reverte a reserva da transação quando a quitação falha", async () => {
+      const fake = setup({ invoiceUpdateError: "permission denied" });
+
+      await handleMatchBankTransactions(request({ auto_apply: true }), dependencies);
+
+      const txUpdates = fake.queries
+        .filter((q) => q.table === "bank_transactions" && used(q, "update"))
+        .map((q) => q.ops.find((op) => op.method === "update")?.args[0] as Record<string, unknown>);
+
+      // Uma reserva e uma reversão: o estado final devolve a transação ao pool.
+      expect(txUpdates).toHaveLength(2);
+      expect(txUpdates[0]).toMatchObject({ match_status: "auto_matched" });
+      expect(txUpdates[1]).toMatchObject({
+        match_status: "unmatched",
+        matched_invoice_id: null,
+        matched_by: null,
+        processor_fee_cents: null,
+      });
     });
 
     it("grava a taxa no mesmo update do match, não em escrita separada", async () => {

@@ -612,13 +612,27 @@ Deno.serve(async (req) => {
       }
     }
 
-    await supabase.from("bank_imports").update({
+    // O erro deste update era ignorado. Ele importa: a dedupe por hash so
+    // considera importacao `completed`, entao uma que ficou presa em
+    // `processing` nao bloqueia reenvio do mesmo arquivo — e o reenvio
+    // duplicaria as transacoes ja inseridas. Responder 500 aqui seria pior,
+    // porque induziria exatamente esse reenvio; o certo e devolver 200 (os
+    // dados FORAM gravados) sinalizando que a importacao nao foi finalizada.
+    const { error: finalizeErr } = await supabase.from("bank_imports").update({
       status: "completed", total_transactions: count,
       total_credits_cents: totalCredits, total_debits_cents: totalDebits,
     }).eq("id", importRec.id);
 
+    if (finalizeErr) {
+      console.error(
+        "parse-bank-statement: importação", importRec.id,
+        "ficou sem finalizar; transações já gravadas",
+        finalizeErr.message,
+      );
+    }
+
     return new Response(JSON.stringify({
-      success: true, import_id: importRec.id,
+      success: true, import_id: importRec.id, finalized: !finalizeErr,
       summary: { total_transactions: count, skipped_balance_entries: txns.length - valid.length, total_credits: totalCredits, total_debits: totalDebits, bank: parsed.bankId, account: parsed.accountId, period: { start: parsed.periodStart, end: parsed.periodEnd }, expenses_created: expensesCreated },
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
