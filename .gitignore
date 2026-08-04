@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# tsc -b grava cache de build incremental
+*.tsbuildinfo

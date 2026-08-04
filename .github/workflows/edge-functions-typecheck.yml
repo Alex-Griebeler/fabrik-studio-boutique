@@ -1,0 +1,60 @@
+# Verificação de tipo das edge functions (Deno).
+#
+# Ate A3.2 o backend inteiro passava sem checagem: `tsconfig.app.json` inclui
+# somente "src", e o passo "Check TypeScript" dos outros workflows chamava
+# `npx tsc --noEmit` sobre um tsconfig com "files": [] — que, sem `-b`, nao
+# entra nas referencias e nao checa nada. Codigo que nao compila era mergeavel.
+#
+# A checagem usa `deno check` porque as functions rodam em Deno e importam por
+# URL; o Deno resolve esses specifiers e usa os tipos reais dos pacotes. O
+# `deno.lock` versionado fixa as versoes resolvidas, entao um patch novo do
+# supabase-js no esm.sh nao deixa a CI vermelha sem ninguem ter mexido em nada.
+#
+# LIMITE CONHECIDO: o deploy pela Lovable/Supabase resolve as mesmas URLs no
+# momento do deploy, sem este lock — pode acabar rodando uma versao mais nova
+# do supabase-js do que a checada aqui. Fechar isso exige fixar a versao nos
+# proprios imports (25 linhas em 20 funcoes), o que muda o que vai pra
+# producao; ficou fora do escopo de A3.2.
+
+name: Edge functions typecheck
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-functions-typecheck-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: deno check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.8.3
+
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/deno
+          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/deno.lock') }}
+          restore-keys: deno-${{ runner.os }}-
+
+      # Só os entrypoints: o check é transitivo e cobre todo o `_shared`
+      # alcançável. Os `*.test.ts` ficam de fora de propósito — rodam no vitest
+      # (Node), importam "vitest", e não existem no runtime das functions.
+      - name: Type-check edge functions
+        working-directory: supabase/functions
+        # `--frozen`: lock desatualizado ou dependencia nova FALHA a CI em vez
+        # de ser resolvida silenciosamente durante o job.
+        run: deno check --frozen */index.ts

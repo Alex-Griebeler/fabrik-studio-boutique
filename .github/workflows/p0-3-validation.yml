@@ -34,8 +34,11 @@ jobs:
       - name: Run unit tests
         run: npm test
 
+      # `tsc --noEmit` sem `-b` nao checava NADA: o tsconfig.json da raiz tem
+      # "files": [] e so referencias, e sem --build o tsc nao entra nelas.
+      # Um erro de tipo cru em src/ passava batido. `-b` entra nos projetos.
       - name: Check TypeScript
-        run: npx tsc --noEmit
+        run: npx tsc -b --noEmit
 
       - name: Build application
         run: npm run build

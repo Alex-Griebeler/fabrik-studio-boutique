@@ -1,8 +1,7 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isWithinSendWindow } from "../_shared/attendance/detection.ts";
-import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 import { shouldEscalate } from "../_shared/attendance/escalation.ts";
-import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { requireInternalAuth } from "../_shared/internalAuth.ts";
 import { resolveEffectiveMode } from "../_shared/attendance/mode.ts";
 import {
   buildEscalationBody,
@@ -27,16 +26,21 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const cronAuthorized = await hasValidAttendanceCronSecret(req, supabase);
-    if (!authHeader.startsWith("Bearer ")) {
-      if (!cronAuthorized) return j(401, { error: "Missing Authorization" });
-    } else {
-      const token = authHeader.replace("Bearer ", "");
-      if (!isServiceRoleKey(token, serviceKey) && !cronAuthorized) {
-        return j(403, { error: "Service-role required" });
-      }
-    }
+    // Auth: segredo do cron OU chave de servico. Sem porta de admin — esta
+    // funcao so roda no cron. A decisão vive em `_shared/internalAuth.ts`.
+    const auth = await requireInternalAuth(
+      {
+        req,
+        adminClient: supabase,
+        corsHeaders,
+        allowCronSecret: true,
+        missing: { status: 401, message: "Missing Authorization" },
+        insufficient: { status: 403, message: "Service-role required" },
+      },
+      { createClient },
+    );
+    if (auth instanceof Response) return auth;
+    console.log("escalate-attendance-alerts: chamada interna autorizada via", auth.via);
 
     const policies = await loadPolicies(supabase);
     const nowInTz = nowInTimezone(policies.timezone);

@@ -18,8 +18,7 @@ import {
   type ChurnEvaluationOptions,
   type ChurnEvent,
 } from "../_shared/attendance/churn.ts";
-import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
-import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { requireInternalAuth } from "../_shared/internalAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,34 +48,22 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     // ─── Auth ───
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const cronAuthorized = await hasValidAttendanceCronSecret(req, supabase);
-    let authorized = cronAuthorized;
-    if (!authorized && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.replace("Bearer ", "");
-      authorized = isServiceRoleKey(token, serviceKey);
-      if (!authorized) {
-        try {
-          const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-          const userClient = createClient(supabaseUrl, anonKey, {
-            global: { headers: { Authorization: authHeader } },
-          });
-          const { data: u } = await userClient.auth.getUser();
-          if (u?.user) {
-            const { data: r } = await supabase
-              .from("user_roles")
-              .select("role")
-              .eq("user_id", u.user.id)
-              .eq("role", "admin")
-              .maybeSingle();
-            if (r) authorized = true;
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    if (!authorized) return jsonError(401, "Unauthorized");
+    // Segredo do cron, chave de servico OU usuário admin; 401 nos dois casos
+    // de negacao, como antes da extracao.
+    const auth = await requireInternalAuth(
+      {
+        req,
+        adminClient: supabase,
+        corsHeaders,
+        allowCronSecret: true,
+        allowAdminUser: true,
+        missing: { status: 401, message: "Unauthorized" },
+        insufficient: { status: 401, message: "Unauthorized" },
+      },
+      { createClient },
+    );
+    if (auth instanceof Response) return auth;
+    console.log("detect-churn-risk: chamada interna autorizada via", auth.via);
 
     const body = (await req.json().catch(() => ({}))) as {
       dryRun?: boolean;

@@ -8,8 +8,7 @@ import {
   type RiskAlert,
 } from "../_shared/attendance/detection.ts";
 import { newAlertInitialState } from "../_shared/attendance/escalation.ts";
-import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
-import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { requireInternalAuth } from "../_shared/internalAuth.ts";
 import { resolveEffectiveMode } from "../_shared/attendance/mode.ts";
 import {
   buildTrainerAlertBody,
@@ -82,33 +81,23 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: aceita service_role bearer, segredo interno do cron OU usuário admin (testes)
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const cronAuthorized = await hasValidAttendanceCronSecret(req, supabase);
-    if (!authHeader.startsWith("Bearer ") && !cronAuthorized) {
-      return jsonError(401, "Missing Authorization");
-    }
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.replace("Bearer ", "")
-      : "";
-    let isServiceRole =
-      isServiceRoleKey(token, serviceKey) ||
-      cronAuthorized;
-    if (!isServiceRole && authHeader.startsWith("Bearer ")) {
-      // Permite admin autenticado pra dry-run/testes manuais
-      try {
-        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-        const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
-        const { data: u } = await userClient.auth.getUser();
-        if (u?.user) {
-          const { data: r } = await supabase.from("user_roles").select("role").eq("user_id", u.user.id).eq("role", "admin").maybeSingle();
-          if (r) isServiceRole = true;
-        }
-      } catch { /* ignore */ }
-    }
-    if (!isServiceRole) {
-      return jsonError(403, "Service-role required");
-    }
+    // Auth: segredo do cron, chave de servico OU usuário admin (dry-run/testes).
+    // A decisão inteira vive em `_shared/internalAuth.ts`, sob teste de
+    // comportamento; aqui só resta encaminhar a negação já pronta.
+    const auth = await requireInternalAuth(
+      {
+        req,
+        adminClient: supabase,
+        corsHeaders,
+        allowCronSecret: true,
+        allowAdminUser: true,
+        missing: { status: 401, message: "Missing Authorization" },
+        insufficient: { status: 403, message: "Service-role required" },
+      },
+      { createClient },
+    );
+    if (auth instanceof Response) return auth;
+    console.log("detect-attendance-risk: chamada interna autorizada via", auth.via);
 
     const body = (await req.json().catch(() => ({}))) as {
       dryRun?: boolean;
@@ -595,7 +584,13 @@ async function loadActivePlanByStudent(
   if (error) throw new Error(`load contracts: ${error.message}`);
 
   const map = new Map<string, PlanSnapshot>();
-  for (const row of (data ?? []) as Array<{
+  // `plan:plans(...)` sobre `contracts.plan_id -> plans.id` é many-to-one, e o
+  // PostgREST devolve OBJETO nesse caso (FK conferida em produção:
+  // `contracts_plan_id_fkey`). O supabase-js infere array porque o client aqui
+  // não tem o generic `Database` para saber a cardinalidade — a inferência é
+  // que está errada, não o acesso `row.plan.name`. Daí a conversão via
+  // `unknown`, que é o que o TS pede para sobrepor uma inferência ruim.
+  for (const row of (data ?? []) as unknown as Array<{
     student_id: string;
     plan: { name: string; category: string; frequency: string | null } | null;
   }>) {

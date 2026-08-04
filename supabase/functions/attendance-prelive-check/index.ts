@@ -11,8 +11,7 @@
 // Auth: service_role bearer OU cron secret OU admin autenticado.
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
-import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { requireInternalAuth } from "../_shared/internalAuth.ts";
 import {
   evaluatePreLiveChecks,
   type PreLiveSendWindow,
@@ -43,36 +42,23 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: service_role bearer OU JWT service_role OU cron secret OU admin
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const cronAuthorized = await hasValidAttendanceCronSecret(req, supabase);
-    let authorized = cronAuthorized;
-    if (!authorized && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.replace("Bearer ", "");
-      authorized = isServiceRoleKey(token, serviceKey);
-      if (!authorized) {
-        // admin autenticado
-        try {
-          const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-          const userClient = createClient(supabaseUrl, anonKey, {
-            global: { headers: { Authorization: authHeader } },
-          });
-          const { data: u } = await userClient.auth.getUser();
-          if (u?.user) {
-            const { data: r } = await supabase
-              .from("user_roles")
-              .select("role")
-              .eq("user_id", u.user.id)
-              .eq("role", "admin")
-              .maybeSingle();
-            if (r) authorized = true;
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    if (!authorized) return jsonError(401, "Unauthorized");
+    // Auth: segredo do cron, chave de servico OU admin autenticado.
+    // Esta funcao responde 401 nos dois casos de negacao (era assim antes da
+    // extracao; nao ha caminho legitimo que dependa de distinguir 401 de 403).
+    const auth = await requireInternalAuth(
+      {
+        req,
+        adminClient: supabase,
+        corsHeaders,
+        allowCronSecret: true,
+        allowAdminUser: true,
+        missing: { status: 401, message: "Unauthorized" },
+        insufficient: { status: 401, message: "Unauthorized" },
+      },
+      { createClient },
+    );
+    if (auth instanceof Response) return auth;
+    console.log("attendance-prelive-check: chamada interna autorizada via", auth.via);
 
     // ─── Coleta de estado ───
     const errors: string[] = [];

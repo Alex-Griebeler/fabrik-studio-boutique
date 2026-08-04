@@ -21,8 +21,7 @@
 // NÃO chama detector/escalator/sync.
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
-import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { requireInternalAuth } from "../_shared/internalAuth.ts";
 import {
   classifyHealthcheckResult,
   decideAlertEscalation,
@@ -63,17 +62,20 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: service_role bearer OU cron secret
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const cronAuthorized = await hasValidAttendanceCronSecret(req, supabase);
-    if (!authHeader.startsWith("Bearer ")) {
-      if (!cronAuthorized) return jsonError(401, "Missing Authorization or cron secret");
-    } else {
-      const token = authHeader.replace("Bearer ", "");
-      if (!isServiceRoleKey(token, serviceKey) && !cronAuthorized) {
-        return jsonError(403, "Service-role required");
-      }
-    }
+    // Auth: segredo do cron OU chave de servico. Sem porta de admin.
+    const auth = await requireInternalAuth(
+      {
+        req,
+        adminClient: supabase,
+        corsHeaders,
+        allowCronSecret: true,
+        missing: { status: 401, message: "Missing Authorization or cron secret" },
+        insufficient: { status: 403, message: "Service-role required" },
+      },
+      { createClient },
+    );
+    if (auth instanceof Response) return auth;
+    console.log("attendance-channel-healthcheck: chamada interna autorizada via", auth.via);
 
     // Twilio creds (pra GET status)
     const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
