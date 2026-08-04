@@ -583,7 +583,13 @@ async function loadActivePlanByStudent(
   if (error) throw new Error(`load contracts: ${error.message}`);
 
   const map = new Map<string, PlanSnapshot>();
-  for (const row of (data ?? []) as Array<{
+  // `plan:plans(...)` sobre `contracts.plan_id -> plans.id` é many-to-one, e o
+  // PostgREST devolve OBJETO nesse caso (FK conferida em produção:
+  // `contracts_plan_id_fkey`). O supabase-js infere array porque o client aqui
+  // não tem o generic `Database` para saber a cardinalidade — a inferência é
+  // que está errada, não o acesso `row.plan.name`. Daí a conversão via
+  // `unknown`, que é o que o TS pede para sobrepor uma inferência ruim.
+  for (const row of (data ?? []) as unknown as Array<{
     student_id: string;
     plan: { name: string; category: string; frequency: string | null } | null;
   }>) {

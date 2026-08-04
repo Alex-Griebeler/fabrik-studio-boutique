@@ -622,7 +622,9 @@ async function resolveTrainerMappings(
   );
   if (ids.length === 0 && names.length === 0) return map;
 
-  const queries: Promise<unknown>[] = [];
+  // `PromiseLike`, não `Promise`: o builder do PostgREST é thenable mas não é
+  // uma Promise — `Promise.all` aceita, a anotação anterior não.
+  const queries: PromiseLike<unknown>[] = [];
   if (ids.length > 0) {
     queries.push(
       supabase

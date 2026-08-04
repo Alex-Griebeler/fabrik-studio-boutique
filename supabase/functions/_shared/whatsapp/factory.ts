@@ -120,17 +120,20 @@ export function parseOutgoing(raw: unknown): WhatsappOutgoing {
     if (typeof language !== "string" || language.trim().length === 0) {
       throw new WhatsappBodyError("'template.language' obrigatório (ex: pt_BR)");
     }
-    const components = t.components;
-    if (components !== undefined && !Array.isArray(components)) {
+    const rawComponents = t.components;
+    if (rawComponents !== undefined && !Array.isArray(rawComponents)) {
       throw new WhatsappBodyError("'template.components' deve ser array");
     }
+    // O `Array.isArray` acima já garantiu a forma, mas o TS não propaga a
+    // narrowing através da conjunção com `!== undefined` — daí o tipo explícito.
+    const components = rawComponents as unknown[] | undefined;
     return {
       kind: "template",
       to,
       template: {
         name,
         language,
-        ...(components !== undefined ? { components: components } : {}),
+        ...(components !== undefined ? { components } : {}),
       },
     };
   }

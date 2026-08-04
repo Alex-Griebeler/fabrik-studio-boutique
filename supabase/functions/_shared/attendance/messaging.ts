@@ -2,7 +2,7 @@
 // direto, brasileiro, sem urgência fabricada.
 // Aluno NUNCA recebe — só treinador / Raquel.
 
-import type { AlertType } from "./detection";
+import type { AlertType } from "./detection.ts";
 
 export interface AlertMessageContext {
   studentName: string;
