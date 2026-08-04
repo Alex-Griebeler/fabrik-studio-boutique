@@ -22,6 +22,7 @@
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
 import {
   classifyHealthcheckResult,
   decideAlertEscalation,
@@ -52,19 +53,6 @@ interface HealthcheckSummary {
   errors: string[];
 }
 
-function isServiceRoleJwt(token: string): boolean {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -82,7 +70,7 @@ Deno.serve(async (req) => {
       if (!cronAuthorized) return jsonError(401, "Missing Authorization or cron secret");
     } else {
       const token = authHeader.replace("Bearer ", "");
-      if (token !== serviceKey && !isServiceRoleJwt(token) && !cronAuthorized) {
+      if (!isServiceRoleKey(token, serviceKey) && !cronAuthorized) {
         return jsonError(403, "Service-role required");
       }
     }

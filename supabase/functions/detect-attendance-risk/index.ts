@@ -9,6 +9,8 @@ import {
 } from "../_shared/attendance/detection.ts";
 import { newAlertInitialState } from "../_shared/attendance/escalation.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { resolveEffectiveMode } from "../_shared/attendance/mode.ts";
 import {
   buildTrainerAlertBody,
   currentWhatsappProvider,
@@ -21,16 +23,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
-
-// Aceita JWT do gateway com role=service_role (novo sistema sb_secret_*)
-function isServiceRoleJwt(token: string): boolean {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload?.role === "service_role";
-  } catch { return false; }
-}
 
 // ─────────── Tipos auxiliares ───────────
 interface AgentPolicies {
@@ -99,18 +91,8 @@ Deno.serve(async (req) => {
     const token = authHeader.startsWith("Bearer ")
       ? authHeader.replace("Bearer ", "")
       : "";
-    let payloadDbg: unknown = null;
-    try {
-      payloadDbg = JSON.parse(
-        atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
-      );
-    } catch {
-      payloadDbg = null;
-    }
-    console.log("[detect-auth] tokenLen:", token.length, "payload:", JSON.stringify(payloadDbg));
     let isServiceRole =
-      token === serviceKey ||
-      isServiceRoleJwt(token) ||
+      isServiceRoleKey(token, serviceKey) ||
       cronAuthorized;
     if (!isServiceRole && authHeader.startsWith("Bearer ")) {
       // Permite admin autenticado pra dry-run/testes manuais
@@ -134,7 +116,21 @@ Deno.serve(async (req) => {
     };
 
     const policies = await loadPolicies(supabase);
-    const effectiveMode = body.forceMode ?? policies.mode;
+
+    // `forceMode` NUNCA promove shadow -> live.
+    //
+    // O modo vive em `attendance_agent_policies` e existe para segurar o envio
+    // real enquanto a agenda do EVO estiver suja. Aceitar `{"forceMode":"live"}`
+    // do corpo deixava a trava a um POST de distancia: quem alcancasse esta
+    // funcao disparava WhatsApp de verdade para as alunas, contornando a
+    // decisao registrada no banco. O caminho contrario (live -> shadow) segue
+    // permitido: reduzir efeito e sempre seguro.
+    const effectiveMode = body.forceMode === "shadow" ? "shadow" : policies.mode;
+    if (body.forceMode === "live" && policies.mode !== "live") {
+      console.warn(
+        "detect-attendance-risk: forceMode=live ignorado; a política do banco manda",
+      );
+    }
 
     // Provider de WhatsApp pra essa rodada inteira. Default `twilio`
     // (zero diff vs comportamento atual em produção). Lê uma vez aqui
@@ -403,8 +399,10 @@ async function sendPendingAlerts(args: {
   for (const row of rows) {
     try {
       const trainerForAlert = row.escalated_to_trainer ?? row.trainer;
+      // A policy ATUAL manda: um alerta gravado como `live` nao sobrevive ao
+      // agente ter voltado para shadow. Ver _shared/attendance/mode.ts.
       const targetPhone = resolveTargetPhone({
-        mode: row.mode,
+        mode: resolveEffectiveMode(policies.mode, row.mode),
         shadowPhone: policies.shadowPhone,
         trainer: trainerForAlert?.is_active ? trainerForAlert : null,
       });

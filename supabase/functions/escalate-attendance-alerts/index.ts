@@ -2,6 +2,8 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { isWithinSendWindow } from "../_shared/attendance/detection.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 import { shouldEscalate } from "../_shared/attendance/escalation.ts";
+import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { resolveEffectiveMode } from "../_shared/attendance/mode.ts";
 import {
   buildEscalationBody,
   currentWhatsappProvider,
@@ -14,15 +16,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
-
-function isServiceRoleJwt(token: string): boolean {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload?.role === "service_role";
-  } catch { return false; }
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -40,7 +33,7 @@ Deno.serve(async (req) => {
       if (!cronAuthorized) return j(401, { error: "Missing Authorization" });
     } else {
       const token = authHeader.replace("Bearer ", "");
-      if (token !== serviceKey && !isServiceRoleJwt(token) && !cronAuthorized) {
+      if (!isServiceRoleKey(token, serviceKey) && !cronAuthorized) {
         return j(403, { error: "Service-role required" });
       }
     }
@@ -140,8 +133,10 @@ Deno.serve(async (req) => {
         const trainerName = a.trainer?.full_name ?? "treinador";
 
         // Destino: shadow_phone em modo shadow, fallback.phone em modo live
+        // A policy ATUAL manda: alerta gravado como `live` nao sobrevive ao
+        // agente ter voltado para shadow. Ver _shared/attendance/mode.ts.
         const targetPhone =
-          a.mode === "shadow"
+          resolveEffectiveMode(policies.mode, a.mode) === "shadow"
             ? policies.shadowPhone || null
             : fallbackTrainer.phone || null;
 
@@ -196,6 +191,7 @@ Deno.serve(async (req) => {
 // ─────────── Helpers ───────────
 
 interface AgentPolicies {
+  mode: string;
   shadowPhone: string;
   escalationHours: number;
   fallbackTrainerId: string | null;
@@ -205,6 +201,7 @@ interface AgentPolicies {
 
 async function loadPolicies(supabase: SupabaseClient): Promise<AgentPolicies> {
   const keys = [
+    "attendance_agent.mode",
     "attendance_agent.shadow_phone",
     "attendance_agent.escalation_hours",
     "attendance_agent.fallback_trainer_id",
@@ -220,6 +217,7 @@ async function loadPolicies(supabase: SupabaseClient): Promise<AgentPolicies> {
     (data ?? []).map((r) => [r.key as string, r.value]),
   );
   return {
+    mode: (map.get("attendance_agent.mode") as string) ?? "shadow",
     shadowPhone: (map.get("attendance_agent.shadow_phone") as string) ?? "",
     escalationHours:
       (map.get("attendance_agent.escalation_hours") as number) ?? 24,

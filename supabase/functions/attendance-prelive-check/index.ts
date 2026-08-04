@@ -12,6 +12,7 @@
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
 import {
   evaluatePreLiveChecks,
   type PreLiveSendWindow,
@@ -32,19 +33,6 @@ const EXPECTED_CRONS = [
   "attendance-channel-healthcheck-7h-sp",
 ];
 
-function isServiceRoleJwt(token: string): boolean {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -61,7 +49,7 @@ Deno.serve(async (req) => {
     let authorized = cronAuthorized;
     if (!authorized && authHeader.startsWith("Bearer ")) {
       const token = authHeader.replace("Bearer ", "");
-      authorized = token === serviceKey || isServiceRoleJwt(token);
+      authorized = isServiceRoleKey(token, serviceKey);
       if (!authorized) {
         // admin autenticado
         try {

@@ -19,25 +19,13 @@ import {
   type ChurnEvent,
 } from "../_shared/attendance/churn.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-attendance-agent-cron-secret",
 };
-
-function isServiceRoleJwt(token: string): boolean {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
-}
 
 interface ChurnPolicies {
   mode: "shadow" | "live";
@@ -66,7 +54,7 @@ Deno.serve(async (req) => {
     let authorized = cronAuthorized;
     if (!authorized && authHeader.startsWith("Bearer ")) {
       const token = authHeader.replace("Bearer ", "");
-      authorized = token === serviceKey || isServiceRoleJwt(token);
+      authorized = isServiceRoleKey(token, serviceKey);
       if (!authorized) {
         try {
           const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
