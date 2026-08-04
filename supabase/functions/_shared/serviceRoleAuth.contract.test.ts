@@ -20,11 +20,11 @@ import { describe, expect, it } from "vitest";
 const FUNCOES_COM_HELPER = [
   "detect-attendance-risk",
   "escalate-attendance-alerts",
+  "attendance-prelive-check",
 ] as const;
 
 /** Ainda com a decisão inline no handler — migração A3.2 em curso. */
 const FUNCOES_LEGADO = [
-  "attendance-prelive-check",
   "attendance-channel-healthcheck",
   "refresh-attendance-message-status",
   "detect-churn-risk",
