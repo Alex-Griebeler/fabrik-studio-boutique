@@ -1,5 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  resolveTwilioWebhookUrl,
+  verifyTwilioSignature,
+} from "../_shared/whatsapp/twilioWebhook.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,21 +26,61 @@ serve(async (req) => {
   }
 
   try {
+    // A3.3a: assinatura da Twilio validada ANTES de qualquer leitura ou
+    // escrita. Sem token configurado a função falha fechada (500); sem
+    // assinatura válida a request não é da Twilio (403).
+    const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
+    if (!TWILIO_AUTH_TOKEN) {
+      console.error("receive-whatsapp: TWILIO_AUTH_TOKEN ausente — fail closed");
+      return new Response("Server misconfigured", { status: 500 });
+    }
+
+    // Parse Twilio webhook payload (form-urlencoded). Todos os campos
+    // entram no cálculo da assinatura.
+    const formData = await req.formData();
+    const params: Record<string, string> = {};
+    for (const [key, value] of formData.entries()) {
+      if (typeof value === "string") params[key] = value;
+    }
+
+    // URL canônica vem de TWILIO_WEBHOOK_URL (a URL exata configurada no
+    // console da Twilio); atrás de proxy o req.url pode divergir da URL
+    // assinada. Fallback: req.url.
+    const webhookUrl = resolveTwilioWebhookUrl(
+      Deno.env.get("TWILIO_WEBHOOK_URL"),
+      req.url,
+    );
+    const signatureOk = await verifyTwilioSignature({
+      url: webhookUrl,
+      params,
+      signatureHeader: req.headers.get("X-Twilio-Signature"),
+      authToken: TWILIO_AUTH_TOKEN,
+    });
+    if (!signatureOk) {
+      console.error("receive-whatsapp: assinatura Twilio inválida — 403");
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const from = params["From"] ?? "";
+    const body = params["Body"] ?? "";
+    const messageSid = (params["MessageSid"] ?? "").trim();
+
+    // A3.3a: MessageSid é obrigatório — é a chave de dedupe de retries
+    // (inbox durável chega no A3.3b).
+    if (!messageSid) {
+      console.error("receive-whatsapp: MessageSid ausente — 400");
+      return new Response("Bad Request", { status: 400 });
+    }
+
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Parse Twilio webhook payload (form-urlencoded)
-    const formData = await req.formData();
-    const from = formData.get("From")?.toString() || "";
-    const body = formData.get("Body")?.toString() || "";
-    const messageSid = formData.get("MessageSid")?.toString() || "";
-
     // Extract phone number from "whatsapp:+5511999999999" format
     const phone = from.replace("whatsapp:", "").trim();
-    
+
     if (!phone || !body) {
-      console.error("Missing phone or body in webhook:", { from, body });
+      console.error(`receive-whatsapp: payload sem From/Body utilizáveis (sid ${messageSid})`);
       // Return 200 to Twilio so it doesn't retry
       return new Response("<Response></Response>", {
         status: 200,
@@ -44,7 +88,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Incoming WhatsApp from ${phone}: ${body.substring(0, 100)}`);
+    console.log(`receive-whatsapp: mensagem recebida (sid ${messageSid})`);
 
     // Find the lead by phone number
     const { data: lead } = await supabase
@@ -55,7 +99,7 @@ serve(async (req) => {
       .single();
 
     if (!lead) {
-      console.log(`No lead found for phone ${phone}. Ignoring.`);
+      console.log(`receive-whatsapp: nenhum lead para o remetente (sid ${messageSid}). Ignorando.`);
       return new Response("<Response></Response>", {
         status: 200,
         headers: { "Content-Type": "text/xml" },
