@@ -92,6 +92,9 @@ export function useUpdateTrainer() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["trainers"] });
+      // Sem isso, reabrir o form entrega o registro administrativo STALE
+      // do cache e o save restauraria CPF/banco/PIX antigos.
+      qc.invalidateQueries({ queryKey: ["trainers_admin"] });
       toast.success("Treinador atualizado!");
     },
     onError: () => toast.error("Erro ao atualizar treinador."),
@@ -107,6 +110,7 @@ export function useDeleteTrainer() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["trainers"] });
+      qc.invalidateQueries({ queryKey: ["trainers_admin"] });
       toast.success("Treinador removido!");
     },
     onError: () => toast.error("Erro ao remover. Verifique sessões vinculadas."),

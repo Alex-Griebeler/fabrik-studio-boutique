@@ -56,8 +56,15 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   // quando o registro completo chega.
   const fullTrainer = useTrainerAdmin(trainer?.id);
 
+  // Só popula quando o registro completo é DESTE treinador e o fetch
+  // terminou (cache de outro treinador ou refetch em voo não populam).
+  const fullLoaded =
+    !!trainer &&
+    !fullTrainer.isFetching &&
+    fullTrainer.data?.id === trainer.id;
+
   useEffect(() => {
-    if (trainer && fullTrainer.data) {
+    if (trainer && fullLoaded && fullTrainer.data) {
       const t = fullTrainer.data;
       setForm({
         full_name: t.full_name || "",
@@ -83,7 +90,7 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     } else if (!trainer) {
       setForm(emptyForm);
     }
-  }, [trainer, fullTrainer.data, open]);
+  }, [trainer, fullLoaded, fullTrainer.data, open]);
 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -103,9 +110,9 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
 
   const handleSubmit = () => {
     if (!form.full_name.trim()) return;
-    // Guard anti-perda de dados: em edição, nunca salvar antes do
-    // registro completo (trainers_admin) ter populado o form.
-    if (isEdit && !fullTrainer.data) return;
+    // Guard anti-perda de dados: em edição, nunca salvar sem o registro
+    // completo DESTE treinador carregado e estável (fetch concluído).
+    if (isEdit && !fullLoaded) return;
     const payload: any = { ...form };
     if (!payload.hired_at) delete payload.hired_at;
 
@@ -116,8 +123,7 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     }
   };
 
-  const isPending =
-    create.isPending || update.isPending || (isEdit && !fullTrainer.data);
+  const isPending = create.isPending || update.isPending || (isEdit && !fullLoaded);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -125,6 +131,14 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar Treinador" : "Novo Treinador"}</DialogTitle>
         </DialogHeader>
+
+        {isEdit && fullTrainer.isError && (
+          <p className="text-sm text-destructive">
+            Não foi possível carregar os dados completos do treinador — edição
+            bloqueada para evitar sobrescrever dados bancários. Recarregue e
+            tente de novo.
+          </p>
+        )}
 
         <Tabs defaultValue="info" className="mt-2">
           <TabsList className="grid w-full grid-cols-3">
