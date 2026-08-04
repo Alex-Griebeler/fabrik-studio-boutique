@@ -1,23 +1,51 @@
-// Barreira estrutural contra reintrodução do bypass de JWT forjado.
+// Contrato de autorização das sete funções de atendimento — verificado na
+// ÁRVORE SINTÁTICA, não no texto do arquivo.
 //
-// Os handlers destas sete funções não são testáveis por unidade hoje: são
-// `Deno.serve` com import de VALOR de esm.sh no topo, fora do glob do vitest.
-// Sem isto, uma mutação na FIAÇÃO de um único handler — reintroduzir a função
-// insegura, trocar um `!`, remover o import — passaria com a suíte inteira
-// verde, porque os testes do helper continuariam corretos.
+// POR QUE NÃO É MAIS TEXTUAL
 //
-// Este arquivo lê o código-fonte das sete e afirma propriedades sobre ele.
-// Não substitui teste de handler; fecha a lacuna que o torna caro.
+// Este arquivo começou lendo o código como string e afirmando regex sobre ele.
+// Duas auditorias seguidas mostraram que isso não é contrato, é tripwire:
+//
+//   - regex não distingue código de comentário: `// if (auth instanceof
+//     Response) return auth;` satisfazia a exigência com o guard REMOVIDO;
+//   - a tentativa de consertar removendo comentários com regex foi pior —
+//     um `//` dentro de string apagava o código seguinte, e aí uma asserção
+//     NEGATIVA passava a aceitar o que devia recusar (falha aberta);
+//   - `allowAdminUser: true` montado por variável, spread ou aspas diferentes
+//     escapava das regex de perfil;
+//   - comparar posição textual de `.from(` não prova precedência: mover
+//     `loadPolicies(supabase)` para antes do guard mantinha o `.from(` lá
+//     embaixo, dentro da função declarada depois.
+//
+// Nada disso se conserta com regex melhor. O `typescript` já é devDependency,
+// então aqui se usa o parser de verdade: comentários são trivia e somem
+// sozinhos, strings são nós e não confundem nada, e "o que roda antes do quê"
+// vira uma pergunta sobre a ordem dos nós — não sobre `indexOf`.
+//
+// O QUE ISTO PROVA
+//
+//   1. Dentro do `Deno.serve`, a PRIMEIRA coisa aguardada é
+//      `requireInternalAuth`. Como todo efeito privilegiado destas funções é
+//      assíncrono (banco, rede), nada privilegiado roda antes de autorizar —
+//      inclusive através de helper, que é o furo que a checagem textual tinha.
+//   2. Logo depois vem o guard, e ele devolve a negação.
+//   3. As opções passadas são exatamente as do perfil da função — lidas do nó,
+//      então formatação, aspas e comentário não influem, e indireção
+//      (`...opts`, variável) é rejeitada explicitamente em vez de passar batido.
+//   4. Nenhuma peça da decisão foi refeita no handler.
+//
+// LIMITE QUE PERMANECE: isto lê o código, não o executa. Prova a forma do
+// handler, não o comportamento em produção. O comportamento de
+// `requireInternalAuth` está em `internalAuth.test.ts`; o que nenhum dos dois
+// cobre é o handler de ponta a ponta, que exigiria quebrar o import de valor
+// de esm.sh no topo. Registrado como dívida na PR.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-/**
- * As sete que reconheciam chamada interna pelo conteúdo do JWT. Desde A3.2
- * todas delegam a decisão a `requireInternalAuth`, que tem teste de
- * comportamento em `internalAuth.test.ts`.
- */
+/** As sete que reconheciam chamada interna pelo conteúdo do JWT. */
 const FUNCOES_COM_SERVICE_ROLE = [
   "detect-attendance-risk",
   "escalate-attendance-alerts",
@@ -28,217 +56,292 @@ const FUNCOES_COM_SERVICE_ROLE = [
   "sync-evo-attendance",
 ] as const;
 
+type Funcao = (typeof FUNCOES_COM_SERVICE_ROLE)[number];
+
+interface Perfil {
+  cron: boolean;
+  admin: boolean;
+  missing: { status: number; message: string };
+  insufficient: { status: number; message: string };
+}
+
 /**
- * Remove comentários antes de qualquer asserção.
+ * Perfil de cada função, como estava em `main` antes da extração.
  *
- * Sem isto, toda regra deste arquivo é driblável escrevendo a string proibida
- * — ou a exigida — dentro de um comentário. Um handler poderia perder o guard
- * de verdade e continuar verde só por ter `// if (auth instanceof Response)
- * return auth;` em algum lugar. Asserção sobre texto bruto confunde "o código
- * faz" com "o arquivo menciona".
- *
- * Não é um parser: strings contendo `//` ou `/*` seriam mutiladas. Aceitável
- * porque o alvo são sete arquivos conhecidos, e mutilar uma string só pode
- * derrubar asserção positiva — falha fechada, nunca abre porta.
+ * Esta tabela é a razão de o contrato existir: os testes de
+ * `internalAuth.test.ts` provam que o helper honra as flags que recebe, e
+ * nenhum deles provaria que uma função passa as flags certas. Abrir
+ * `allowAdminUser` numa função que só roda no cron não quebraria nada lá.
  */
-function stripComments(code: string): string {
-  return code
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
-}
-
-function source(fn: string): string {
-  return stripComments(
-    readFileSync(
-      join(process.cwd(), "supabase", "functions", fn, "index.ts"),
-      "utf-8",
-    ),
-  );
-}
-
-describe.each(FUNCOES_COM_SERVICE_ROLE)("%s", (fn) => {
-  const code = source(fn);
-
-  // O furo era decodificar o payload e confiar no campo `role`. As asserções
-  // abaixo são deliberadamente amplas: nenhuma das sete usa `atob` nem a
-  // string `service_role` para qualquer fim legítimo (verificado), então
-  // proibir as duas fecha a classe inteira do bug — e não apenas a forma
-  // exata em que ele apareceu. Uma reescrita astuta do bypass também morre.
-  it("não decodifica nada do JWT para decidir se é service_role", () => {
-    expect(code).not.toMatch(/function\s+isServiceRoleJwt/);
-    expect(code).not.toMatch(/isServiceRoleJwt\s*\(/);
-    expect(code).not.toMatch(/\batob\s*\(/);
-    expect(code).not.toMatch(/["']service_role["']/);
-    expect(code).not.toMatch(/\.\s*role\s*===/);
-    expect(code).not.toMatch(/token\s*\.\s*split\s*\(\s*["']\.["']\s*\)/);
-  });
-
-  // A comparação crua sobreviveria à revisão, mas vaza por latência; o helper
-  // é o único caminho aprovado.
-  it("não compara o token com a chave fora do helper", () => {
-    expect(code).not.toMatch(/token\s*===\s*serviceKey/);
-    expect(code).not.toMatch(/token\s*!==\s*serviceKey/);
-  });
-
-  it("não despeja o payload do JWT no log", () => {
-    expect(code).not.toMatch(/console\.log\([^)]*payload/i);
-  });
-});
-
-// Depois da migração as asserções deixam de ser sobre a FORMA do bypass e
-// passam a ser sobre a AUSÊNCIA de decisão no handler: sem booleano mutável,
-// sem consulta de role, sem leitura de chave.
-describe.each(FUNCOES_COM_SERVICE_ROLE)("%s (autorização via helper)", (fn) => {
-  const code = source(fn);
-
-  it("delega a decisão ao helper", () => {
-    expect(code).toContain("requireInternalAuth");
-    expect(code).toMatch(/from\s+["']\.\.\/_shared\/internalAuth\.ts["']/);
-  });
-
-  it("encaminha a negação sem reinterpretá-la", () => {
-    expect(code).toMatch(/if\s*\(\s*auth\s+instanceof\s+Response\s*\)\s*return\s+auth\s*;/);
-  });
-
-  // Esta asserção dá dentes à anterior, num caso específico: apagar o `return`
-  // DEIXANDO o guard no lugar. Sem consumir o contexto isso compila numa boa
-  // (`auth` fica inutilizado e o TS não tem do que reclamar — verificado);
-  // lendo `auth.via` depois do guard, vira TS2339 e morre no `deno check`.
-  //
-  // LIMITES, para não vender o que não entrega. Isto cobre a forma inline que
-  // as sete usam hoje, e NÃO cobre:
-  //   (a) extrair o guard para uma função auxiliar no mesmo arquivo e esquecer
-  //       de propagar o retorno — `await checkAuth(req);` sem `return` compila
-  //       e ainda casa com as regex daqui;
-  //   (b) montar as opções por indireção (`...opts`, variável, propriedade
-  //       computada) — a tabela PERFIS abaixo passa a não enxergar as flags.
-  // O caso (c), trabalho privilegiado ANTES do guard, é o único destes três
-  // que tem trava: o teste de posição logo abaixo. Fechar (a) e (b) exige
-  // inverter o controle (um wrapper que só chama o corpo privilegiado depois
-  // de autorizar) — mudança de desenho, não de fiação. Dívida registrada na PR.
-  it("consome o contexto autorizado, tornando o guard verificável pelo compilador", () => {
-    expect(code).toMatch(/\bauth\.via\b/);
-  });
-
-  // Autorizar depois de já ter mexido no banco não é autorizar. O guard
-  // precisa dominar TODA operação privilegiada, não apenas existir no arquivo.
-  it("autoriza antes de qualquer operação privilegiada", () => {
-    const guard = code.indexOf("if (auth instanceof Response) return auth;");
-    expect(guard).toBeGreaterThan(-1);
-
-    for (const op of [".from(", ".rpc(", "fetch("]) {
-      const primeira = code.indexOf(op);
-      if (primeira === -1) continue;
-      expect(
-        primeira,
-        `\`${op}\` aparece antes do guard de autorização`,
-      ).toBeGreaterThan(guard);
-    }
-  });
-});
-
-// Amarra cada função ao SEU perfil. Sem isto, trocar `allowAdminUser` de false
-// para true num handler — abrindo uma porta que aquela função nunca teve —
-// não quebraria teste nenhum: os testes do helper só provam que o helper honra
-// as flags que recebe, não que cada função passa as flags certas.
-const PERFIS = {
+const PERFIS: Record<Funcao, Perfil> = {
   "detect-attendance-risk": {
     cron: true,
     admin: true,
-    missing: [401, "Missing Authorization"],
-    insufficient: [403, "Service-role required"],
+    missing: { status: 401, message: "Missing Authorization" },
+    insufficient: { status: 403, message: "Service-role required" },
   },
   "escalate-attendance-alerts": {
     cron: true,
     admin: false,
-    missing: [401, "Missing Authorization"],
-    insufficient: [403, "Service-role required"],
+    missing: { status: 401, message: "Missing Authorization" },
+    insufficient: { status: 403, message: "Service-role required" },
   },
   "attendance-prelive-check": {
     cron: true,
     admin: true,
-    missing: [401, "Unauthorized"],
-    insufficient: [401, "Unauthorized"],
+    missing: { status: 401, message: "Unauthorized" },
+    insufficient: { status: 401, message: "Unauthorized" },
   },
   "attendance-channel-healthcheck": {
     cron: true,
     admin: false,
-    missing: [401, "Missing Authorization or cron secret"],
-    insufficient: [403, "Service-role required"],
+    missing: { status: 401, message: "Missing Authorization or cron secret" },
+    insufficient: { status: 403, message: "Service-role required" },
   },
   "refresh-attendance-message-status": {
     cron: false,
     admin: true,
-    missing: [401, "Missing Authorization"],
-    insufficient: [403, "Service-role or admin required"],
+    missing: { status: 401, message: "Missing Authorization" },
+    insufficient: { status: 403, message: "Service-role or admin required" },
   },
   "detect-churn-risk": {
     cron: true,
     admin: true,
-    missing: [401, "Unauthorized"],
-    insufficient: [401, "Unauthorized"],
+    missing: { status: 401, message: "Unauthorized" },
+    insufficient: { status: 401, message: "Unauthorized" },
   },
   "sync-evo-attendance": {
     cron: true,
     admin: false,
-    missing: [401, "Missing Authorization or cron secret"],
-    insufficient: [403, "Service-role required"],
+    missing: { status: 401, message: "Missing Authorization or cron secret" },
+    insufficient: { status: 403, message: "Service-role required" },
   },
-} as const satisfies Record<
-  (typeof FUNCOES_COM_SERVICE_ROLE)[number],
-  {
-    cron: boolean;
-    admin: boolean;
-    missing: readonly [number, string];
-    insufficient: readonly [number, string];
-  }
->;
+};
 
-function denialRegex(campo: string, [status, mensagem]: readonly [number, string]) {
-  return new RegExp(
-    `${campo}:\\s*\\{\\s*status:\\s*${status},\\s*message:\\s*"${mensagem}"\\s*\\}`,
+// ─────────────────────── Leitura da árvore ───────────────────────
+
+function parse(fn: string): ts.SourceFile {
+  const caminho = join(process.cwd(), "supabase", "functions", fn, "index.ts");
+  return ts.createSourceFile(
+    `${fn}/index.ts`,
+    readFileSync(caminho, "utf-8"),
+    ts.ScriptTarget.ESNext,
+    true,
   );
 }
 
-describe.each(Object.entries(PERFIS))("%s (perfil)", (fn, perfil) => {
-  const code = source(fn);
+/** Primeiro nó (em ordem de código) que satisfaz o predicado. */
+function primeiro<T extends ts.Node>(
+  raiz: ts.Node,
+  aceita: (n: ts.Node) => n is T,
+): T | undefined {
+  let achado: T | undefined;
+  const visitar = (n: ts.Node) => {
+    if (achado) return;
+    if (aceita(n)) {
+      achado = n;
+      return;
+    }
+    ts.forEachChild(n, visitar);
+  };
+  ts.forEachChild(raiz, visitar);
+  return achado;
+}
 
-  it(`${perfil.cron ? "aceita" : "não aceita"} o segredo do cron`, () => {
-    if (perfil.cron) {
-      expect(code).toMatch(/allowCronSecret:\s*true/);
-    } else {
-      expect(code).not.toContain("allowCronSecret");
+function todos(raiz: ts.Node, aceita: (n: ts.Node) => boolean): ts.Node[] {
+  const out: ts.Node[] = [];
+  const visitar = (n: ts.Node) => {
+    if (aceita(n)) out.push(n);
+    ts.forEachChild(n, visitar);
+  };
+  ts.forEachChild(raiz, visitar);
+  return out;
+}
+
+/** Corpo do callback passado a `Deno.serve`. */
+function corpoDoServe(sf: ts.SourceFile): ts.Node {
+  const chamada = primeiro(sf, (n): n is ts.CallExpression =>
+    ts.isCallExpression(n) && n.expression.getText(sf) === "Deno.serve",
+  );
+  if (!chamada) throw new Error("Deno.serve não encontrado");
+  const cb = chamada.arguments[0];
+  if (!cb || (!ts.isArrowFunction(cb) && !ts.isFunctionExpression(cb))) {
+    throw new Error("callback de Deno.serve não é função");
+  }
+  if (!cb.body) throw new Error("callback sem corpo");
+  return cb.body;
+}
+
+function nomeDaChamada(expr: ts.Expression, sf: ts.SourceFile): string {
+  return ts.isCallExpression(expr) ? expr.expression.getText(sf) : "";
+}
+
+// ─────────────────────── Asserções ───────────────────────
+
+describe.each(FUNCOES_COM_SERVICE_ROLE)("%s", (fn) => {
+  const sf = parse(fn);
+  const corpo = corpoDoServe(sf);
+
+  // A asserção central. Todo efeito privilegiado destas funções é assíncrono;
+  // se a primeira coisa aguardada é a autorização, nada privilegiado a
+  // precede — nem direto, nem por helper. Um `await loadPolicies(supabase)`
+  // acima do guard aparece aqui, coisa que comparar posição de `.from(` não
+  // via, porque o `.from(` fica na função declarada lá embaixo.
+  it("autoriza antes de qualquer coisa aguardada", () => {
+    const espera = primeiro(corpo, ts.isAwaitExpression);
+    expect(espera, "nenhum await no handler").toBeDefined();
+    expect(nomeDaChamada(espera!.expression, sf)).toBe("requireInternalAuth");
+  });
+
+  it("encaminha a negação imediatamente depois de autorizar", () => {
+    // `const auth = await requireInternalAuth(...)` e, na sequência do MESMO
+    // bloco, o guard. Exigir adjacência fecha a brecha de enfiar trabalho
+    // entre a decisão e o uso dela.
+    const decl = primeiro(corpo, (n): n is ts.VariableStatement =>
+      ts.isVariableStatement(n) &&
+      n.declarationList.declarations.some(
+        (d) =>
+          d.initializer !== undefined &&
+          ts.isAwaitExpression(d.initializer) &&
+          nomeDaChamada(d.initializer.expression, sf) === "requireInternalAuth",
+      ),
+    );
+    expect(decl, "`await requireInternalAuth` não é atribuído").toBeDefined();
+
+    const bloco = decl!.parent as ts.Block;
+    const irmaos = bloco.statements;
+    const seguinte = irmaos[irmaos.indexOf(decl!) + 1];
+    expect(seguinte, "nada depois da autorização").toBeDefined();
+    expect(ts.isIfStatement(seguinte)).toBe(true);
+
+    const guarda = seguinte as ts.IfStatement;
+    expect(guarda.expression.getText(sf)).toMatch(
+      /^auth\s+instanceof\s+Response$/,
+    );
+
+    // O ramo verdadeiro tem que DEVOLVER a negação. `console.warn(...)` sem
+    // return deixaria a requisição seguir; foi o cenário levantado na auditoria.
+    const entao = ts.isBlock(guarda.thenStatement)
+      ? guarda.thenStatement.statements[0]
+      : guarda.thenStatement;
+    expect(ts.isReturnStatement(entao)).toBe(true);
+    expect((entao as ts.ReturnStatement).expression?.getText(sf)).toBe("auth");
+  });
+
+  it("passa exatamente o perfil da função", () => {
+    const perfil = PERFIS[fn];
+    const chamada = primeiro(corpo, (n): n is ts.CallExpression =>
+      ts.isCallExpression(n) &&
+      n.expression.getText(sf) === "requireInternalAuth",
+    );
+    expect(chamada).toBeDefined();
+
+    const opcoes = chamada!.arguments[0];
+    expect(
+      opcoes && ts.isObjectLiteralExpression(opcoes),
+      "opções precisam ser literal — indireção não é verificável aqui",
+    ).toBe(true);
+
+    // Spread e nome computado escondem o que está sendo passado — é o drible
+    // apontado na auditoria (`...opts` injetando `allowAdminUser`). Barrados
+    // aqui em vez de passarem despercebidos. Shorthand (`req,`) é aceito na
+    // coleta, mas não satisfaz as exigências de literal logo abaixo.
+    const props = new Map<string, ts.Expression | null>();
+    for (const p of (opcoes as ts.ObjectLiteralExpression).properties) {
+      expect(
+        ts.isSpreadAssignment(p),
+        `spread nas opções de ${fn} esconde o perfil: ${p.getText(sf)}`,
+      ).toBe(false);
+      expect(
+        p.name !== undefined && !ts.isComputedPropertyName(p.name),
+        `nome computado nas opções de ${fn}: ${p.getText(sf)}`,
+      ).toBe(true);
+
+      const chave = p.name!.getText(sf).replace(/["']/g, "");
+      props.set(
+        chave,
+        ts.isPropertyAssignment(p) ? p.initializer : null,
+      );
+    }
+
+    const flag = (nome: string) => {
+      if (!props.has(nome)) return false;
+      const v = props.get(nome);
+      expect(
+        v !== null &&
+          (v.kind === ts.SyntaxKind.TrueKeyword ||
+            v.kind === ts.SyntaxKind.FalseKeyword),
+        `${nome} precisa ser literal true/false, é \`${v?.getText(sf) ?? "shorthand"}\``,
+      ).toBe(true);
+      return v!.kind === ts.SyntaxKind.TrueKeyword;
+    };
+
+    expect(flag("allowCronSecret"), "allowCronSecret").toBe(perfil.cron);
+    expect(flag("allowAdminUser"), "allowAdminUser").toBe(perfil.admin);
+
+    const negacao = (nome: "missing" | "insufficient") => {
+      const v = props.get(nome);
+      expect(
+        v != null && ts.isObjectLiteralExpression(v),
+        `${nome} precisa ser objeto literal`,
+      ).toBe(true);
+      const campos = new Map<string, string>();
+      for (const p of (v as ts.ObjectLiteralExpression).properties) {
+        const pa = p as ts.PropertyAssignment;
+        campos.set(pa.name.getText(sf), pa.initializer.getText(sf));
+      }
+      return {
+        status: Number(campos.get("status")),
+        message: JSON.parse(campos.get("message") ?? '""') as string,
+      };
+    };
+
+    expect(negacao("missing")).toEqual(perfil.missing);
+    expect(negacao("insufficient")).toEqual(perfil.insufficient);
+  });
+
+  it("não refaz nenhuma etapa da decisão", () => {
+    // Identificadores e strings vêm da árvore: comentário não conta, e string
+    // não é confundida com código. Era exatamente o que a versão textual
+    // errava nos dois sentidos.
+    const identificadores = new Set(
+      todos(sf, ts.isIdentifier).map((n) => (n as ts.Identifier).text),
+    );
+    for (const proibido of [
+      "isServiceRoleKey",
+      "isServiceRoleJwt",
+      "hasValidAttendanceCronSecret",
+      "atob",
+    ]) {
+      expect(identificadores.has(proibido), `usa ${proibido}`).toBe(false);
+    }
+
+    const literais = new Set(
+      todos(sf, ts.isStringLiteral).map((n) => (n as ts.StringLiteral).text),
+    );
+    for (const proibido of ["service_role", "user_roles", "SUPABASE_ANON_KEY"]) {
+      expect(literais.has(proibido), `menciona ${proibido}`).toBe(false);
     }
   });
 
-  it(`${perfil.admin ? "aceita" : "não aceita"} usuário admin`, () => {
-    if (perfil.admin) {
-      expect(code).toMatch(/allowAdminUser:\s*true/);
-    } else {
-      expect(code).not.toContain("allowAdminUser");
-    }
-  });
-
-  it("preserva status e mensagem das duas negações", () => {
-    expect(code).toMatch(denialRegex("missing", perfil.missing));
-    expect(code).toMatch(denialRegex("insufficient", perfil.insufficient));
-  });
-
-  it("não guarda a autorização em variável mutável", () => {
-    expect(code).not.toMatch(/\blet\s+(authorized|isServiceRole|cronAuthorized)\b/);
-    expect(code).not.toMatch(/^\s*(authorized|isServiceRole)\s*=/m);
-  });
-
-  it("não refaz nenhuma etapa da decisão por fora do helper", () => {
-    expect(code).not.toContain("isServiceRoleKey");
-    expect(code).not.toContain("hasValidAttendanceCronSecret");
-    expect(code).not.toContain("SUPABASE_ANON_KEY");
-    expect(code).not.toContain("user_roles");
+  it("consome o contexto autorizado, o que faz o compilador exigir o guard", () => {
+    // Ler `auth.via` depois do guard é o que transforma "apagaram o return"
+    // em erro de compilação (TS2339), pego pelo `deno check` da CI. Sem
+    // consumo, `auth` fica inutilizado e o TS não tem do que reclamar.
+    const acessos = todos(
+      corpo,
+      (n) =>
+        ts.isPropertyAccessExpression(n) &&
+        n.expression.getText(sf) === "auth" &&
+        n.name.text === "via",
+    );
+    expect(acessos.length, "handler não lê auth.via").toBeGreaterThan(0);
   });
 });
 
 describe("detect-attendance-risk — trava do modo", () => {
-  const code = source("detect-attendance-risk");
+  const sf = parse("detect-attendance-risk");
+  const code = sf.getFullText();
 
   it("não deixa forceMode escolher o modo diretamente", () => {
     expect(code).not.toMatch(/body\.forceMode\s*\?\?\s*policies\.mode/);
@@ -255,7 +358,8 @@ describe("detect-attendance-risk — trava do modo", () => {
 });
 
 describe("escalate-attendance-alerts — trava do modo", () => {
-  const code = source("escalate-attendance-alerts");
+  const sf = parse("escalate-attendance-alerts");
+  const code = sf.getFullText();
 
   it("carrega a policy de modo do agente", () => {
     expect(code).toContain("attendance_agent.mode");
