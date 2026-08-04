@@ -168,9 +168,12 @@ export async function requireInternalAuth(
  * ha um `.trim()`, e com ele `Authorization: "Bearer  <chave>"` (dois espacos,
  * que o `Headers` preserva) passaria a ser aceito depois de ser recusado
  * antes. Nao e brecha — quem monta esse header ja tem a chave — mas e mudanca
- * de comportamento, e esta mudanca e de testabilidade. Se um dia se decidir
- * aceitar OWS entre o esquema e o token (o RFC 7235 permite), que seja uma
- * decisao propria, com seu proprio commit.
+ * de comportamento, e esta mudanca e de testabilidade.
+ *
+ * Vale registrar que a recusa e que e a nao-conformante: o RFC 7235 §2.1 define
+ * `credentials = auth-scheme [ 1*SP ( token68 / ... ) ]`, e `1*SP` admite mais
+ * de um espaco (espacos, nao OWS — tab nao entra). Aceita-los seria correcao de
+ * conformidade, e merece commit proprio em vez de vir de carona aqui.
  */
 function tokenAfterBearer(authHeader: string): string {
   return authHeader.slice("Bearer ".length);

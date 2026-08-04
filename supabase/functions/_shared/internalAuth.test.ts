@@ -284,7 +284,7 @@ describe("chave de servico", () => {
     expect(res.status).toBe(403);
   });
 
-  it("nega chave correta seguida de espaco extra", async () => {
+  it("nega chave correta com sufixo depois de um espaco", async () => {
     const admin = makeAdminClient();
     const res = (await requireInternalAuth(
       {
@@ -296,6 +296,23 @@ describe("chave de servico", () => {
     )) as Response;
 
     expect(res.status).toBe(403);
+  });
+
+  // Espaco no FIM nao chega ao helper: o `Headers` corta antes. Fixado aqui
+  // porque a assimetria surpreende — espaco antes da chave recusa, espaco
+  // depois aceita — e porque `main` se comporta igual, o que e o ponto.
+  it("aceita chave correta com espaco final, que o Headers descarta", async () => {
+    const admin = makeAdminClient();
+    const result = await requireInternalAuth(
+      {
+        req: request({ rawAuth: `Bearer ${SERVICE_KEY} ` }),
+        adminClient: admin.client,
+        corsHeaders,
+      },
+      dependencies,
+    );
+
+    expect(result).toMatchObject({ authorized: true, via: "service_role" });
   });
 
   it("nega token que e prefixo da chave", async () => {
@@ -687,6 +704,9 @@ describe("usuario admin", () => {
 // Quem faz essa amarracao e `serviceRoleAuth.contract.test.ts`, que le o
 // codigo dos sete handlers e confere as flags e as mensagens de negacao —
 // sem ele, trocar `allowAdminUser` em um handler nao quebraria teste nenhum.
+// Aquele contrato le TEXTO (com comentarios removidos antes): pega troca de
+// literal, nao pega opcoes montadas por indireção. Os limites estao listados
+// no proprio arquivo; nao tratar como prova, e sim como rede.
 
 describe("perfis", () => {
   const CRON_E_ADMIN = { allowCronSecret: true, allowAdminUser: true } as const;

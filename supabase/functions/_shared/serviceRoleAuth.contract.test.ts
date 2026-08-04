@@ -28,10 +28,31 @@ const FUNCOES_COM_SERVICE_ROLE = [
   "sync-evo-attendance",
 ] as const;
 
+/**
+ * Remove comentários antes de qualquer asserção.
+ *
+ * Sem isto, toda regra deste arquivo é driblável escrevendo a string proibida
+ * — ou a exigida — dentro de um comentário. Um handler poderia perder o guard
+ * de verdade e continuar verde só por ter `// if (auth instanceof Response)
+ * return auth;` em algum lugar. Asserção sobre texto bruto confunde "o código
+ * faz" com "o arquivo menciona".
+ *
+ * Não é um parser: strings contendo `//` ou `/*` seriam mutiladas. Aceitável
+ * porque o alvo são sete arquivos conhecidos, e mutilar uma string só pode
+ * derrubar asserção positiva — falha fechada, nunca abre porta.
+ */
+function stripComments(code: string): string {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 function source(fn: string): string {
-  return readFileSync(
-    join(process.cwd(), "supabase", "functions", fn, "index.ts"),
-    "utf-8",
+  return stripComments(
+    readFileSync(
+      join(process.cwd(), "supabase", "functions", fn, "index.ts"),
+      "utf-8",
+    ),
   );
 }
 
@@ -84,15 +105,35 @@ describe.each(FUNCOES_COM_SERVICE_ROLE)("%s (autorização via helper)", (fn) =>
   // (`auth` fica inutilizado e o TS não tem do que reclamar — verificado);
   // lendo `auth.via` depois do guard, vira TS2339 e morre no `deno check`.
   //
-  // LIMITE, para não vender o que não entrega: isto cobre a forma inline que
-  // as sete usam hoje. NÃO cobre alguém extrair o guard para uma função
-  // auxiliar no mesmo arquivo e esquecer de propagar o retorno dela —
-  // `await checkAuth(req);` sem `return` continua compilando e ainda casa com
-  // as regex daqui. Fechar isso exige inverter o controle (um wrapper que só
-  // chama o corpo privilegiado depois de autorizar), que é mudança de desenho,
-  // não de fiação. Registrado como dívida na PR.
+  // LIMITES, para não vender o que não entrega. Isto cobre a forma inline que
+  // as sete usam hoje, e NÃO cobre:
+  //   (a) extrair o guard para uma função auxiliar no mesmo arquivo e esquecer
+  //       de propagar o retorno — `await checkAuth(req);` sem `return` compila
+  //       e ainda casa com as regex daqui;
+  //   (b) montar as opções por indireção (`...opts`, variável, propriedade
+  //       computada) — a tabela PERFIS abaixo passa a não enxergar as flags.
+  // O caso (c), trabalho privilegiado ANTES do guard, é o único destes três
+  // que tem trava: o teste de posição logo abaixo. Fechar (a) e (b) exige
+  // inverter o controle (um wrapper que só chama o corpo privilegiado depois
+  // de autorizar) — mudança de desenho, não de fiação. Dívida registrada na PR.
   it("consome o contexto autorizado, tornando o guard verificável pelo compilador", () => {
     expect(code).toMatch(/\bauth\.via\b/);
+  });
+
+  // Autorizar depois de já ter mexido no banco não é autorizar. O guard
+  // precisa dominar TODA operação privilegiada, não apenas existir no arquivo.
+  it("autoriza antes de qualquer operação privilegiada", () => {
+    const guard = code.indexOf("if (auth instanceof Response) return auth;");
+    expect(guard).toBeGreaterThan(-1);
+
+    for (const op of [".from(", ".rpc(", "fetch("]) {
+      const primeira = code.indexOf(op);
+      if (primeira === -1) continue;
+      expect(
+        primeira,
+        `\`${op}\` aparece antes do guard de autorização`,
+      ).toBeGreaterThan(guard);
+    }
   });
 });
 
