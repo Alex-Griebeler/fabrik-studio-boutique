@@ -79,15 +79,108 @@ describe.each(FUNCOES_COM_SERVICE_ROLE)("%s (autorização via helper)", (fn) =>
     expect(code).toMatch(/if\s*\(\s*auth\s+instanceof\s+Response\s*\)\s*return\s+auth\s*;/);
   });
 
-  // Esta é a asserção que dá dentes à anterior. Sem consumir o contexto, apagar
-  // o `return` do guard compila numa boa — `auth` fica inutilizado e o TS não
-  // tem do que reclamar (verificado), e só esta suíte textual pegaria. Ao ler
-  // `auth.via` depois do guard, apagar o `return` vira erro de compilação
-  // (TS2339: 'via' não existe em 'Response'), pego pelo `deno check` da CI.
-  // Ou seja: o guard deixa de depender de regex e passa a depender do
-  // compilador — que é a tese desta mudança inteira.
+  // Esta asserção dá dentes à anterior, num caso específico: apagar o `return`
+  // DEIXANDO o guard no lugar. Sem consumir o contexto isso compila numa boa
+  // (`auth` fica inutilizado e o TS não tem do que reclamar — verificado);
+  // lendo `auth.via` depois do guard, vira TS2339 e morre no `deno check`.
+  //
+  // LIMITE, para não vender o que não entrega: isto cobre a forma inline que
+  // as sete usam hoje. NÃO cobre alguém extrair o guard para uma função
+  // auxiliar no mesmo arquivo e esquecer de propagar o retorno dela —
+  // `await checkAuth(req);` sem `return` continua compilando e ainda casa com
+  // as regex daqui. Fechar isso exige inverter o controle (um wrapper que só
+  // chama o corpo privilegiado depois de autorizar), que é mudança de desenho,
+  // não de fiação. Registrado como dívida na PR.
   it("consome o contexto autorizado, tornando o guard verificável pelo compilador", () => {
     expect(code).toMatch(/\bauth\.via\b/);
+  });
+});
+
+// Amarra cada função ao SEU perfil. Sem isto, trocar `allowAdminUser` de false
+// para true num handler — abrindo uma porta que aquela função nunca teve —
+// não quebraria teste nenhum: os testes do helper só provam que o helper honra
+// as flags que recebe, não que cada função passa as flags certas.
+const PERFIS = {
+  "detect-attendance-risk": {
+    cron: true,
+    admin: true,
+    missing: [401, "Missing Authorization"],
+    insufficient: [403, "Service-role required"],
+  },
+  "escalate-attendance-alerts": {
+    cron: true,
+    admin: false,
+    missing: [401, "Missing Authorization"],
+    insufficient: [403, "Service-role required"],
+  },
+  "attendance-prelive-check": {
+    cron: true,
+    admin: true,
+    missing: [401, "Unauthorized"],
+    insufficient: [401, "Unauthorized"],
+  },
+  "attendance-channel-healthcheck": {
+    cron: true,
+    admin: false,
+    missing: [401, "Missing Authorization or cron secret"],
+    insufficient: [403, "Service-role required"],
+  },
+  "refresh-attendance-message-status": {
+    cron: false,
+    admin: true,
+    missing: [401, "Missing Authorization"],
+    insufficient: [403, "Service-role or admin required"],
+  },
+  "detect-churn-risk": {
+    cron: true,
+    admin: true,
+    missing: [401, "Unauthorized"],
+    insufficient: [401, "Unauthorized"],
+  },
+  "sync-evo-attendance": {
+    cron: true,
+    admin: false,
+    missing: [401, "Missing Authorization or cron secret"],
+    insufficient: [403, "Service-role required"],
+  },
+} as const satisfies Record<
+  (typeof FUNCOES_COM_SERVICE_ROLE)[number],
+  {
+    cron: boolean;
+    admin: boolean;
+    missing: readonly [number, string];
+    insufficient: readonly [number, string];
+  }
+>;
+
+function denialRegex(campo: string, [status, mensagem]: readonly [number, string]) {
+  return new RegExp(
+    `${campo}:\\s*\\{\\s*status:\\s*${status},\\s*message:\\s*"${mensagem}"\\s*\\}`,
+  );
+}
+
+describe.each(Object.entries(PERFIS))("%s (perfil)", (fn, perfil) => {
+  const code = source(fn);
+
+  it(`${perfil.cron ? "aceita" : "não aceita"} o segredo do cron`, () => {
+    if (perfil.cron) {
+      expect(code).toMatch(/allowCronSecret:\s*true/);
+    } else {
+      expect(code).not.toContain("allowCronSecret");
+    }
+  });
+
+  it(`${perfil.admin ? "aceita" : "não aceita"} usuário admin`, () => {
+    if (perfil.admin) {
+      expect(code).toMatch(/allowAdminUser:\s*true/);
+    } else {
+      expect(code).not.toContain("allowAdminUser");
+    }
+  });
+
+  it("preserva status e mensagem das duas negações", () => {
+    expect(code).toMatch(denialRegex("missing", perfil.missing));
+    expect(code).toMatch(denialRegex("insufficient", perfil.insufficient));
   });
 
   it("não guarda a autorização em variável mutável", () => {

@@ -264,6 +264,40 @@ describe("chave de servico", () => {
     expect(await bodyOf(res)).toEqual({ error: "Service-role required" });
   });
 
+  // O codigo antigo fazia `authHeader.replace("Bearer ", "")`, sem trim: com
+  // dois espacos o token virava " <chave>" e era recusado. A primeira versao
+  // desta extracao usou `bearerToken()`, que faz trim, e passou a ACEITAR —
+  // mudanca de comportamento silenciosa numa PR que promete equivalencia.
+  // O `Headers` preserva o espaco duplo (conferido), entao o caso e real.
+  it("nega chave correta precedida de espaco extra, como o codigo antigo fazia", async () => {
+    const admin = makeAdminClient();
+    const res = (await requireInternalAuth(
+      {
+        req: request({ rawAuth: `Bearer  ${SERVICE_KEY}` }),
+        adminClient: admin.client,
+        corsHeaders,
+      },
+      dependencies,
+    )) as Response;
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
+  });
+
+  it("nega chave correta seguida de espaco extra", async () => {
+    const admin = makeAdminClient();
+    const res = (await requireInternalAuth(
+      {
+        req: request({ rawAuth: `Bearer ${SERVICE_KEY} x` }),
+        adminClient: admin.client,
+        corsHeaders,
+      },
+      dependencies,
+    )) as Response;
+
+    expect(res.status).toBe(403);
+  });
+
   it("nega token que e prefixo da chave", async () => {
     const admin = makeAdminClient();
     const res = (await requireInternalAuth(
@@ -278,6 +312,10 @@ describe("chave de servico", () => {
     expect(res.status).toBe(403);
   });
 
+  // Vale para o HELPER isolado. No handler real a requisicao nem chega aqui:
+  // `createClient(supabaseUrl, serviceKey)` roda antes e lanca com a chave
+  // ausente, virando 500 no catch. Ou seja, ambiente sem a chave falha
+  // fechado nos dois niveis — por caminhos diferentes.
   it("nega quando SUPABASE_SERVICE_ROLE_KEY nao esta no ambiente", async () => {
     env.SUPABASE_SERVICE_ROLE_KEY = undefined;
     const admin = makeAdminClient();
@@ -641,10 +679,14 @@ describe("usuario admin", () => {
   });
 });
 
-// ─────────────── Perfis reais das sete funcoes ───────────────
+// ─────────────── Combinacoes de opcoes ───────────────
 //
-// Cada perfil e afirmado como a tabela de verdade completa: o que autoriza E
-// o que nao autoriza. Trocar o perfil de uma funcao no handler quebra aqui.
+// Estes testes exercitam as TRES combinacoes de `allowCronSecret`/
+// `allowAdminUser` usadas pelas sete, cada uma pelo que aceita e pelo que
+// recusa. Sao sobre o HELPER: nada aqui amarra uma funcao a uma combinacao.
+// Quem faz essa amarracao e `serviceRoleAuth.contract.test.ts`, que le o
+// codigo dos sete handlers e confere as flags e as mensagens de negacao —
+// sem ele, trocar `allowAdminUser` em um handler nao quebraria teste nenhum.
 
 describe("perfis", () => {
   const CRON_E_ADMIN = { allowCronSecret: true, allowAdminUser: true } as const;

@@ -55,4 +55,6 @@ jobs:
       # (Node), importam "vitest", e não existem no runtime das functions.
       - name: Type-check edge functions
         working-directory: supabase/functions
-        run: deno check */index.ts
+        # `--frozen`: lock desatualizado ou dependencia nova FALHA a CI em vez
+        # de ser resolvida silenciosamente durante o job.
+        run: deno check --frozen */index.ts

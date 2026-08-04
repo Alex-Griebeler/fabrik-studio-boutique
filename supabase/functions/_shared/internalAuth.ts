@@ -54,7 +54,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasValidAttendanceCronSecret } from "./attendance/cronAuth.ts";
-import { bearerToken, isServiceRoleKey } from "./serviceRoleAuth.ts";
+import { isServiceRoleKey } from "./serviceRoleAuth.ts";
 
 /** Qual credencial autorizou a chamada. Util para log e para teste. */
 export type InternalAuthVia = "cron_secret" | "service_role" | "admin_user";
@@ -145,7 +145,7 @@ export async function requireInternalAuth(
   //    `isServiceRoleKey` nega quando qualquer um dos lados e vazio, entao um
   //    ambiente sem `SUPABASE_SERVICE_ROLE_KEY` nao autoriza ninguem.
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const token = bearerToken(authHeader);
+  const token = tokenAfterBearer(authHeader);
   if (isServiceRoleKey(token, serviceRoleKey)) {
     return { authorized: true, via: "service_role", userId: null };
   }
@@ -157,6 +157,23 @@ export async function requireInternalAuth(
   }
 
   return denial(insufficient, opts.corsHeaders);
+}
+
+/**
+ * Token depois do prefixo `Bearer `, SEM trim.
+ *
+ * Equivale exatamente ao `authHeader.replace("Bearer ", "")` que as sete
+ * usavam (o `startsWith` ja foi conferido, entao o `replace` so podia atingir
+ * o prefixo). Nao usa `bearerToken` de `serviceRoleAuth.ts` de proposito: la
+ * ha um `.trim()`, e com ele `Authorization: "Bearer  <chave>"` (dois espacos,
+ * que o `Headers` preserva) passaria a ser aceito depois de ser recusado
+ * antes. Nao e brecha — quem monta esse header ja tem a chave — mas e mudanca
+ * de comportamento, e esta mudanca e de testabilidade. Se um dia se decidir
+ * aceitar OWS entre o esquema e o token (o RFC 7235 permite), que seja uma
+ * decisao propria, com seu proprio commit.
+ */
+function tokenAfterBearer(authHeader: string): string {
+  return authHeader.slice("Bearer ".length);
 }
 
 /**
