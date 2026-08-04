@@ -72,7 +72,15 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
       return;
     }
     if (hydratedForId === trainer.id) return; // já hidratado; não repopular
-    if (fullTrainer.data && fullTrainer.data.id === trainer.id) {
+    // Hidratação inicial exige dado FRESCO: isSuccess + sem refetch em
+    // voo — cache stale pós-invalidate hidrataria valores antigos e o
+    // próximo save os restauraria (rodada 3 do Codex).
+    if (
+      fullTrainer.isSuccess &&
+      !fullTrainer.isFetching &&
+      fullTrainer.data &&
+      fullTrainer.data.id === trainer.id
+    ) {
       const t = fullTrainer.data;
       setForm({
         full_name: t.full_name || "",
@@ -97,7 +105,7 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
       });
       setHydratedForId(trainer.id);
     }
-  }, [open, trainer, hydratedForId, fullTrainer.data]);
+  }, [open, trainer, hydratedForId, fullTrainer.isSuccess, fullTrainer.isFetching, fullTrainer.data]);
 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
