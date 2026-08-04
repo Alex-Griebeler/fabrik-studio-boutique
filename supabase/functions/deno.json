@@ -1,0 +1,33 @@
+{
+  "//": [
+    "Configuracao de type-check das edge functions (Deno).",
+    "",
+    "Ate A3.2 NENHUMA verificacao de tipo rodava sobre supabase/functions/:",
+    "tsconfig.app.json inclui somente 'src', e o passo 'Check TypeScript' da CI",
+    "chamava `npx tsc --noEmit` sobre um tsconfig.json com 'files': [] — que sem",
+    "-b nao entra nas referencias e portanto nao checava nem src/ nem as",
+    "functions. Codigo que nao compila passava batido; foi assim que uma fiacao",
+    "quebrada de autorizacao chegou a ser commitada sem ninguem ver.",
+    "",
+    "A checagem e feita com `deno check` (e nao tsc) porque as functions rodam",
+    "em Deno e importam por URL (esm.sh, deno.land/std). O deno resolve esses",
+    "specifiers e usa os tipos REAIS do pacote publicado; tsc precisaria de",
+    "declaracoes ambientes falsas para as mesmas URLs.",
+    "",
+    "As opcoes abaixo espelham a laxidao ja adotada em tsconfig.app.json. Nao",
+    "sao a configuracao desejavel — sao a que torna a checagem adotavel HOJE,",
+    "sem misturar um mutirao de tipagem com a correcao de seguranca. Apertar",
+    "strict/noImplicitAny e trabalho de acabamento (Onda 6)."
+  ],
+  "compilerOptions": {
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false
+  },
+  "lint": {
+    "exclude": ["."]
+  },
+  "fmt": {
+    "exclude": ["."]
+  }
+}
