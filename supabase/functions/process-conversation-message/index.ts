@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireStaffRole } from "../_shared/requireStaffRole.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,29 +30,26 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // --- 1. Authenticate user ---
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await authClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
+    // --- 1. Authenticate + role staff (A3.3b) ---
+    // Antes: qualquer JWT válido (inclusive de aluna) chegava aqui e, via
+    // service role, lia PII do lead, injetava mensagem e gerava custo de IA
+    // em qualquer conversa. Agora: admin/reception apenas. allowServiceRole
+    // segue no default (true) — não há chamador interno vivo (o
+    // receive-whatsapp foi lacrado); o caminho Meta futuro define o próprio
+    // contrato.
+    const auth = await requireStaffRole(
+      { req, allowed: ["admin", "reception"] },
+      { createClient },
+    );
+    if (auth instanceof Response) return auth;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    // Client service_role vem do helper — ler `auth.adminClient` depois do
+    // guard torna o `return auth` acima obrigatório em tempo de compilação
+    // (apagá-lo vira TS2339 no deno check, mesmo truque do A3.2).
+    const supabase = auth.adminClient;
 
     // --- 2. Validate input ---
     const { conversation_id, message } = await req.json();
