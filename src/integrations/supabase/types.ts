@@ -412,6 +412,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "attendance_alerts_escalated_to_trainer_id_fkey"
+            columns: ["escalated_to_trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "attendance_alerts_student_id_fkey"
             columns: ["student_id"]
             isOneToOne: false
@@ -423,6 +430,13 @@ export type Database = {
             columns: ["trainer_id"]
             isOneToOne: false
             referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
             referencedColumns: ["id"]
           },
         ]
@@ -488,6 +502,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "attendance_events_assistant_trainer_id_fkey"
+            columns: ["assistant_trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "attendance_events_student_id_fkey"
             columns: ["student_id"]
             isOneToOne: false
@@ -499,6 +520,13 @@ export type Database = {
             columns: ["trainer_id"]
             isOneToOne: false
             referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_events_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
             referencedColumns: ["id"]
           },
         ]
@@ -809,6 +837,13 @@ export type Database = {
             columns: ["trainer_id"]
             isOneToOne: false
             referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "churn_alerts_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
             referencedColumns: ["id"]
           },
         ]
@@ -1352,6 +1387,13 @@ export type Database = {
             columns: ["trainer_id"]
             isOneToOne: false
             referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "evo_trainer_mappings_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
             referencedColumns: ["id"]
           },
         ]
@@ -2247,6 +2289,13 @@ export type Database = {
             referencedRelation: "trainers"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "payroll_disputes_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
+            referencedColumns: ["id"]
+          },
         ]
       }
       plans: {
@@ -2810,6 +2859,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "sessions_assistant_trainer_id_fkey"
+            columns: ["assistant_trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "sessions_contract_id_fkey"
             columns: ["contract_id"]
             isOneToOne: false
@@ -2842,6 +2898,13 @@ export type Database = {
             columns: ["trainer_id"]
             isOneToOne: false
             referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
             referencedColumns: ["id"]
           },
         ]
@@ -3247,35 +3310,6 @@ export type Database = {
       }
     }
     Views: {
-      trainers_admin: {
-        Row: {
-          bank_account: string | null
-          bank_agency: string | null
-          bank_name: string | null
-          bio: string | null
-          certifications: string[] | null
-          cpf: string | null
-          created_at: string
-          email: string | null
-          full_name: string
-          hired_at: string | null
-          hourly_rate_assistant_cents: number
-          hourly_rate_main_cents: number
-          id: string
-          is_active: boolean
-          notes: string | null
-          payment_method: Database["public"]["Enums"]["trainer_payment_method"]
-          phone: string | null
-          pix_key: string | null
-          pix_key_type: string | null
-          profile_id: string | null
-          session_rate_cents: number
-          specialties: string[] | null
-          terminated_at: string | null
-          updated_at: string
-        }
-        Relationships: []
-      }
       payable_sessions: {
         Row: {
           assistant_hourly_rate_cents: number | null
@@ -3310,6 +3344,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "sessions_assistant_trainer_id_fkey"
+            columns: ["assistant_trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "sessions_contract_id_fkey"
             columns: ["contract_id"]
             isOneToOne: false
@@ -3328,6 +3369,108 @@ export type Database = {
             columns: ["trainer_id"]
             isOneToOne: false
             referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trainers_admin: {
+        Row: {
+          bank_account: string | null
+          bank_agency: string | null
+          bank_name: string | null
+          bio: string | null
+          certifications: string[] | null
+          cpf: string | null
+          created_at: string | null
+          email: string | null
+          full_name: string | null
+          hired_at: string | null
+          hourly_rate_assistant_cents: number | null
+          hourly_rate_main_cents: number | null
+          id: string | null
+          is_active: boolean | null
+          notes: string | null
+          payment_method:
+            | Database["public"]["Enums"]["trainer_payment_method"]
+            | null
+          phone: string | null
+          pix_key: string | null
+          pix_key_type: string | null
+          profile_id: string | null
+          session_rate_cents: number | null
+          specialties: string[] | null
+          terminated_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          bank_account?: string | null
+          bank_agency?: string | null
+          bank_name?: string | null
+          bio?: string | null
+          certifications?: string[] | null
+          cpf?: string | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          hired_at?: string | null
+          hourly_rate_assistant_cents?: number | null
+          hourly_rate_main_cents?: number | null
+          id?: string | null
+          is_active?: boolean | null
+          notes?: string | null
+          payment_method?:
+            | Database["public"]["Enums"]["trainer_payment_method"]
+            | null
+          phone?: string | null
+          pix_key?: string | null
+          pix_key_type?: string | null
+          profile_id?: string | null
+          session_rate_cents?: number | null
+          specialties?: string[] | null
+          terminated_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          bank_account?: string | null
+          bank_agency?: string | null
+          bank_name?: string | null
+          bio?: string | null
+          certifications?: string[] | null
+          cpf?: string | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          hired_at?: string | null
+          hourly_rate_assistant_cents?: number | null
+          hourly_rate_main_cents?: number | null
+          id?: string | null
+          is_active?: boolean | null
+          notes?: string | null
+          payment_method?:
+            | Database["public"]["Enums"]["trainer_payment_method"]
+            | null
+          phone?: string | null
+          pix_key?: string | null
+          pix_key_type?: string | null
+          profile_id?: string | null
+          session_rate_cents?: number | null
+          specialties?: string[] | null
+          terminated_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trainers_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
