@@ -18,6 +18,7 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { normalizeTwilioMessageStatus } from "../_shared/attendance/twilio-status.ts";
 import { providerForSid } from "../_shared/whatsapp/provider.ts";
+import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,19 +65,6 @@ interface RefreshSummary {
   errors: string[];
 }
 
-function isServiceRoleJwt(token: string): boolean {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -94,7 +82,7 @@ Deno.serve(async (req) => {
       return jsonError(401, "Missing Authorization");
     }
     const token = authHeader.replace("Bearer ", "");
-    let authorized = token === serviceKey || isServiceRoleJwt(token);
+    let authorized = isServiceRoleKey(token, serviceKey);
     if (!authorized) {
       try {
         const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;

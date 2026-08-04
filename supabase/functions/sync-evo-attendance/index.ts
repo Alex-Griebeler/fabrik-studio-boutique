@@ -39,6 +39,7 @@ import {
   type TrainerRecord,
 } from "../_shared/attendance/evo-normalizer.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
+import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
 import {
   DEFAULT_BACKOFF_MS,
   DEFAULT_RETRY_ATTEMPTS,
@@ -160,7 +161,7 @@ Deno.serve(async (req) => {
       }
     } else {
       const token = authHeader.replace("Bearer ", "");
-      if (token !== serviceKey && !isServiceRoleJwt(token) && !cronAuthorized) {
+      if (!isServiceRoleKey(token, serviceKey) && !cronAuthorized) {
         return jsonError(403, "Service-role required");
       }
     }
@@ -925,19 +926,6 @@ function redactUrl(url: string): string {
 
 function base64(s: string): string {
   return btoa(unescape(encodeURIComponent(s)));
-}
-
-function isServiceRoleJwt(token: string): boolean {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
 }
 
 function isValidIsoDate(s: string): boolean {

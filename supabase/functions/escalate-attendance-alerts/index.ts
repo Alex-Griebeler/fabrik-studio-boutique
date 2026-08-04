@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { isWithinSendWindow } from "../_shared/attendance/detection.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 import { shouldEscalate } from "../_shared/attendance/escalation.ts";
+import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
 import {
   buildEscalationBody,
   currentWhatsappProvider,
@@ -14,15 +15,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
-
-function isServiceRoleJwt(token: string): boolean {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload?.role === "service_role";
-  } catch { return false; }
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -40,7 +32,7 @@ Deno.serve(async (req) => {
       if (!cronAuthorized) return j(401, { error: "Missing Authorization" });
     } else {
       const token = authHeader.replace("Bearer ", "");
-      if (token !== serviceKey && !isServiceRoleJwt(token) && !cronAuthorized) {
+      if (!isServiceRoleKey(token, serviceKey) && !cronAuthorized) {
         return j(403, { error: "Service-role required" });
       }
     }
