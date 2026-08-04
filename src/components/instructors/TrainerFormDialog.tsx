@@ -107,7 +107,8 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     }
   }, [open, trainer, hydratedForId, fullTrainer.isSuccess, fullTrainer.isFetching, fullTrainer.data]);
 
-  const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  const set = <K extends keyof typeof emptyForm>(k: K, v: (typeof emptyForm)[K]) =>
+    setForm((f) => ({ ...f, [k]: v }));
 
   const centsToReal = (c: number) => (c / 100).toFixed(2).replace(".", ",");
   const realToCents = (s: string) => Math.round(parseFloat(s.replace(",", ".") || "0") * 100);
@@ -128,8 +129,8 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     // Guard anti-perda de dados: em edição, nunca salvar sem o registro
     // completo DESTE treinador carregado e estável (fetch concluído).
     if (isEdit && !fullLoaded) return;
-    const payload: any = { ...form };
-    if (!payload.hired_at) delete payload.hired_at;
+    const { hired_at, ...rest } = form;
+    const payload: Partial<Trainer> = hired_at ? { ...rest, hired_at } : rest;
 
     if (isEdit) {
       update.mutate({ id: trainer!.id, ...payload }, { onSuccess: () => onOpenChange(false) });
@@ -254,7 +255,10 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
           <TabsContent value="rates" className="space-y-3 mt-3">
             <div>
               <Label>Método de pagamento</Label>
-              <Select value={form.payment_method} onValueChange={(v) => set("payment_method", v)}>
+              <Select
+                value={form.payment_method}
+                onValueChange={(v) => set("payment_method", v as typeof emptyForm.payment_method)}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="hourly">Por hora</SelectItem>
