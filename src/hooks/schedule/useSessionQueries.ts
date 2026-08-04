@@ -93,10 +93,24 @@ export function useClassSessions(startDate: string, endDate: string) {
   return useQuery({
     queryKey: ["sessions", startDate, endDate],
     queryFn: async () => {
+      // Onda 1.5a: colunas nomeadas em vez de `*` — as coordenadas GPS de
+      // check-in (aluna e treinador) ficam fora do payload da agenda.
       const { data, error } = await supabase
         .from("sessions")
         .select(`
-          *,
+          id, session_date, start_time, end_time, duration_minutes,
+          modality, session_type, status, capacity, notes, is_exception,
+          is_makeup, is_paid, late_minutes, makeup_credit_id, contract_id,
+          template_id, student_id, trainer_id, assistant_trainer_id,
+          actual_start_time, student_checkin_at, student_checkin_method,
+          trainer_checkin_at, trainer_checkin_method,
+          cancellation_reason, cancellation_within_cutoff, cancelled_at,
+          cancelled_by, dispute_reason, dispute_resolution, disputed_at,
+          disputed_by, resolved_at, resolved_by, adjusted_at, adjusted_by,
+          adjustment_reason, payment_amount_cents, payment_hours, paid_at,
+          original_payment_amount_cents, trainer_hourly_rate_cents,
+          assistant_hourly_rate_cents, assistant_payment_amount_cents,
+          created_at, updated_at,
           trainer:trainers!sessions_trainer_id_fkey(id, full_name),
           assistant_trainer:trainers!sessions_assistant_trainer_id_fkey(id, full_name),
           student:students!sessions_student_id_fkey(id, full_name),

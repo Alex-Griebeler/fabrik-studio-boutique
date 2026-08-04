@@ -14,9 +14,13 @@ export function useTrainerTodaySessions() {
     queryKey: ["trainer_today_sessions", trainer?.id, today],
     enabled: !!trainer?.id,
     queryFn: async () => {
+      // Onda 1.5a: colunas nomeadas — GPS de check-in da aluna, valores
+      // financeiros e campos de disputa ficam fora do portal do treinador.
       const { data, error } = await supabase
         .from("sessions")
-        .select("*, students(full_name)")
+        .select(
+          "id, session_date, start_time, end_time, duration_minutes, modality, session_type, status, student_id, trainer_checkin_at, trainer_checkin_method, students(full_name)",
+        )
         .eq("trainer_id", trainer!.id)
         .eq("session_date", today)
         .in("status", ["scheduled", "completed"])

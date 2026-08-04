@@ -47,7 +47,7 @@ export interface AttendanceAlert {
   status: AttendanceAlertStatus;
   mode: AttendanceAlertMode;
   suppress_reason: string | null;
-  ack_token: string;
+  // ack_token intencionalmente FORA do payload da UI (Onda 1.5a).
   message_sid: string | null;
   escalation_message_sid: string | null;
   message_to: string | null;
@@ -75,8 +75,20 @@ export interface AttendanceAlert {
 
 const OPEN_STATUSES: AttendanceAlertStatus[] = ["pending", "escalated"];
 
+// Onda 1.5a: colunas nomeadas em vez de `*` — o ack_token (capability
+// token que autentica o endpoint de acknowledge SEM JWT) não pode
+// circular no payload da UI.
 const SELECT = `
-  *,
+  id, alert_type, status, mode, student_id, trainer_id,
+  escalated_to_trainer_id, detected_at, notified_at, acknowledged_at,
+  acknowledged_via, escalated_at, resolved_at, resolved_by,
+  suppress_reason, last_attended_at, missed_dates, missed_session_ids,
+  missed_booking_ids, message_sid, message_to, message_provider_status,
+  message_provider_error_code, message_provider_error_message,
+  message_provider_checked_at, escalation_message_sid,
+  escalation_provider_status, escalation_provider_error_code,
+  escalation_provider_error_message, escalation_provider_checked_at,
+  plan_snapshot, created_at, updated_at,
   student:students!attendance_alerts_student_id_fkey(id, full_name),
   trainer:trainers!attendance_alerts_trainer_id_fkey(id, full_name),
   escalated_to_trainer:trainers!attendance_alerts_escalated_to_trainer_id_fkey(id, full_name)

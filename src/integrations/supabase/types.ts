@@ -3247,6 +3247,35 @@ export type Database = {
       }
     }
     Views: {
+      trainers_admin: {
+        Row: {
+          bank_account: string | null
+          bank_agency: string | null
+          bank_name: string | null
+          bio: string | null
+          certifications: string[] | null
+          cpf: string | null
+          created_at: string
+          email: string | null
+          full_name: string
+          hired_at: string | null
+          hourly_rate_assistant_cents: number
+          hourly_rate_main_cents: number
+          id: string
+          is_active: boolean
+          notes: string | null
+          payment_method: Database["public"]["Enums"]["trainer_payment_method"]
+          phone: string | null
+          pix_key: string | null
+          pix_key_type: string | null
+          profile_id: string | null
+          session_rate_cents: number
+          specialties: string[] | null
+          terminated_at: string | null
+          updated_at: string
+        }
+        Relationships: []
+      }
       payable_sessions: {
         Row: {
           assistant_hourly_rate_cents: number | null

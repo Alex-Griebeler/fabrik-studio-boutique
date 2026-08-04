@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { X } from "lucide-react";
-import { useCreateTrainer, useUpdateTrainer } from "@/hooks/useTrainers";
+import { useCreateTrainer, useTrainerAdmin, useUpdateTrainer } from "@/hooks/useTrainers";
 import type { Trainer } from "@/hooks/schedule/types";
 
 interface Props {
@@ -49,35 +49,66 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   const update = useUpdateTrainer();
   const isEdit = !!trainer;
 
-  useEffect(() => {
-    if (trainer) {
-      setForm({
-        full_name: trainer.full_name || "",
-        email: trainer.email || "",
-        phone: trainer.phone || "",
-        cpf: trainer.cpf || "",
-        bio: trainer.bio || "",
-        notes: trainer.notes || "",
-        is_active: trainer.is_active ?? true,
-        payment_method: trainer.payment_method || "hourly",
-        hourly_rate_main_cents: trainer.hourly_rate_main_cents || 0,
-        hourly_rate_assistant_cents: trainer.hourly_rate_assistant_cents || 0,
-        session_rate_cents: trainer.session_rate_cents || 0,
-        specialties: trainer.specialties || [],
-        certifications: trainer.certifications || [],
-        hired_at: trainer.hired_at || "",
-        pix_key: trainer.pix_key || "",
-        pix_key_type: trainer.pix_key_type || "",
-        bank_name: trainer.bank_name || "",
-        bank_agency: trainer.bank_agency || "",
-        bank_account: trainer.bank_account || "",
-      });
-    } else {
-      setForm(emptyForm);
-    }
-  }, [trainer, open]);
+  // Onda 1.5a: a lista (useTrainers) não carrega mais cpf/banco/pix/notes
+  // — o registro completo vem da view trainers_admin. Inicializar o form
+  // a partir da lista SOBRESCREVERIA os dados sensíveis com vazio no
+  // save; por isso o form só é populado (e o salvar só é liberado)
+  // quando o registro completo chega.
+  const fullTrainer = useTrainerAdmin(trainer?.id);
 
-  const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  // Hidratação UMA VEZ por abertura/treinador: refetch em background não
+  // repopula (repopular apagaria edição em curso — rodada 2 do Codex).
+  const [hydratedForId, setHydratedForId] = useState<string | null>(null);
+  const fullLoaded = !!trainer && hydratedForId === trainer.id;
+
+  useEffect(() => {
+    if (!open) {
+      setHydratedForId(null);
+      return;
+    }
+    if (!trainer) {
+      setForm(emptyForm);
+      setHydratedForId(null);
+      return;
+    }
+    if (hydratedForId === trainer.id) return; // já hidratado; não repopular
+    // Hidratação inicial exige dado FRESCO: isSuccess + sem refetch em
+    // voo — cache stale pós-invalidate hidrataria valores antigos e o
+    // próximo save os restauraria (rodada 3 do Codex).
+    if (
+      fullTrainer.isSuccess &&
+      !fullTrainer.isFetching &&
+      fullTrainer.data &&
+      fullTrainer.data.id === trainer.id
+    ) {
+      const t = fullTrainer.data;
+      setForm({
+        full_name: t.full_name || "",
+        email: t.email || "",
+        phone: t.phone || "",
+        cpf: t.cpf || "",
+        bio: t.bio || "",
+        notes: t.notes || "",
+        is_active: t.is_active ?? true,
+        payment_method: t.payment_method || "hourly",
+        hourly_rate_main_cents: t.hourly_rate_main_cents || 0,
+        hourly_rate_assistant_cents: t.hourly_rate_assistant_cents || 0,
+        session_rate_cents: t.session_rate_cents || 0,
+        specialties: t.specialties || [],
+        certifications: t.certifications || [],
+        hired_at: t.hired_at || "",
+        pix_key: t.pix_key || "",
+        pix_key_type: t.pix_key_type || "",
+        bank_name: t.bank_name || "",
+        bank_agency: t.bank_agency || "",
+        bank_account: t.bank_account || "",
+      });
+      setHydratedForId(trainer.id);
+    }
+  }, [open, trainer, hydratedForId, fullTrainer.isSuccess, fullTrainer.isFetching, fullTrainer.data]);
+
+  const set = <K extends keyof typeof emptyForm>(k: K, v: (typeof emptyForm)[K]) =>
+    setForm((f) => ({ ...f, [k]: v }));
 
   const centsToReal = (c: number) => (c / 100).toFixed(2).replace(".", ",");
   const realToCents = (s: string) => Math.round(parseFloat(s.replace(",", ".") || "0") * 100);
@@ -95,8 +126,11 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
 
   const handleSubmit = () => {
     if (!form.full_name.trim()) return;
-    const payload: any = { ...form };
-    if (!payload.hired_at) delete payload.hired_at;
+    // Guard anti-perda de dados: em edição, nunca salvar sem o registro
+    // completo DESTE treinador carregado e estável (fetch concluído).
+    if (isEdit && !fullLoaded) return;
+    const { hired_at, ...rest } = form;
+    const payload: Partial<Trainer> = hired_at ? { ...rest, hired_at } : rest;
 
     if (isEdit) {
       update.mutate({ id: trainer!.id, ...payload }, { onSuccess: () => onOpenChange(false) });
@@ -105,7 +139,7 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     }
   };
 
-  const isPending = create.isPending || update.isPending;
+  const isPending = create.isPending || update.isPending || (isEdit && !fullLoaded);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -113,6 +147,14 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar Treinador" : "Novo Treinador"}</DialogTitle>
         </DialogHeader>
+
+        {isEdit && fullTrainer.isError && (
+          <p className="text-sm text-destructive">
+            Não foi possível carregar os dados completos do treinador — edição
+            bloqueada para evitar sobrescrever dados bancários. Recarregue e
+            tente de novo.
+          </p>
+        )}
 
         <Tabs defaultValue="info" className="mt-2">
           <TabsList className="grid w-full grid-cols-3">
@@ -213,7 +255,10 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
           <TabsContent value="rates" className="space-y-3 mt-3">
             <div>
               <Label>Método de pagamento</Label>
-              <Select value={form.payment_method} onValueChange={(v) => set("payment_method", v)}>
+              <Select
+                value={form.payment_method}
+                onValueChange={(v) => set("payment_method", v as typeof emptyForm.payment_method)}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="hourly">Por hora</SelectItem>
