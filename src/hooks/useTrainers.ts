@@ -6,7 +6,7 @@ import type { Trainer } from "./schedule/types";
 // Onda 1.5a: o SELECT amplo em trainers foi revogado no banco — o role
 // `authenticated` só tem privilégio nas colunas operacionais abaixo.
 // CPF, dados bancários, PIX e notes vivem atrás da view `trainers_admin`
-// (gated por has_role admin/manager). `select("*")` aqui volta
+// (gated por has_role ADMIN-only). `select("*")` aqui volta
 // "permission denied".
 const TRAINER_OPERATIONAL_COLUMNS =
   "id, full_name, email, phone, bio, certifications, specialties, " +
@@ -33,7 +33,7 @@ export function useTrainers(activeOnly = false) {
 
 /**
  * Registro COMPLETO de um treinador (inclui cpf/banco/pix/notes) via a
- * view `trainers_admin` — retorna vazio para quem não é admin/manager.
+ * view `trainers_admin` — retorna vazio para quem não é admin.
  * Uso exclusivo das telas administrativas (formulário de treinador).
  */
 export function useTrainerAdmin(id: string | undefined) {

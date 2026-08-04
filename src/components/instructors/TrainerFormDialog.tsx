@@ -56,15 +56,23 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   // quando o registro completo chega.
   const fullTrainer = useTrainerAdmin(trainer?.id);
 
-  // Só popula quando o registro completo é DESTE treinador e o fetch
-  // terminou (cache de outro treinador ou refetch em voo não populam).
-  const fullLoaded =
-    !!trainer &&
-    !fullTrainer.isFetching &&
-    fullTrainer.data?.id === trainer.id;
+  // Hidratação UMA VEZ por abertura/treinador: refetch em background não
+  // repopula (repopular apagaria edição em curso — rodada 2 do Codex).
+  const [hydratedForId, setHydratedForId] = useState<string | null>(null);
+  const fullLoaded = !!trainer && hydratedForId === trainer.id;
 
   useEffect(() => {
-    if (trainer && fullLoaded && fullTrainer.data) {
+    if (!open) {
+      setHydratedForId(null);
+      return;
+    }
+    if (!trainer) {
+      setForm(emptyForm);
+      setHydratedForId(null);
+      return;
+    }
+    if (hydratedForId === trainer.id) return; // já hidratado; não repopular
+    if (fullTrainer.data && fullTrainer.data.id === trainer.id) {
       const t = fullTrainer.data;
       setForm({
         full_name: t.full_name || "",
@@ -87,10 +95,9 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
         bank_agency: t.bank_agency || "",
         bank_account: t.bank_account || "",
       });
-    } else if (!trainer) {
-      setForm(emptyForm);
+      setHydratedForId(trainer.id);
     }
-  }, [trainer, fullLoaded, fullTrainer.data, open]);
+  }, [open, trainer, hydratedForId, fullTrainer.data]);
 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
