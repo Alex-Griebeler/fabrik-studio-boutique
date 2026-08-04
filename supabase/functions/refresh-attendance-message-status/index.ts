@@ -18,7 +18,7 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { normalizeTwilioMessageStatus } from "../_shared/attendance/twilio-status.ts";
 import { providerForSid } from "../_shared/whatsapp/provider.ts";
-import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { requireInternalAuth } from "../_shared/internalAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,35 +75,21 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: aceita service_role bearer (cron / admin curl) OU JWT
-    // com role=service_role OU usuário admin autenticado.
-    const authHeader = req.headers.get("Authorization") ?? "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return jsonError(401, "Missing Authorization");
-    }
-    const token = authHeader.replace("Bearer ", "");
-    let authorized = isServiceRoleKey(token, serviceKey);
-    if (!authorized) {
-      try {
-        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-        const userClient = createClient(supabaseUrl, anonKey, {
-          global: { headers: { Authorization: authHeader } },
-        });
-        const { data: u } = await userClient.auth.getUser();
-        if (u?.user) {
-          const { data: r } = await supabase
-            .from("user_roles")
-            .select("role")
-            .eq("user_id", u.user.id)
-            .eq("role", "admin")
-            .maybeSingle();
-          if (r) authorized = true;
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    if (!authorized) return jsonError(403, "Service-role or admin required");
+    // Auth: chave de servico (cron / curl admin) OU usuário admin autenticado.
+    // Sem segredo de cron — esta funcao nunca foi agendada por header proprio,
+    // e ligar a porta agora seria ampliacao de superficie, nao refatoracao.
+    const auth = await requireInternalAuth(
+      {
+        req,
+        adminClient: supabase,
+        corsHeaders,
+        allowAdminUser: true,
+        missing: { status: 401, message: "Missing Authorization" },
+        insufficient: { status: 403, message: "Service-role or admin required" },
+      },
+      { createClient },
+    );
+    if (auth instanceof Response) return auth;
 
     const body = ((await req.json().catch(() => ({}))) ?? {}) as RefreshBody;
     const dryRun = body.dryRun !== undefined ? !!body.dryRun : true;
