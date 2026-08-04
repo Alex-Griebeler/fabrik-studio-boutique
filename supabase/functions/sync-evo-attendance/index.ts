@@ -38,8 +38,7 @@ import {
   type TrainerMatchMethod,
   type TrainerRecord,
 } from "../_shared/attendance/evo-normalizer.ts";
-import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
-import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { requireInternalAuth } from "../_shared/internalAuth.ts";
 import {
   DEFAULT_BACKOFF_MS,
   DEFAULT_RETRY_ATTEMPTS,
@@ -152,19 +151,19 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Auth: service_role bearer OU cron secret
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const cronAuthorized = await hasValidAttendanceCronSecret(req, supabase);
-    if (!authHeader.startsWith("Bearer ")) {
-      if (!cronAuthorized) {
-        return jsonError(401, "Missing Authorization or cron secret");
-      }
-    } else {
-      const token = authHeader.replace("Bearer ", "");
-      if (!isServiceRoleKey(token, serviceKey) && !cronAuthorized) {
-        return jsonError(403, "Service-role required");
-      }
-    }
+    // Auth: segredo do cron OU chave de servico. Sem porta de admin.
+    const auth = await requireInternalAuth(
+      {
+        req,
+        adminClient: supabase,
+        corsHeaders,
+        allowCronSecret: true,
+        missing: { status: 401, message: "Missing Authorization or cron secret" },
+        insufficient: { status: 403, message: "Service-role required" },
+      },
+      { createClient },
+    );
+    if (auth instanceof Response) return auth;
 
     const body = ((await req.json().catch(() => ({}))) ?? {}) as SyncBody;
 

@@ -14,27 +14,18 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Já migradas para `requireInternalAuth` (A3.2): a decisão saiu do handler e
- * passou a ter teste de comportamento em `internalAuth.test.ts`.
+ * As sete que reconheciam chamada interna pelo conteúdo do JWT. Desde A3.2
+ * todas delegam a decisão a `requireInternalAuth`, que tem teste de
+ * comportamento em `internalAuth.test.ts`.
  */
-const FUNCOES_COM_HELPER = [
+const FUNCOES_COM_SERVICE_ROLE = [
   "detect-attendance-risk",
   "escalate-attendance-alerts",
   "attendance-prelive-check",
   "attendance-channel-healthcheck",
   "refresh-attendance-message-status",
   "detect-churn-risk",
-] as const;
-
-/** Ainda com a decisão inline no handler — migração A3.2 em curso. */
-const FUNCOES_LEGADO = [
   "sync-evo-attendance",
-] as const;
-
-/** As sete que reconheciam chamada interna pelo conteúdo do JWT. */
-const FUNCOES_COM_SERVICE_ROLE = [
-  ...FUNCOES_COM_HELPER,
-  ...FUNCOES_LEGADO,
 ] as const;
 
 function source(fn: string): string {
@@ -73,21 +64,12 @@ describe.each(FUNCOES_COM_SERVICE_ROLE)("%s", (fn) => {
   });
 });
 
-describe.each(FUNCOES_LEGADO)("%s (decisão ainda inline)", (fn) => {
-  const code = source(fn);
-
-  it("usa o helper compartilhado com comparação em tempo constante", () => {
-    expect(code).toContain("isServiceRoleKey");
-    expect(code).toMatch(/from\s+["']\.\.\/_shared\/serviceRoleAuth\.ts["']/);
-  });
-});
-
 // Depois da migração as asserções deixam de ser sobre a FORMA do bypass e
 // passam a ser sobre a AUSÊNCIA de decisão no handler: sem booleano mutável,
 // sem consulta de role, sem leitura de chave. Quem edita o handler não tem
 // mais como conceder acesso — só como deixar de encaminhar a negação, e isso
 // não compila (`auth` seria usado como união com `Response`).
-describe.each(FUNCOES_COM_HELPER)("%s (migrada para requireInternalAuth)", (fn) => {
+describe.each(FUNCOES_COM_SERVICE_ROLE)("%s (autorização via helper)", (fn) => {
   const code = source(fn);
 
   it("delega a decisão ao helper", () => {
