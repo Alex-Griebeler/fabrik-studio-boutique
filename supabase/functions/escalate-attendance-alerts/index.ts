@@ -3,6 +3,7 @@ import { isWithinSendWindow } from "../_shared/attendance/detection.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 import { shouldEscalate } from "../_shared/attendance/escalation.ts";
 import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { resolveEffectiveMode } from "../_shared/attendance/mode.ts";
 import {
   buildEscalationBody,
   currentWhatsappProvider,
@@ -132,8 +133,10 @@ Deno.serve(async (req) => {
         const trainerName = a.trainer?.full_name ?? "treinador";
 
         // Destino: shadow_phone em modo shadow, fallback.phone em modo live
+        // A policy ATUAL manda: alerta gravado como `live` nao sobrevive ao
+        // agente ter voltado para shadow. Ver _shared/attendance/mode.ts.
         const targetPhone =
-          a.mode === "shadow"
+          resolveEffectiveMode(policies.mode, a.mode) === "shadow"
             ? policies.shadowPhone || null
             : fallbackTrainer.phone || null;
 
@@ -188,6 +191,7 @@ Deno.serve(async (req) => {
 // ─────────── Helpers ───────────
 
 interface AgentPolicies {
+  mode: string;
   shadowPhone: string;
   escalationHours: number;
   fallbackTrainerId: string | null;
@@ -197,6 +201,7 @@ interface AgentPolicies {
 
 async function loadPolicies(supabase: SupabaseClient): Promise<AgentPolicies> {
   const keys = [
+    "attendance_agent.mode",
     "attendance_agent.shadow_phone",
     "attendance_agent.escalation_hours",
     "attendance_agent.fallback_trainer_id",
@@ -212,6 +217,7 @@ async function loadPolicies(supabase: SupabaseClient): Promise<AgentPolicies> {
     (data ?? []).map((r) => [r.key as string, r.value]),
   );
   return {
+    mode: (map.get("attendance_agent.mode") as string) ?? "shadow",
     shadowPhone: (map.get("attendance_agent.shadow_phone") as string) ?? "",
     escalationHours:
       (map.get("attendance_agent.escalation_hours") as number) ?? 24,

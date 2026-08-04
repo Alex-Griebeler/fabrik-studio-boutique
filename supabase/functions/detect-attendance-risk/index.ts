@@ -10,6 +10,7 @@ import {
 import { newAlertInitialState } from "../_shared/attendance/escalation.ts";
 import { hasValidAttendanceCronSecret } from "../_shared/attendance/cronAuth.ts";
 import { isServiceRoleKey } from "../_shared/serviceRoleAuth.ts";
+import { resolveEffectiveMode } from "../_shared/attendance/mode.ts";
 import {
   buildTrainerAlertBody,
   currentWhatsappProvider,
@@ -398,8 +399,10 @@ async function sendPendingAlerts(args: {
   for (const row of rows) {
     try {
       const trainerForAlert = row.escalated_to_trainer ?? row.trainer;
+      // A policy ATUAL manda: um alerta gravado como `live` nao sobrevive ao
+      // agente ter voltado para shadow. Ver _shared/attendance/mode.ts.
       const targetPhone = resolveTargetPhone({
-        mode: row.mode,
+        mode: resolveEffectiveMode(policies.mode, row.mode),
         shadowPhone: policies.shadowPhone,
         trainer: trainerForAlert?.is_active ? trainerForAlert : null,
       });
