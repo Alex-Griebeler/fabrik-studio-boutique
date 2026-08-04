@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { X } from "lucide-react";
-import { useCreateTrainer, useUpdateTrainer } from "@/hooks/useTrainers";
+import { useCreateTrainer, useTrainerAdmin, useUpdateTrainer } from "@/hooks/useTrainers";
 import type { Trainer } from "@/hooks/schedule/types";
 
 interface Props {
@@ -49,33 +49,41 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   const update = useUpdateTrainer();
   const isEdit = !!trainer;
 
+  // Onda 1.5a: a lista (useTrainers) não carrega mais cpf/banco/pix/notes
+  // — o registro completo vem da view trainers_admin. Inicializar o form
+  // a partir da lista SOBRESCREVERIA os dados sensíveis com vazio no
+  // save; por isso o form só é populado (e o salvar só é liberado)
+  // quando o registro completo chega.
+  const fullTrainer = useTrainerAdmin(trainer?.id);
+
   useEffect(() => {
-    if (trainer) {
+    if (trainer && fullTrainer.data) {
+      const t = fullTrainer.data;
       setForm({
-        full_name: trainer.full_name || "",
-        email: trainer.email || "",
-        phone: trainer.phone || "",
-        cpf: trainer.cpf || "",
-        bio: trainer.bio || "",
-        notes: trainer.notes || "",
-        is_active: trainer.is_active ?? true,
-        payment_method: trainer.payment_method || "hourly",
-        hourly_rate_main_cents: trainer.hourly_rate_main_cents || 0,
-        hourly_rate_assistant_cents: trainer.hourly_rate_assistant_cents || 0,
-        session_rate_cents: trainer.session_rate_cents || 0,
-        specialties: trainer.specialties || [],
-        certifications: trainer.certifications || [],
-        hired_at: trainer.hired_at || "",
-        pix_key: trainer.pix_key || "",
-        pix_key_type: trainer.pix_key_type || "",
-        bank_name: trainer.bank_name || "",
-        bank_agency: trainer.bank_agency || "",
-        bank_account: trainer.bank_account || "",
+        full_name: t.full_name || "",
+        email: t.email || "",
+        phone: t.phone || "",
+        cpf: t.cpf || "",
+        bio: t.bio || "",
+        notes: t.notes || "",
+        is_active: t.is_active ?? true,
+        payment_method: t.payment_method || "hourly",
+        hourly_rate_main_cents: t.hourly_rate_main_cents || 0,
+        hourly_rate_assistant_cents: t.hourly_rate_assistant_cents || 0,
+        session_rate_cents: t.session_rate_cents || 0,
+        specialties: t.specialties || [],
+        certifications: t.certifications || [],
+        hired_at: t.hired_at || "",
+        pix_key: t.pix_key || "",
+        pix_key_type: t.pix_key_type || "",
+        bank_name: t.bank_name || "",
+        bank_agency: t.bank_agency || "",
+        bank_account: t.bank_account || "",
       });
-    } else {
+    } else if (!trainer) {
       setForm(emptyForm);
     }
-  }, [trainer, open]);
+  }, [trainer, fullTrainer.data, open]);
 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -95,6 +103,9 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
 
   const handleSubmit = () => {
     if (!form.full_name.trim()) return;
+    // Guard anti-perda de dados: em edição, nunca salvar antes do
+    // registro completo (trainers_admin) ter populado o form.
+    if (isEdit && !fullTrainer.data) return;
     const payload: any = { ...form };
     if (!payload.hired_at) delete payload.hired_at;
 
@@ -105,7 +116,8 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     }
   };
 
-  const isPending = create.isPending || update.isPending;
+  const isPending =
+    create.isPending || update.isPending || (isEdit && !fullTrainer.data);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

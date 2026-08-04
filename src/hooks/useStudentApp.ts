@@ -4,6 +4,16 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import type { Database } from "@/integrations/supabase/types";
 
+// Onda 1.5a: payload da aluna com colunas nomeadas — valores de
+// pagamento/tarifas do treinador, GPS de check-in e campos de disputa
+// administrativa ficam FORA do que o portal da aluna baixa.
+const STUDENT_SESSION_COLUMNS =
+  "id, session_date, start_time, end_time, duration_minutes, modality, " +
+  "session_type, status, capacity, notes, is_makeup, is_exception, " +
+  "late_minutes, student_id, trainer_id, student_checkin_at, " +
+  "student_checkin_method, cancelled_at, cancellation_reason, " +
+  "created_at, updated_at, trainers:trainer_id(id, full_name)";
+
 type SessionRow = Database["public"]["Tables"]["sessions"]["Row"];
 type ContractRow = Database["public"]["Tables"]["contracts"]["Row"];
 
@@ -53,7 +63,7 @@ export function useStudentUpcomingSessions(studentId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("*, trainers:trainer_id(id, full_name)")
+        .select(STUDENT_SESSION_COLUMNS)
         .eq("student_id", studentId!)
         .gte("session_date", today)
         .in("status", ["scheduled", "completed"])
@@ -78,7 +88,7 @@ export function useStudentSessionHistory(studentId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("*, trainers:trainer_id(id, full_name)")
+        .select(STUDENT_SESSION_COLUMNS)
         .eq("student_id", studentId!)
         .eq("status", "completed")
         .lt("session_date", today)
@@ -175,7 +185,7 @@ export function useAvailableGroupSessions(studentId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("*, trainers:trainer_id(id, full_name)")
+        .select(STUDENT_SESSION_COLUMNS)
         .eq("session_type", "group")
         .eq("status", "scheduled")
         .gte("session_date", today)

@@ -3,19 +3,51 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { Trainer } from "./schedule/types";
 
+// Onda 1.5a: o SELECT amplo em trainers foi revogado no banco — o role
+// `authenticated` só tem privilégio nas colunas operacionais abaixo.
+// CPF, dados bancários, PIX e notes vivem atrás da view `trainers_admin`
+// (gated por has_role admin/manager). `select("*")` aqui volta
+// "permission denied".
+const TRAINER_OPERATIONAL_COLUMNS =
+  "id, full_name, email, phone, bio, certifications, specialties, " +
+  "is_active, hired_at, terminated_at, profile_id, " +
+  "hourly_rate_main_cents, hourly_rate_assistant_cents, " +
+  "session_rate_cents, payment_method, created_at, updated_at";
+
 export function useTrainers(activeOnly = false) {
   return useQuery({
     queryKey: ["trainers", activeOnly],
     queryFn: async () => {
       let query = supabase
         .from("trainers")
-        .select("*")
+        .select(TRAINER_OPERATIONAL_COLUMNS)
         .order("full_name")
         .limit(1000);
       if (activeOnly) query = query.eq("is_active", true);
       const { data, error } = await query;
       if (error) throw error;
-      return data as Trainer[];
+      return data as unknown as Trainer[];
+    },
+  });
+}
+
+/**
+ * Registro COMPLETO de um treinador (inclui cpf/banco/pix/notes) via a
+ * view `trainers_admin` — retorna vazio para quem não é admin/manager.
+ * Uso exclusivo das telas administrativas (formulário de treinador).
+ */
+export function useTrainerAdmin(id: string | undefined) {
+  return useQuery({
+    queryKey: ["trainers_admin", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("trainers_admin")
+        .select("*")
+        .eq("id", id!)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as unknown as Trainer) ?? null;
     },
   });
 }
@@ -27,11 +59,11 @@ export function useTrainer(id: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("trainers")
-        .select("*")
+        .select(TRAINER_OPERATIONAL_COLUMNS)
         .eq("id", id!)
         .single();
       if (error) throw error;
-      return data as Trainer;
+      return data as unknown as Trainer;
     },
   });
 }
