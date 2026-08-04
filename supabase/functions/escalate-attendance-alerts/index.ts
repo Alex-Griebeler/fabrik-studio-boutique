@@ -40,6 +40,7 @@ Deno.serve(async (req) => {
       { createClient },
     );
     if (auth instanceof Response) return auth;
+    console.log("escalate-attendance-alerts: chamada interna autorizada via", auth.via);
 
     const policies = await loadPolicies(supabase);
     const nowInTz = nowInTimezone(policies.timezone);

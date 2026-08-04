@@ -63,6 +63,7 @@ Deno.serve(async (req) => {
       { createClient },
     );
     if (auth instanceof Response) return auth;
+    console.log("detect-churn-risk: chamada interna autorizada via", auth.via);
 
     const body = (await req.json().catch(() => ({}))) as {
       dryRun?: boolean;

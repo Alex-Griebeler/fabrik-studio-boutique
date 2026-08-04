@@ -164,6 +164,7 @@ Deno.serve(async (req) => {
       { createClient },
     );
     if (auth instanceof Response) return auth;
+    console.log("sync-evo-attendance: chamada interna autorizada via", auth.via);
 
     const body = ((await req.json().catch(() => ({}))) ?? {}) as SyncBody;
 

@@ -75,6 +75,7 @@ Deno.serve(async (req) => {
       { createClient },
     );
     if (auth instanceof Response) return auth;
+    console.log("attendance-channel-healthcheck: chamada interna autorizada via", auth.via);
 
     // Twilio creds (pra GET status)
     const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");

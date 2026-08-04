@@ -58,6 +58,7 @@ Deno.serve(async (req) => {
       { createClient },
     );
     if (auth instanceof Response) return auth;
+    console.log("attendance-prelive-check: chamada interna autorizada via", auth.via);
 
     // ─── Coleta de estado ───
     const errors: string[] = [];

@@ -90,6 +90,7 @@ Deno.serve(async (req) => {
       { createClient },
     );
     if (auth instanceof Response) return auth;
+    console.log("refresh-attendance-message-status: chamada interna autorizada via", auth.via);
 
     const body = ((await req.json().catch(() => ({}))) ?? {}) as RefreshBody;
     const dryRun = body.dryRun !== undefined ? !!body.dryRun : true;

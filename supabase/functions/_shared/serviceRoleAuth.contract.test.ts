@@ -66,9 +66,7 @@ describe.each(FUNCOES_COM_SERVICE_ROLE)("%s", (fn) => {
 
 // Depois da migração as asserções deixam de ser sobre a FORMA do bypass e
 // passam a ser sobre a AUSÊNCIA de decisão no handler: sem booleano mutável,
-// sem consulta de role, sem leitura de chave. Quem edita o handler não tem
-// mais como conceder acesso — só como deixar de encaminhar a negação, e isso
-// não compila (`auth` seria usado como união com `Response`).
+// sem consulta de role, sem leitura de chave.
 describe.each(FUNCOES_COM_SERVICE_ROLE)("%s (autorização via helper)", (fn) => {
   const code = source(fn);
 
@@ -79,6 +77,17 @@ describe.each(FUNCOES_COM_SERVICE_ROLE)("%s (autorização via helper)", (fn) =>
 
   it("encaminha a negação sem reinterpretá-la", () => {
     expect(code).toMatch(/if\s*\(\s*auth\s+instanceof\s+Response\s*\)\s*return\s+auth\s*;/);
+  });
+
+  // Esta é a asserção que dá dentes à anterior. Sem consumir o contexto, apagar
+  // o `return` do guard compila numa boa — `auth` fica inutilizado e o TS não
+  // tem do que reclamar (verificado), e só esta suíte textual pegaria. Ao ler
+  // `auth.via` depois do guard, apagar o `return` vira erro de compilação
+  // (TS2339: 'via' não existe em 'Response'), pego pelo `deno check` da CI.
+  // Ou seja: o guard deixa de depender de regex e passa a depender do
+  // compilador — que é a tese desta mudança inteira.
+  it("consome o contexto autorizado, tornando o guard verificável pelo compilador", () => {
+    expect(code).toMatch(/\bauth\.via\b/);
   });
 
   it("não guarda a autorização em variável mutável", () => {
