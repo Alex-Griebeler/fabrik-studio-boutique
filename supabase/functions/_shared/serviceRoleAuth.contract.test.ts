@@ -23,11 +23,11 @@ const FUNCOES_COM_HELPER = [
   "attendance-prelive-check",
   "attendance-channel-healthcheck",
   "refresh-attendance-message-status",
+  "detect-churn-risk",
 ] as const;
 
 /** Ainda com a decisão inline no handler — migração A3.2 em curso. */
 const FUNCOES_LEGADO = [
-  "detect-churn-risk",
   "sync-evo-attendance",
 ] as const;
 
