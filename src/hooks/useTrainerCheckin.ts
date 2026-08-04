@@ -19,9 +19,7 @@ export function useTrainerTodaySessions() {
       const { data, error } = await supabase
         .from("sessions")
         .select(
-          "id, session_date, start_time, end_time, duration_minutes, " +
-            "modality, session_type, status, student_id, " +
-            "trainer_checkin_at, trainer_checkin_method, students(full_name)",
+          "id, session_date, start_time, end_time, duration_minutes, modality, session_type, status, student_id, trainer_checkin_at, trainer_checkin_method, students(full_name)",
         )
         .eq("trainer_id", trainer!.id)
         .eq("session_date", today)
