@@ -24,21 +24,37 @@
 //
 // O QUE ISTO PROVA
 //
-//   1. Dentro do `Deno.serve`, a PRIMEIRA coisa aguardada é
-//      `requireInternalAuth`. Como todo efeito privilegiado destas funções é
-//      assíncrono (banco, rede), nada privilegiado roda antes de autorizar —
-//      inclusive através de helper, que é o furo que a checagem textual tinha.
-//   2. Logo depois vem o guard, e ele devolve a negação.
-//   3. As opções passadas são exatamente as do perfil da função — lidas do nó,
-//      então formatação, aspas e comentário não influem, e indireção
-//      (`...opts`, variável) é rejeitada explicitamente em vez de passar batido.
-//   4. Nenhuma peça da decisão foi refeita no handler.
+//   1. Há exatamente UM `Deno.serve`, top-level, e ele importa
+//      `requireInternalAuth` de `../_shared/internalAuth.ts` — sem isso o
+//      contrato poderia auditar um handler-chamariz e ignorar o que roda.
+//   2. Antes de autorizar não se chama nada além de `Deno.env.get` e
+//      `createClient` (nenhum dos dois faz I/O). Lista fechada de propósito:
+//      exigir apenas "o primeiro await é a autorização" deixaria passar um
+//      `fetch()` sem await ou um helper síncrono.
+//   3. `const auth = await requireInternalAuth(...)` é declaração única, e o
+//      statement IMEDIATAMENTE seguinte é o guard, cujo ramo verdadeiro
+//      DEVOLVE a negação.
+//   4. As opções são as do perfil da função, lidas do nó e pelo nome
+//      semântico da propriedade — `allowAdminUser` não escapa. Spread e
+//      nome computado são rejeitados em vez de passar batido.
+//   5. Nenhuma peça conhecida da decisão foi refeita no handler.
 //
-// LIMITE QUE PERMANECE: isto lê o código, não o executa. Prova a forma do
-// handler, não o comportamento em produção. O comportamento de
-// `requireInternalAuth` está em `internalAuth.test.ts`; o que nenhum dos dois
-// cobre é o handler de ponta a ponta, que exigiria quebrar o import de valor
-// de esm.sh no topo. Registrado como dívida na PR.
+// O QUE ISTO NÃO PROVA — e não adianta fingir que prova:
+//
+//   - É análise ESTÁTICA. Prova a forma do handler, não o comportamento em
+//     produção. O comportamento do helper está em `internalAuth.test.ts`;
+//     nenhum dos dois cobre o handler de ponta a ponta, o que exigiria quebrar
+//     o import de valor de esm.sh no topo.
+//   - O item 5 é BLACKLIST: proíbe os identificadores e literais conhecidos.
+//     `globalThis["atob"]`, `"service" + "_role"`, outra lib de base64 ou uma
+//     regra nova inventada do zero passam. A proteção real contra reimplementar
+//     a decisão é ela morar num módulo testado — código novo de autorização no
+//     handler é uma adição visível em review, não algo que este arquivo pegue.
+//   - Não há resolução de símbolos (é um `SourceFile` solto, não um `Program`).
+//     `Response` é comparado por texto e poderia, em tese, estar sombreado.
+//   - Nada aqui resiste a um autor hostil. O alvo é regressão acidental de
+//     quem edita o handler meses depois — não fraude deliberada, que o review
+//     humano é que pega.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -158,13 +174,31 @@ function todos(raiz: ts.Node, aceita: (n: ts.Node) => boolean): ts.Node[] {
   return out;
 }
 
-/** Corpo do callback passado a `Deno.serve`. */
+/**
+ * Corpo do callback do `Deno.serve` — exigindo que ele seja ÚNICO e
+ * top-level.
+ *
+ * Sem essas duas exigências o contrato audita o primeiro `Deno.serve` que
+ * encontrar: bastaria um handler exemplar dentro de função morta, declarado
+ * acima, para o teste aprovar o chamariz e ignorar o endpoint que roda.
+ */
 function corpoDoServe(sf: ts.SourceFile): ts.Node {
-  const chamada = primeiro(sf, (n): n is ts.CallExpression =>
-    ts.isCallExpression(n) && n.expression.getText(sf) === "Deno.serve",
+  const todosServe = todos(
+    sf,
+    (n) => ts.isCallExpression(n) && n.expression.getText(sf) === "Deno.serve",
   );
-  if (!chamada) throw new Error("Deno.serve não encontrado");
-  const cb = chamada.arguments[0];
+  if (todosServe.length !== 1) {
+    throw new Error(`esperado 1 Deno.serve, achado ${todosServe.length}`);
+  }
+  const topLevel = sf.statements.some(
+    (s) =>
+      ts.isExpressionStatement(s) &&
+      ts.isCallExpression(s.expression) &&
+      s.expression.expression.getText(sf) === "Deno.serve",
+  );
+  if (!topLevel) throw new Error("Deno.serve não é chamada top-level");
+
+  const cb = (todosServe[0] as ts.CallExpression).arguments[0];
   if (!cb || (!ts.isArrowFunction(cb) && !ts.isFunctionExpression(cb))) {
     throw new Error("callback de Deno.serve não é função");
   }
@@ -176,37 +210,99 @@ function nomeDaChamada(expr: ts.Expression, sf: ts.SourceFile): string {
   return ts.isCallExpression(expr) ? expr.expression.getText(sf) : "";
 }
 
+/**
+ * Nome SEMÂNTICO da propriedade.
+ *
+ * `getText()` devolve o texto cru, então `allowAdminUser` — que o
+ * runtime e o TypeScript leem como `allowAdminUser` — apareceria como outra
+ * chave e a flag passaria despercebida. `.text` já vem com o escape resolvido.
+ */
+function nomeDaPropriedade(nome: ts.PropertyName): string | null {
+  if (ts.isIdentifier(nome) || ts.isStringLiteral(nome)) return nome.text;
+  if (ts.isNumericLiteral(nome)) return nome.text;
+  return null;
+}
+
 // ─────────────────────── Asserções ───────────────────────
 
 describe.each(FUNCOES_COM_SERVICE_ROLE)("%s", (fn) => {
   const sf = parse(fn);
   const corpo = corpoDoServe(sf);
 
-  // A asserção central. Todo efeito privilegiado destas funções é assíncrono;
-  // se a primeira coisa aguardada é a autorização, nada privilegiado a
-  // precede — nem direto, nem por helper. Um `await loadPolicies(supabase)`
-  // acima do guard aparece aqui, coisa que comparar posição de `.from(` não
-  // via, porque o `.from(` fica na função declarada lá embaixo.
+  it("importa o helper aprovado", () => {
+    const imports = sf.statements.filter(ts.isImportDeclaration);
+    const doHelper = imports.find(
+      (i) =>
+        ts.isStringLiteral(i.moduleSpecifier) &&
+        i.moduleSpecifier.text === "../_shared/internalAuth.ts",
+    );
+    expect(doHelper, "não importa ../_shared/internalAuth.ts").toBeDefined();
+
+    const nomes = doHelper!.importClause?.namedBindings;
+    expect(nomes && ts.isNamedImports(nomes)).toBe(true);
+    expect(
+      (nomes as ts.NamedImports).elements.map((e) => e.name.text),
+    ).toContain("requireInternalAuth");
+  });
+
   it("autoriza antes de qualquer coisa aguardada", () => {
     const espera = primeiro(corpo, ts.isAwaitExpression);
     expect(espera, "nenhum await no handler").toBeDefined();
     expect(nomeDaChamada(espera!.expression, sf)).toBe("requireInternalAuth");
   });
 
+  // O `await` sozinho não basta: `fetch(...)` sem await, um helper síncrono ou
+  // um efeito avaliado nos argumentos da própria autorização rodariam antes
+  // sem criar outro `AwaitExpression`. Por isso a lista do que pode preceder é
+  // fechada. `Deno.env.get` lê variável de ambiente e `createClient` só monta
+  // o objeto — nenhum dos dois faz I/O. Qualquer chamada nova antes da
+  // autorização quebra aqui e obriga quem escreveu a justificar.
+  it("não chama mais nada antes de autorizar", () => {
+    const PERMITIDAS = new Set(["Deno.env.get", "createClient"]);
+
+    const auth = primeiro(corpo, (n): n is ts.CallExpression =>
+      ts.isCallExpression(n) &&
+      n.expression.getText(sf) === "requireInternalAuth",
+    );
+    expect(auth, "requireInternalAuth não é chamado").toBeDefined();
+
+    const antes = todos(
+      corpo,
+      (n) => ts.isCallExpression(n) && n.getStart(sf) < auth!.getStart(sf),
+    ).map((n) => (n as ts.CallExpression).expression.getText(sf));
+
+    for (const chamada of antes) {
+      expect(
+        PERMITIDAS.has(chamada),
+        `\`${chamada}()\` roda antes da autorização`,
+      ).toBe(true);
+    }
+  });
+
   it("encaminha a negação imediatamente depois de autorizar", () => {
     // `const auth = await requireInternalAuth(...)` e, na sequência do MESMO
     // bloco, o guard. Exigir adjacência fecha a brecha de enfiar trabalho
     // entre a decisão e o uso dela.
+    // Um único declarador, chamado `auth`, inicializado com a autorização.
+    // Sem isso passaria `const ignorado = await requireInternalAuth(...),
+    // auth = { via: "admin_user" };` — o guard testaria um objeto forjado.
     const decl = primeiro(corpo, (n): n is ts.VariableStatement =>
       ts.isVariableStatement(n) &&
-      n.declarationList.declarations.some(
-        (d) =>
-          d.initializer !== undefined &&
-          ts.isAwaitExpression(d.initializer) &&
-          nomeDaChamada(d.initializer.expression, sf) === "requireInternalAuth",
-      ),
+      n.declarationList.declarations.length === 1 &&
+      ts.isIdentifier(n.declarationList.declarations[0].name) &&
+      n.declarationList.declarations[0].name.text === "auth" &&
+      n.declarationList.declarations[0].initializer !== undefined &&
+      ts.isAwaitExpression(n.declarationList.declarations[0].initializer!) &&
+      nomeDaChamada(
+        (n.declarationList.declarations[0].initializer as ts.AwaitExpression)
+          .expression,
+        sf,
+      ) === "requireInternalAuth",
     );
-    expect(decl, "`await requireInternalAuth` não é atribuído").toBeDefined();
+    expect(
+      decl,
+      "`const auth = await requireInternalAuth(...)` não encontrado como declaração única",
+    ).toBeDefined();
 
     const bloco = decl!.parent as ts.Block;
     const irmaos = bloco.statements;
@@ -257,9 +353,12 @@ describe.each(FUNCOES_COM_SERVICE_ROLE)("%s", (fn) => {
         `nome computado nas opções de ${fn}: ${p.getText(sf)}`,
       ).toBe(true);
 
-      const chave = p.name!.getText(sf).replace(/["']/g, "");
+      const chave = nomeDaPropriedade(p.name!);
+      expect(chave, `nome de propriedade ilegível: ${p.getText(sf)}`).not.toBe(
+        null,
+      );
       props.set(
-        chave,
+        chave!,
         ts.isPropertyAssignment(p) ? p.initializer : null,
       );
     }
@@ -287,8 +386,12 @@ describe.each(FUNCOES_COM_SERVICE_ROLE)("%s", (fn) => {
       ).toBe(true);
       const campos = new Map<string, string>();
       for (const p of (v as ts.ObjectLiteralExpression).properties) {
+        expect(
+          ts.isPropertyAssignment(p),
+          `${nome} precisa ser só pares literais: ${p.getText(sf)}`,
+        ).toBe(true);
         const pa = p as ts.PropertyAssignment;
-        campos.set(pa.name.getText(sf), pa.initializer.getText(sf));
+        campos.set(nomeDaPropriedade(pa.name) ?? "", pa.initializer.getText(sf));
       }
       return {
         status: Number(campos.get("status")),
