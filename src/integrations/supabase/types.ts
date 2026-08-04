@@ -74,6 +74,72 @@ export type Database = {
         }
         Relationships: []
       }
+      _backup_expenses_20260803: {
+        Row: {
+          amount_cents: number | null
+          backed_up_at: string | null
+          category_id: string | null
+          competence_date: string | null
+          created_at: string | null
+          description: string | null
+          due_date: string | null
+          id: string | null
+          is_recurring: boolean | null
+          notes: string | null
+          parent_expense_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          recurrence: string | null
+          recurring_frequency: string | null
+          recurring_until: string | null
+          status: Database["public"]["Enums"]["expense_status"] | null
+          supplier_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount_cents?: number | null
+          backed_up_at?: string | null
+          category_id?: string | null
+          competence_date?: string | null
+          created_at?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string | null
+          is_recurring?: boolean | null
+          notes?: string | null
+          parent_expense_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          recurrence?: string | null
+          recurring_frequency?: string | null
+          recurring_until?: string | null
+          status?: Database["public"]["Enums"]["expense_status"] | null
+          supplier_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount_cents?: number | null
+          backed_up_at?: string | null
+          category_id?: string | null
+          competence_date?: string | null
+          created_at?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string | null
+          is_recurring?: boolean | null
+          notes?: string | null
+          parent_expense_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          recurrence?: string | null
+          recurring_frequency?: string | null
+          recurring_until?: string | null
+          status?: Database["public"]["Enums"]["expense_status"] | null
+          supplier_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       ai_agent_config: {
         Row: {
           behavior_config: Json
