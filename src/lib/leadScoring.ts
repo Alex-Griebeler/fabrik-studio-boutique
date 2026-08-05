@@ -65,6 +65,16 @@ export function calculateLeadScore(details: QualificationDetails): LeadScoreResu
   return { score, grade };
 }
 
+/**
+ * Nota derivada da coluna `qualification_score` (já persistida e
+ * recalculada a cada update) — permite que listas exibam a nota SEM
+ * carregar o JSON `qualification_details`, que contém a ficha de saúde
+ * (PAR-Q) do lead. Mesmos cortes do calculateLeadScore.
+ */
+export function gradeFromScore(score: number): LeadGrade {
+  return score >= 75 ? "A" : score >= 50 ? "B" : score >= 25 ? "C" : "D";
+}
+
 export const gradeColors: Record<LeadGrade, string> = {
   A: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
   B: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",

@@ -55,7 +55,12 @@ export interface Lead {
   source: string | null;
   status: LeadStatus;
   qualification_score: number;
-  qualification_details: QualificationDetails;
+  /**
+   * Ficha de qualificação/anamnese (contém PAR-Q — dado de saúde).
+   * Onda 1.5b: NÃO vem na listagem (useLeads); só no detalhe por lead
+   * (useLeadDetail). Opcional de propósito.
+   */
+  qualification_details?: QualificationDetails;
   trial_date: string | null;
   trial_time: string | null;
   trial_type: string | null;
@@ -124,9 +129,15 @@ export function useLeads(filters?: LeadFilters) {
   return useQuery({
     queryKey: ["leads", filters],
     queryFn: async () => {
+      // Onda 1.5b: a LISTAGEM não carrega qualification_details (ficha de
+      // saúde/PAR-Q de até 1000 leads no bundle da recepção). A nota vem
+      // de qualification_score (gradeFromScore); o detalhe completo é
+      // por lead aberto, via useLeadDetail.
       let query = supabase
         .from("leads")
-        .select("*")
+        .select(
+          "id, name, email, phone, source, status, qualification_score, trial_date, trial_time, trial_type, converted_to_student_id, lost_reason, utm_params, tags, referred_by, temperature, consultant_id, notes, created_at, updated_at",
+        )
         .order("created_at", { ascending: false })
         .limit(1000);
 
@@ -151,6 +162,26 @@ export function useLeads(filters?: LeadFilters) {
       return data as unknown as Lead[];
     },
     staleTime: 5 * 60 * 1000, // 5 min
+  });
+}
+
+/**
+ * Lead COMPLETO (inclui qualification_details com o PAR-Q) — buscado
+ * por lead aberto, nunca em lote. Uso: dialogs de detalhe.
+ */
+export function useLeadDetail(leadId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["lead_detail", leadId],
+    enabled: !!leadId && enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("leads")
+        .select("*")
+        .eq("id", leadId!)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as unknown as Lead) ?? null;
+    },
   });
 }
 

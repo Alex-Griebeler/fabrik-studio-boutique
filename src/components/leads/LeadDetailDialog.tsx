@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useInteractions,
+  useLeadDetail,
   interactionTypeLabels,
   interactionTypeIcons,
   leadStatusLabels,
@@ -15,7 +16,7 @@ import {
   type LeadStatus,
 } from "@/hooks/useLeads";
 import { TemplateSelector } from "./TemplateSelector";
-import { calculateLeadScore, gradeColors } from "@/lib/leadScoring";
+import { gradeFromScore, gradeColors } from "@/lib/leadScoring";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarCheck, ClipboardCopy, MessageSquare, UserCheck, XCircle } from "lucide-react";
@@ -46,11 +47,16 @@ export function LeadDetailDialog({
   const { data: interactions, isLoading } = useInteractions(lead?.id ?? "");
   const [messageTab, setMessageTab] = useState("templates");
 
+  // Onda 1.5b: a ficha (qualification_details, contém PAR-Q) não vem
+  // mais na listagem — busca por lead aberto.
+  const fullLead = useLeadDetail(lead?.id, open);
+
   if (!lead) return null;
 
   const status = (lead.status || "new") as LeadStatus;
-  const { score, grade } = calculateLeadScore(lead.qualification_details ?? {});
-  const details = lead.qualification_details ?? {};
+  const score = lead.qualification_score;
+  const grade = gradeFromScore(score);
+  const details = fullLead.data?.qualification_details ?? {};
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -85,6 +91,11 @@ export function LeadDetailDialog({
         </div>
 
         {/* Qualification details */}
+        {fullLead.isLoading && (
+          <p className="text-xs text-muted-foreground border-t border-border pt-2">
+            Carregando ficha de qualificação…
+          </p>
+        )}
         {Object.keys(details).length > 0 && (
           <div className="space-y-1 text-sm border-t border-border pt-2">
             <p className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">Qualificação</p>
