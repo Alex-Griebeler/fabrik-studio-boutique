@@ -69,7 +69,13 @@ export function useUserRoles() {
     };
   }, [user]);
 
-  const { roles, loading } = state;
+  // Retorno DERIVADO do usuário atual: no primeiro render após a troca
+  // de usuário (antes do effect rodar), o estado ainda é do usuário
+  // anterior — nunca devolver papéis dele (rodada final do Codex).
+  const matchesUser = state.userId === (user?.id ?? null);
+  const roles = matchesUser ? state.roles : [];
+  const loading = !!user && (!matchesUser || state.loading);
+
   const hasRole = (role: AppRole) => roles.includes(role);
   const hasAnyRole = (check: AppRole[]) => check.some((r) => roles.includes(r));
 

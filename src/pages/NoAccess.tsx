@@ -5,13 +5,15 @@ import { Button } from "@/components/ui/button";
 import { SeoHead } from "@/components/SeoHead";
 
 export default function NoAccess() {
-  const { user, signOut } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
 
   // Sem usuário (após Sair, ou acesso direto deslogado) → login.
+  // Espera a restauração de sessão terminar: durante o reload, user
+  // começa null com loading=true — navegar aí expulsaria um logado.
   useEffect(() => {
-    if (!user) navigate("/login", { replace: true });
-  }, [user, navigate]);
+    if (!loading && !user) navigate("/login", { replace: true });
+  }, [loading, user, navigate]);
 
   return (
     <main className="flex min-h-dvh items-center justify-center bg-background p-6">
