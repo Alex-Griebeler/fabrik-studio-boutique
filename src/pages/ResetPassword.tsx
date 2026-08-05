@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import logoFabrik from "@/assets/logo-fabrik.png";
+import { SeoHead } from "@/components/SeoHead";
 
 export default function ResetPassword() {
   const [password, setPassword] = useState("");

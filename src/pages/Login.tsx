@@ -9,6 +9,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Moon, Sun } from "lucide-react";
 import logoFabrik from "@/assets/logo-fabrik.png";
+import { SeoHead } from "@/components/SeoHead";
 
 // Self-signup foi REMOVIDO. O app é administrativo: contas novas são
 // criadas pela administração diretamente no Supabase (auth.users +
