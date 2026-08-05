@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import logoFabrik from "@/assets/logo-fabrik.png";
+import { SeoHead } from "@/components/SeoHead";
 
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
@@ -43,6 +44,7 @@ export default function ResetPassword() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
+      <SeoHead title="Redefinir senha" description="Defina uma nova senha para acessar o sistema de gestão do Fabrik Body & Mind Fitness Studio." path="/reset-password" noindex />
       <div className="w-full max-w-sm animate-fade-in">
         <div className="flex justify-center mb-10">
           <img src={logoFabrik} alt="Fabrik" className="h-16 w-auto" />

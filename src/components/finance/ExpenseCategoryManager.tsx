@@ -169,13 +169,13 @@ export function ExpenseCategoryManager() {
                       <Badge variant="secondary" className="text-[10px]">Inativo</Badge>
                     )}
                     <div className="flex-1" />
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(group)}>
+                    <Button size="icon" variant="ghost" aria-label={`Editar categoria ${group.name}`} className="h-7 w-7" onClick={() => startEdit(group)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => toggleActive(group)} title={group.is_active ? "Desativar" : "Ativar"}>
+                    <Button size="icon" variant="ghost" aria-label={group.is_active ? `Desativar categoria ${group.name}` : `Ativar categoria ${group.name}`} className="h-7 w-7" onClick={() => toggleActive(group)} title={group.is_active ? "Desativar" : "Ativar"}>
                       {group.is_active ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setAddingTo(group.id); setNewName(""); setNewColor(group.color); setExpandedGroups((p) => new Set(p).add(group.id)); }} title="Adicionar subcategoria">
+                    <Button size="icon" variant="ghost" aria-label={`Adicionar subcategoria em ${group.name}`} className="h-7 w-7" onClick={() => { setAddingTo(group.id); setNewName(""); setNewColor(group.color); setExpandedGroups((p) => new Set(p).add(group.id)); }} title="Adicionar subcategoria">
                       <FolderPlus className="h-3.5 w-3.5" />
                     </Button>
                   </>
@@ -208,10 +208,10 @@ export function ExpenseCategoryManager() {
                               <Badge variant="secondary" className="text-[10px]">Inativo</Badge>
                             )}
                             <div className="flex-1" />
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(child)}>
+                            <Button size="icon" variant="ghost" aria-label={`Editar subcategoria ${child.name}`} className="h-7 w-7" onClick={() => startEdit(child)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => toggleActive(child)} title={child.is_active ? "Desativar" : "Ativar"}>
+                            <Button size="icon" variant="ghost" aria-label={child.is_active ? `Desativar subcategoria ${child.name}` : `Ativar subcategoria ${child.name}`} className="h-7 w-7" onClick={() => toggleActive(child)} title={child.is_active ? "Desativar" : "Ativar"}>
                               {child.is_active ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>
                           </>
@@ -296,10 +296,10 @@ function InlineForm({
           </button>
         ))}
       </div>
-      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onSave} disabled={isPending || !name.trim()}>
+      <Button size="icon" variant="ghost" aria-label="Salvar" className="h-7 w-7" onClick={onSave} disabled={isPending || !name.trim()}>
         <Check className="h-4 w-4 text-green-600" />
       </Button>
-      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onCancel}>
+      <Button size="icon" variant="ghost" aria-label="Cancelar" className="h-7 w-7" onClick={onCancel}>
         <X className="h-4 w-4" />
       </Button>
     </div>

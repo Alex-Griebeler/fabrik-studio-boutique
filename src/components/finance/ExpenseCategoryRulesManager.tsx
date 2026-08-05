@@ -140,10 +140,10 @@ export function ExpenseCategoryRulesManager() {
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleCreate} disabled={createRule.isPending || !newKeyword.trim() || !newCategoryId}>
+                    <Button size="icon" variant="ghost" aria-label="Salvar regra" className="h-7 w-7" onClick={handleCreate} disabled={createRule.isPending || !newKeyword.trim() || !newCategoryId}>
                       <Check className="h-4 w-4 text-green-600" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setAdding(false)}>
+                    <Button size="icon" variant="ghost" aria-label="Cancelar nova regra" className="h-7 w-7" onClick={() => setAdding(false)}>
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
@@ -164,7 +164,7 @@ export function ExpenseCategoryRulesManager() {
                     </TableCell>
                     <TableCell className="text-sm">{cat?.name ?? "—"}</TableCell>
                     <TableCell>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteRule.mutate(rule.id)}>
+                      <Button size="icon" variant="ghost" aria-label={`Excluir regra ${rule.keyword}`} className="h-7 w-7 text-destructive" onClick={() => deleteRule.mutate(rule.id)}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </TableCell>

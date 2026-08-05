@@ -12,3 +12,5 @@ Allow: /
 
 User-agent: *
 Allow: /
+
+Sitemap: https://review-wizard-ry.lovable.app/sitemap.xml

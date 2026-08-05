@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { CheckCircle2, Link2Off, Loader2 } from "lucide-react";
 import logoFabrik from "@/assets/logo-fabrik.png";
+import { SeoHead } from "@/components/SeoHead";
 
 type FormData = {
   nome: string;
@@ -319,6 +320,7 @@ export default function Anamnese() {
   if (!leadId || !token) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <SeoHead title="Link inválido" description="Este link de anamnese expirou ou não é válido. Solicite um novo link à equipe do Fabrik." path="/anamnese" noindex />
         <div className="max-w-md w-full text-center space-y-6">
           <div className="mx-auto w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
             <Link2Off className="w-8 h-8 text-destructive" />
@@ -338,6 +340,7 @@ export default function Anamnese() {
   if (step === 2) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <SeoHead title="Anamnese enviada" description="Sua ficha de anamnese foi enviada com sucesso para a equipe do Fabrik Body & Mind Fitness Studio." path="/anamnese" noindex />
         <div className="max-w-md w-full text-center space-y-6">
           <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
             <CheckCircle2 className="w-8 h-8 text-primary" />
@@ -357,6 +360,7 @@ export default function Anamnese() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SeoHead title="Ficha de anamnese" description="Formulário de anamnese pré-aula experimental do Fabrik: perfil, objetivos de treino e questionário de saúde." path="/anamnese" noindex />
       {/* Header */}
       <div className="bg-secondary text-secondary-foreground py-8 px-4">
         <div className="max-w-2xl mx-auto text-center space-y-4">

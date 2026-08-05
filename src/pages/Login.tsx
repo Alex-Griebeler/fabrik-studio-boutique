@@ -9,6 +9,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Moon, Sun } from "lucide-react";
 import logoFabrik from "@/assets/logo-fabrik.png";
+import { SeoHead } from "@/components/SeoHead";
 
 // Self-signup foi REMOVIDO. O app é administrativo: contas novas são
 // criadas pela administração diretamente no Supabase (auth.users +
@@ -61,6 +62,7 @@ export default function Login() {
 
   return (
     <div className="flex min-h-screen">
+      <SeoHead title="Entrar no sistema" description="Acesso da equipe Fabrik ao sistema de gestão do studio: alunos, agenda, financeiro e indicadores." path="/login" />
       {/* Left — Branding panel */}
       <div className="hidden lg:flex lg:w-1/2 items-center justify-center bg-secondary relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-secondary via-secondary/95 to-primary/20" />
@@ -76,7 +78,7 @@ export default function Login() {
 
       {/* Right — Form */}
       <div className="flex w-full lg:w-1/2 items-center justify-center p-6 sm:p-12 bg-background relative">
-        <Button variant="ghost" size="icon" onClick={toggleTheme} className="absolute top-6 right-6 h-9 w-9 text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" size="icon" aria-label="Alternar tema" onClick={toggleTheme} className="absolute top-6 right-6 h-9 w-9 text-muted-foreground hover:text-foreground">
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
 
