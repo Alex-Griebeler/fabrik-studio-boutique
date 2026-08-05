@@ -123,8 +123,8 @@ export function LeadDetailDialog({
         {anamnese && (
           <div className="space-y-1 text-sm border-t border-border pt-2">
             <p className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">Anamnese</p>
-            {anamnese.treino?.frequencia_semanal && (
-              <p><span className="text-muted-foreground">Frequência desejada:</span> {anamnese.treino.frequencia_semanal}</p>
+            {anamnese.treino?.frequencia_semanal && anamnese.treino.frequencia_semanal.length > 0 && (
+              <p><span className="text-muted-foreground">Frequência desejada:</span> {anamnese.treino.frequencia_semanal.join(", ")}</p>
             )}
             {anamnese.treino?.objetivos && anamnese.treino.objetivos.length > 0 && (
               <p><span className="text-muted-foreground">Objetivos:</span> {anamnese.treino.objetivos.join(", ")}</p>

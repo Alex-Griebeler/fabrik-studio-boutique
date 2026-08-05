@@ -31,10 +31,14 @@ describe("gradeFromScore — fronteiras exatas", () => {
 });
 
 describe("normalizeQualification", () => {
+  // Valores LITERAIS da UI real da Anamnese (OBJETIVOS em Anamnese.tsx)
   const anamnese: AnamneseQualification = {
     anamnese_preenchida: true,
     dados_pessoais: { nome: "Teste", idade: "47", profissao: "Empresária" },
-    treino: { objetivos: ["estetica", "longevidade"], frequencia_semanal: "3x" },
+    treino: {
+      objetivos: ["Emagrecimento", "Saúde, qualidade de vida e longevidade"],
+      frequencia_semanal: ["3x", "4x"],
+    },
     parq: { problema_cardiaco: false, dor_peito_exercicio: true },
   };
 
@@ -44,18 +48,37 @@ describe("normalizeQualification", () => {
     expect(isAnamneseFormat(undefined)).toBe(false);
   });
 
-  it("mapeia idade→faixa, profissão e objetivo (preferindo os de pontuação alta)", () => {
+  it("mapeia idade→faixa, profissão e objetivo com os RÓTULOS reais da UI", () => {
     const flat = normalizeQualification(anamnese);
     expect(flat.age_range).toBe("40-55");
     expect(flat.profession).toBe("Empresária");
-    expect(flat.objective).toBe("longevidade"); // alto vence "estetica"
+    // "Saúde, qualidade de vida e longevidade" → canônico de alta pontuação
+    expect(["longevidade", "qualidade_vida", "saude"]).toContain(flat.objective);
+  });
+
+  it("rótulo real 'Performance' vira canônico e pontua alto (20)", () => {
+    const flat = normalizeQualification({
+      anamnese_preenchida: true,
+      treino: { objetivos: ["Performance"] },
+    });
+    expect(flat.objective).toBe("performance");
+  });
+
+  it("objetivo sem canônico (ex. 'Hipertrofia') passa cru e pontua como outro", () => {
+    const flat = normalizeQualification({
+      anamnese_preenchida: true,
+      treino: { objetivos: ["Hipertrofia"] },
+    });
+    expect(flat.objective).toBe("Hipertrofia");
+    const { score } = calculateLeadScore(flat);
+    expect(score).toBe(10); // objetivo genérico
   });
 
   it("anamnese preenchida NÃO vira nota zero (defeito pré-existente corrigido)", () => {
-    const { score } = calculateLeadScore(normalizeQualification(anamnese));
-    expect(score).toBeGreaterThan(0);
+    const { score, grade } = calculateLeadScore(normalizeQualification(anamnese));
     // idade 40-55 (+25) + profissão premium (+25) + objetivo alto (+20)
     expect(score).toBe(70);
+    expect(grade).toBe("B");
   });
 
   it("formato plano passa direto, sem alteração", () => {

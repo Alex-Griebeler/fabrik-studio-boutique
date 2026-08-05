@@ -36,8 +36,8 @@ export interface AnamneseQualification {
   };
   treino?: {
     objetivos?: string[];
-    frequencia_semanal?: string;
-    periodo_treino?: string;
+    frequencia_semanal?: string[];
+    periodo_treino?: string[];
     maior_dificuldade?: string;
   };
   parq?: Record<string, boolean>;
@@ -46,6 +46,21 @@ export interface AnamneseQualification {
 export type AnyQualification = QualificationDetails | AnamneseQualification;
 
 const HIGH_OBJECTIVES = ["performance", "saude", "saúde", "longevidade", "qualidade_vida"];
+
+/**
+ * Mapeia os RÓTULOS reais da UI da anamnese ("Performance", "Saúde,
+ * qualidade de vida e longevidade", …) para os identificadores que o
+ * calculateLeadScore pontua. Substring case-insensitive de propósito:
+ * rótulo novo parecido continua caindo no canônico certo.
+ */
+function canonicalObjective(label: string): string | undefined {
+  const s = label.toLowerCase();
+  if (s.includes("performance")) return "performance";
+  if (s.includes("longevidade")) return "longevidade";
+  if (s.includes("qualidade de vida") || s.includes("qualidade_vida")) return "qualidade_vida";
+  if (s.includes("saúde") || s.includes("saude")) return "saude";
+  return undefined;
+}
 
 export function isAnamneseFormat(
   details: AnyQualification | undefined | null,
@@ -79,8 +94,12 @@ export function normalizeQualification(
   if (!isAnamneseFormat(details)) return details as QualificationDetails;
 
   const objetivos = details.treino?.objetivos ?? [];
-  const objective =
-    objetivos.find((o) => HIGH_OBJECTIVES.includes(o)) ?? objetivos[0];
+  // Preferência: primeiro objetivo que mapeia num canônico de pontuação
+  // alta; senão o primeiro objetivo cru (pontua como "outro").
+  const canonical = objetivos
+    .map(canonicalObjective)
+    .find((c): c is string => !!c && HIGH_OBJECTIVES.includes(c));
+  const objective = canonical ?? objetivos[0];
 
   return {
     age_range: ageRangeFromIdade(details.dados_pessoais?.idade),
