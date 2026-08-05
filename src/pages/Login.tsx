@@ -76,7 +76,7 @@ export default function Login() {
 
       {/* Right — Form */}
       <div className="flex w-full lg:w-1/2 items-center justify-center p-6 sm:p-12 bg-background relative">
-        <Button variant="ghost" size="icon" onClick={toggleTheme} className="absolute top-6 right-6 h-9 w-9 text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" size="icon" aria-label="Alternar tema" onClick={toggleTheme} className="absolute top-6 right-6 h-9 w-9 text-muted-foreground hover:text-foreground">
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
 

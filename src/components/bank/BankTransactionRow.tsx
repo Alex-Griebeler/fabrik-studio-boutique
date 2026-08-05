@@ -141,6 +141,7 @@ export function BankTransactionRow({
                     <Button
                       size="icon"
                       variant="ghost"
+                      aria-label="Confirmar vínculo sugerido"
                       className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
                       onClick={() => onApprove(suggestion)}
                       disabled={isApprovePending}
@@ -157,6 +158,7 @@ export function BankTransactionRow({
                     <Button
                       size="icon"
                       variant="ghost"
+                      aria-label="Descartar sugestão"
                       className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
                       onClick={() => onReject(tx.id)}
                     >
@@ -176,6 +178,7 @@ export function BankTransactionRow({
                     <Button
                       size="icon"
                       variant="ghost"
+                      aria-label="Vincular manualmente"
                       className="h-7 w-7"
                       onClick={() => onManualMatch(tx)}
                     >
@@ -191,6 +194,7 @@ export function BankTransactionRow({
                     <Button
                       size="icon"
                       variant="ghost"
+                      aria-label="Ignorar transação"
                       className="h-7 w-7"
                       onClick={() => onIgnore(tx.id)}
                       disabled={isIgnorePending}
@@ -210,6 +214,7 @@ export function BankTransactionRow({
                   <Button
                     size="icon"
                     variant="ghost"
+                    aria-label="Restaurar para pendente"
                     className="h-7 w-7"
                     onClick={() => onRestore(tx.id)}
                     disabled={isRestorePending}
