@@ -30,6 +30,8 @@ import StudentApp from "@/pages/StudentApp";
 import MarketingAI from "@/pages/MarketingAI";
 import NotFound from "@/pages/NotFound";
 import ResetPassword from "@/pages/ResetPassword";
+import NoAccess from "@/pages/NoAccess";
+import { RoleHomeRedirect } from "@/components/RoleHomeRedirect";
 import Import from "@/pages/Import";
 import Anamnese from "@/pages/Anamnese";
 import AttendanceAlerts from "@/pages/AttendanceAlerts";
