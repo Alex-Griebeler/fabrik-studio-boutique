@@ -1,9 +1,19 @@
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { SeoHead } from "@/components/SeoHead";
 
 export default function NoAccess() {
-  const { signOut } = useAuth();
+  const { user, loading, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  // Sem usuário (após Sair, ou acesso direto deslogado) → login.
+  // Espera a restauração de sessão terminar: durante o reload, user
+  // começa null com loading=true — navegar aí expulsaria um logado.
+  useEffect(() => {
+    if (!loading && !user) navigate("/login", { replace: true });
+  }, [loading, user, navigate]);
 
   return (
     <main className="flex min-h-dvh items-center justify-center bg-background p-6">
@@ -14,7 +24,14 @@ export default function NoAccess() {
           Sua conta foi criada, mas ainda não possui um perfil de acesso liberado.
           Fale com a administração do studio para liberar suas permissões.
         </p>
-        <Button variant="outline" className="w-full h-11" onClick={() => signOut()}>
+        <Button
+          variant="outline"
+          className="w-full h-11"
+          onClick={async () => {
+            await signOut();
+            navigate("/login", { replace: true });
+          }}
+        >
           Sair
         </Button>
       </div>

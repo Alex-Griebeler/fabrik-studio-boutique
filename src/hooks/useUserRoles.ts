@@ -4,17 +4,42 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export type AppRole = "admin" | "manager" | "instructor" | "reception" | "student";
 
+interface RolesState {
+  userId: string | null;
+  roles: AppRole[];
+  loading: boolean;
+}
+
+/**
+ * Papéis do usuário logado, AMARRADOS ao user.id (auditoria pós-merge
+ * 04/08): na transição de usuário (login, troca de sessão) o estado
+ * volta a loading=true até o resultado corresponder ao usuário atual —
+ * sem isso, um render intermediário via roles=[] com loading=false e o
+ * RoleHomeRedirect despachava o usuário para /sem-acesso antes dos
+ * papéis chegarem.
+ */
 export function useUserRoles() {
   const { user } = useAuth();
-  const [roles, setRoles] = useState<AppRole[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<RolesState>({
+    userId: null,
+    roles: [],
+    loading: true,
+  });
 
   useEffect(() => {
     if (!user) {
-      setRoles([]);
-      setLoading(false);
+      setState({ userId: null, roles: [], loading: false });
       return;
     }
+
+    let cancelled = false;
+
+    // Usuário novo (ou primeiro login): zera papéis e volta a loading.
+    // Mesmo usuário (refetch por mudança de identidade do objeto):
+    // mantém os papéis atuais sem piscar loading.
+    setState((s) =>
+      s.userId === user.id ? s : { userId: user.id, roles: [], loading: true },
+    );
 
     const fetchRoles = async () => {
       try {
@@ -24,16 +49,32 @@ export function useUserRoles() {
           .eq("user_id", user.id);
 
         if (error) throw error;
-        setRoles((data || []).map((r) => r.role as AppRole));
+        if (!cancelled) {
+          setState({
+            userId: user.id,
+            roles: (data || []).map((r) => r.role as AppRole),
+            loading: false,
+          });
+        }
       } catch {
-        setRoles([]);
-      } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setState({ userId: user.id, roles: [], loading: false });
+        }
       }
     };
 
     fetchRoles();
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
+
+  // Retorno DERIVADO do usuário atual: no primeiro render após a troca
+  // de usuário (antes do effect rodar), o estado ainda é do usuário
+  // anterior — nunca devolver papéis dele (rodada final do Codex).
+  const matchesUser = state.userId === (user?.id ?? null);
+  const roles = matchesUser ? state.roles : [];
+  const loading = !!user && (!matchesUser || state.loading);
 
   const hasRole = (role: AppRole) => roles.includes(role);
   const hasAnyRole = (check: AppRole[]) => check.some((r) => roles.includes(r));
