@@ -30,6 +30,8 @@ import StudentApp from "@/pages/StudentApp";
 import MarketingAI from "@/pages/MarketingAI";
 import NotFound from "@/pages/NotFound";
 import ResetPassword from "@/pages/ResetPassword";
+import NoAccess from "@/pages/NoAccess";
+import { RoleHomeRedirect } from "@/components/RoleHomeRedirect";
 import Import from "@/pages/Import";
 import Anamnese from "@/pages/Anamnese";
 import AttendanceAlerts from "@/pages/AttendanceAlerts";
@@ -57,7 +59,8 @@ const App = () => (
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/sem-acesso" element={<NoAccess />} />
+              <Route path="/" element={<RoleHomeRedirect />} />
               <Route
                 path="/dashboard"
                 element={

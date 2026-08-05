@@ -38,7 +38,8 @@ export default function Login() {
     if (error) {
       toast({ title: "Erro ao entrar", description: "Email ou senha incorretos.", variant: "destructive" });
     } else {
-      navigate("/dashboard");
+      // "/" resolve a área inicial conforme o papel do usuário.
+      navigate("/", { replace: true });
     }
   };
 
