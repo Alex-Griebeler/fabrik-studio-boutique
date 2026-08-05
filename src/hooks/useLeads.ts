@@ -1,7 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { calculateLeadScore, type QualificationDetails } from "@/lib/leadScoring";
+import {
+  calculateLeadScore,
+  normalizeQualification,
+  type AnyQualification,
+  type QualificationDetails,
+} from "@/lib/leadScoring";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -58,9 +63,11 @@ export interface Lead {
   /**
    * Ficha de qualificação/anamnese (contém PAR-Q — dado de saúde).
    * Onda 1.5b: NÃO vem na listagem (useLeads); só no detalhe por lead
-   * (useLeadDetail). Opcional de propósito.
+   * (useLeadDetail). Opcional de propósito. Pode vir no formato plano
+   * (LeadFormDialog) OU aninhado (Anamnese via link mágico) — usar
+   * normalizeQualification antes de pontuar/exibir.
    */
-  qualification_details?: QualificationDetails;
+  qualification_details?: AnyQualification;
   trial_date: string | null;
   trial_time: string | null;
   trial_type: string | null;
@@ -228,14 +235,19 @@ export function useUpdateLead() {
       if (data.lost_reason !== undefined) updates.lost_reason = data.lost_reason;
       if (data.qualification_details !== undefined) {
         updates.qualification_details = data.qualification_details;
-        updates.qualification_score = calculateLeadScore(data.qualification_details).score;
+        // normalize: aceita formato plano OU aninhado (anamnese) sem
+        // zerar a nota (defeito pré-existente, Onda 1.5b).
+        updates.qualification_score = calculateLeadScore(
+          normalizeQualification(data.qualification_details),
+        ).score;
       }
 
       const { error } = await supabase.from("leads").update(updates).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead_detail", vars.id] });
       toast.success("Lead atualizado!");
     },
     onError: () => toast.error("Erro ao atualizar lead."),

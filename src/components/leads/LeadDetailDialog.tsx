@@ -16,7 +16,12 @@ import {
   type LeadStatus,
 } from "@/hooks/useLeads";
 import { TemplateSelector } from "./TemplateSelector";
-import { gradeFromScore, gradeColors } from "@/lib/leadScoring";
+import {
+  gradeFromScore,
+  gradeColors,
+  isAnamneseFormat,
+  normalizeQualification,
+} from "@/lib/leadScoring";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarCheck, ClipboardCopy, MessageSquare, UserCheck, XCircle } from "lucide-react";
@@ -54,9 +59,14 @@ export function LeadDetailDialog({
   if (!lead) return null;
 
   const status = (lead.status || "new") as LeadStatus;
-  const score = lead.qualification_score;
+  // Score da COLUNA persistida (fonte única, igual à listagem);
+  // preferindo o valor recém-buscado quando disponível.
+  const score = fullLead.data?.qualification_score ?? lead.qualification_score;
   const grade = gradeFromScore(score);
-  const details = fullLead.data?.qualification_details ?? {};
+  const rawDetails = fullLead.data?.qualification_details;
+  const details = normalizeQualification(rawDetails);
+  const anamnese = isAnamneseFormat(rawDetails) ? rawDetails : null;
+  const parqPositivos = Object.entries(anamnese?.parq ?? {}).filter(([, v]) => v);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -105,6 +115,29 @@ export function LeadDetailDialog({
             {details.preferred_time && <p><span className="text-muted-foreground">Horário:</span> {details.preferred_time}</p>}
             {details.has_trained_before !== undefined && (
               <p><span className="text-muted-foreground">Já treinou:</span> {details.has_trained_before ? "Sim" : "Não"}</p>
+            )}
+          </div>
+        )}
+
+        {/* Anamnese (formato aninhado do link mágico) */}
+        {anamnese && (
+          <div className="space-y-1 text-sm border-t border-border pt-2">
+            <p className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">Anamnese</p>
+            {anamnese.treino?.frequencia_semanal && (
+              <p><span className="text-muted-foreground">Frequência desejada:</span> {anamnese.treino.frequencia_semanal}</p>
+            )}
+            {anamnese.treino?.objetivos && anamnese.treino.objetivos.length > 0 && (
+              <p><span className="text-muted-foreground">Objetivos:</span> {anamnese.treino.objetivos.join(", ")}</p>
+            )}
+            {anamnese.perfil?.nota_condicao_fisica !== undefined && (
+              <p><span className="text-muted-foreground">Condição física (autoavaliação):</span> {anamnese.perfil.nota_condicao_fisica}/10</p>
+            )}
+            {parqPositivos.length > 0 ? (
+              <p className="text-red-600 dark:text-red-400 font-medium">
+                ⚠ PAR-Q: {parqPositivos.length} resposta(s) positiva(s) — avaliar antes do treino
+              </p>
+            ) : (
+              <p className="text-muted-foreground">PAR-Q sem apontamentos</p>
             )}
           </div>
         )}
