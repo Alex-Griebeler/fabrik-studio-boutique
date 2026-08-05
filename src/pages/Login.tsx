@@ -62,6 +62,7 @@ export default function Login() {
 
   return (
     <div className="flex min-h-screen">
+      <SeoHead title="Entrar no sistema" description="Acesso da equipe Fabrik ao sistema de gestão do studio: alunos, agenda, financeiro e indicadores." path="/login" />
       {/* Left — Branding panel */}
       <div className="hidden lg:flex lg:w-1/2 items-center justify-center bg-secondary relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-secondary via-secondary/95 to-primary/20" />

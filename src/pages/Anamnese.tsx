@@ -358,6 +358,7 @@ export default function Anamnese() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SeoHead title="Ficha de anamnese" description="Formulário de anamnese pré-aula experimental do Fabrik: perfil, objetivos de treino e questionário de saúde." path="/anamnese" noindex />
       {/* Header */}
       <div className="bg-secondary text-secondary-foreground py-8 px-4">
         <div className="max-w-2xl mx-auto text-center space-y-4">
