@@ -22,7 +22,7 @@ import {
   useUpdateLeadStatus,
   useConvertLead,
 } from "@/hooks/useLeads";
-import { calculateLeadScore, gradeColors } from "@/lib/leadScoring";
+import { gradeFromScore, gradeColors } from "@/lib/leadScoring";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -116,7 +116,7 @@ export function LeadKanban({ leads, onSelectLead, onNewInteraction }: Props) {
               <ScrollArea className="flex-1 rounded-lg border bg-muted/30 p-2 min-h-[200px] max-h-[calc(100vh-320px)]">
                 <div className="space-y-2">
                   {items.map((lead) => {
-                    const { grade } = calculateLeadScore(lead.qualification_details ?? {});
+                    const grade = gradeFromScore(lead.qualification_score);
                     return (
                       <Card
                         key={lead.id}

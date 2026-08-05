@@ -24,7 +24,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { type Lead, type LeadStatus, leadStatusLabels, leadStatusColors } from "@/hooks/useLeads";
-import { calculateLeadScore, gradeColors } from "@/lib/leadScoring";
+import { gradeFromScore, gradeColors } from "@/lib/leadScoring";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -73,7 +73,7 @@ export function LeadTable({
         </TableHeader>
         <TableBody>
           {leads.map((lead) => {
-            const { grade } = calculateLeadScore(lead.qualification_details ?? {});
+            const grade = gradeFromScore(lead.qualification_score);
             const status = lead.status as LeadStatus;
             return (
               <TableRow key={lead.id} className="cursor-pointer hover:bg-muted/50" onClick={() => onSelectLead(lead)}>

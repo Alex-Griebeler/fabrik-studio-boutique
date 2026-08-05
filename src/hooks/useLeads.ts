@@ -1,7 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { calculateLeadScore, type QualificationDetails } from "@/lib/leadScoring";
+import {
+  calculateLeadScore,
+  normalizeQualification,
+  type AnyQualification,
+  type QualificationDetails,
+} from "@/lib/leadScoring";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -55,7 +60,14 @@ export interface Lead {
   source: string | null;
   status: LeadStatus;
   qualification_score: number;
-  qualification_details: QualificationDetails;
+  /**
+   * Ficha de qualificação/anamnese (contém PAR-Q — dado de saúde).
+   * Onda 1.5b: NÃO vem na listagem (useLeads); só no detalhe por lead
+   * (useLeadDetail). Opcional de propósito. Pode vir no formato plano
+   * (LeadFormDialog) OU aninhado (Anamnese via link mágico) — usar
+   * normalizeQualification antes de pontuar/exibir.
+   */
+  qualification_details?: AnyQualification;
   trial_date: string | null;
   trial_time: string | null;
   trial_type: string | null;
@@ -124,9 +136,15 @@ export function useLeads(filters?: LeadFilters) {
   return useQuery({
     queryKey: ["leads", filters],
     queryFn: async () => {
+      // Onda 1.5b: a LISTAGEM não carrega qualification_details (ficha de
+      // saúde/PAR-Q de até 1000 leads no bundle da recepção). A nota vem
+      // de qualification_score (gradeFromScore); o detalhe completo é
+      // por lead aberto, via useLeadDetail.
       let query = supabase
         .from("leads")
-        .select("*")
+        .select(
+          "id, name, email, phone, source, status, qualification_score, trial_date, trial_time, trial_type, converted_to_student_id, lost_reason, utm_params, tags, referred_by, temperature, consultant_id, notes, created_at, updated_at",
+        )
         .order("created_at", { ascending: false })
         .limit(1000);
 
@@ -151,6 +169,26 @@ export function useLeads(filters?: LeadFilters) {
       return data as unknown as Lead[];
     },
     staleTime: 5 * 60 * 1000, // 5 min
+  });
+}
+
+/**
+ * Lead COMPLETO (inclui qualification_details com o PAR-Q) — buscado
+ * por lead aberto, nunca em lote. Uso: dialogs de detalhe.
+ */
+export function useLeadDetail(leadId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["lead_detail", leadId],
+    enabled: !!leadId && enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("leads")
+        .select("*")
+        .eq("id", leadId!)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as unknown as Lead) ?? null;
+    },
   });
 }
 
@@ -197,14 +235,19 @@ export function useUpdateLead() {
       if (data.lost_reason !== undefined) updates.lost_reason = data.lost_reason;
       if (data.qualification_details !== undefined) {
         updates.qualification_details = data.qualification_details;
-        updates.qualification_score = calculateLeadScore(data.qualification_details).score;
+        // normalize: aceita formato plano OU aninhado (anamnese) sem
+        // zerar a nota (defeito pré-existente, Onda 1.5b).
+        updates.qualification_score = calculateLeadScore(
+          normalizeQualification(data.qualification_details),
+        ).score;
       }
 
       const { error } = await supabase.from("leads").update(updates).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead_detail", vars.id] });
       toast.success("Lead atualizado!");
     },
     onError: () => toast.error("Erro ao atualizar lead."),
