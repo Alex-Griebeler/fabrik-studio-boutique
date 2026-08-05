@@ -57,7 +57,8 @@ const App = () => (
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/sem-acesso" element={<NoAccess />} />
+              <Route path="/" element={<RoleHomeRedirect />} />
               <Route
                 path="/dashboard"
                 element={
