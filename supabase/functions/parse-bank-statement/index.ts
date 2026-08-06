@@ -1,6 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import {
+  canonicalOfxType,
+  ofxTypeDivergesFromSign,
+} from "../_shared/bank/ofxTransactionType.ts";
+import {
   isBankRequestError,
   parseBankStatementRequest,
   requestTooLarge,
@@ -55,10 +59,22 @@ function parseOFX(raw: string): ParsedResult {
     const fitId = ef(content, "FITID");
     const memo = ef(content, "MEMO");
     if (trnType && dtPosted && trnAmt && fitId) {
+      // Onda 2e: o SINAL do TRNAMT manda, não o TRNTYPE cru do banco.
+      // Antes, tudo que não fosse exatamente "CREDIT" virava débito — e
+      // depósito (DEP), PIX recebido, estorno e devolução de juros
+      // viraram DESPESA (as 91 linhas-lixo de 04/03/2026).
+      const amount = parseFloat(trnAmt.trim());
+      const raw = trnType.trim();
+      const canonical = canonicalOfxType(raw, amount);
+      if (ofxTypeDivergesFromSign(raw, amount)) {
+        console.warn(
+          `parse-bank-statement: TRNTYPE "${raw}" diverge do sinal do valor — usando ${canonical} (fitId ${fitId.trim()})`,
+        );
+      }
       result.transactions.push({
-        trnType: trnType.trim(),
+        trnType: canonical,
         dtPosted: fmtDate(dtPosted.trim().substring(0, 8)),
-        trnAmt: parseFloat(trnAmt.trim()),
+        trnAmt: amount,
         fitId: fitId.trim(),
         memo: (memo ?? "").trim(),
       });
