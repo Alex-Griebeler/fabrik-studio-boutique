@@ -1,3 +1,5 @@
+import { installmentDueDate } from "./dueDateRule.ts";
+
 // Handler do `generate-monthly-invoices`.
 //
 // Os dois modos continuam identicos: `contract-created` (gera as parcelas do
@@ -136,14 +138,17 @@ export async function handleGenerateMonthlyInvoices(
             ? netValue - baseAmount * (installments - 1)
             : baseAmount;
 
-          let dueDate: string;
-          if (installmentDates[i]) {
-            dueDate = installmentDates[i];
-          } else {
-            const d = new Date(startDate);
-            d.setDate(d.getDate() + i * 30);
-            dueDate = d.toISOString().substring(0, 10);
-          }
+          // Regra da Fabrik (dueDateRule.ts): cada aluna vence no SEU dia
+          // do mês (payment_day; default = dia do início do contrato).
+          // O comportamento antigo somava 30 dias e escorregava o
+          // vencimento (10/01 → 09/02 → 11/03…); quem fechava dia 31
+          // pulava fevereiro. Datas explícitas do caller têm precedência.
+          const dueDate: string = installmentDates[i] ??
+            installmentDueDate({
+              startDateISO: contract.start_date,
+              paymentDay: contract.payment_day,
+              installmentIndex: i,
+            });
 
           const invoiceNumber = `FAT-${year}-${String(seq).padStart(5, "0")}`;
           const status = paymentMethod === "dcc" ? "scheduled" : "pending";
