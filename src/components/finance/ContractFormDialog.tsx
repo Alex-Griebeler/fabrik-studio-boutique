@@ -15,7 +15,10 @@ import {
   type Contract,
   type ContractFormData,
 } from "@/hooks/useContracts";
-import { contractDueDates } from "@/lib/dueDateRule";
+// Importa o módulo CANÔNICO das edge functions (tsconfig tem
+// allowImportingTsExtensions + moduleResolution bundler). Uma regra só:
+// sem espelho para sair de sincronia.
+import { contractDueDates } from "../../../supabase/functions/_shared/finance/dueDateRule.ts";
 import { useStudents } from "@/hooks/useStudents";
 import { usePlans, formatCents, categoryLabels, durationLabels } from "@/hooks/usePlans";
 import type { Database } from "@/integrations/supabase/types";
@@ -75,6 +78,7 @@ export function ContractFormDialog({ open, onOpenChange, contract }: Props) {
         student_id: contract.student_id,
         plan_id: contract.plan_id,
         start_date: contract.start_date,
+        payment_day: contract.payment_day ?? undefined,
         end_date: contract.end_date || "",
         status: contract.status,
         total_value_cents: contract.total_value_cents || contract.monthly_value_cents || 0,
@@ -146,13 +150,29 @@ export function ContractFormDialog({ open, onOpenChange, contract }: Props) {
     const n = form.installments || 1;
     try {
       setInstallmentDates(
-        contractDueDates({ startDateISO: form.start_date, installments: n }),
+        contractDueDates({
+          startDateISO: form.start_date,
+          // Sem isto, um contrato existente com vencimento dia 10 iniciado
+          // dia 25 exibia preview no dia 25 — tela enganosa.
+          paymentDay: form.payment_day ?? null,
+          installments: n,
+        }),
       );
     } catch {
       setInstallmentDates([]);
     }
     setDatesEdited(false);
-  }, [form.installments, form.start_date, showInstallments]);
+  }, [
+    form.installments,
+    form.start_date,
+    form.payment_day,
+    form.payment_method,
+    showInstallments,
+    // Abrir/trocar de contrato recomeça do zero: edição manual de uma
+    // abertura anterior não pode vazar para a seguinte.
+    open,
+    contract?.id,
+  ]);
 
   const handleInstallmentDateChange = (index: number, value: string) => {
     setDatesEdited(true);

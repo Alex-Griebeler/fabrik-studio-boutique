@@ -151,6 +151,83 @@ describe("ContractFormDialog — não sobrescreve a regra de vencimento do backe
     }
   });
 
+  it("preview de contrato EXISTENTE respeita o payment_day do contrato", () => {
+    const contrato = {
+      id: "contract-1",
+      student_id: "student-1",
+      plan_id: "plan-1",
+      start_date: "2026-08-25",
+      payment_day: 10,
+      end_date: null,
+      status: "active",
+      total_value_cents: 120000,
+      monthly_value_cents: 10000,
+      discount_cents: 0,
+      payment_method: "dcc",
+      installments: 3,
+      card_last_four: null,
+      card_brand: null,
+      notes: null,
+    } as unknown as Parameters<typeof ContractFormDialog>[0]["contract"];
+
+    render(<ContractFormDialog open onOpenChange={() => {}} contract={contrato} />);
+
+    const datas = parcelasVisiveis().map((i) => i.value);
+    expect(datas.length).toBeGreaterThan(0);
+    // Iniciado dia 25 com vencimento dia 10 ⇒ preview no dia 10, não no 25.
+    for (const d of datas) expect(d.slice(8, 10)).toBe("10");
+  });
+
+  it("edição manual não vaza ao TROCAR de contrato com os mesmos parâmetros", () => {
+    const base = {
+      student_id: "student-1",
+      plan_id: "plan-1",
+      start_date: "2026-08-10",
+      payment_day: null,
+      end_date: null,
+      status: "active",
+      total_value_cents: 120000,
+      monthly_value_cents: 40000,
+      discount_cents: 0,
+      payment_method: "pix",
+      installments: 3,
+      card_last_four: null,
+      card_brand: null,
+      notes: null,
+    };
+    type C = Parameters<typeof ContractFormDialog>[0]["contract"];
+    const contratoA = { ...base, id: "contract-A" } as unknown as C;
+    const contratoB = { ...base, id: "contract-B" } as unknown as C;
+
+    const { rerender } = render(
+      <ContractFormDialog open onOpenChange={() => {}} contract={contratoA} />,
+    );
+    const campos = parcelasVisiveis();
+    expect(campos.length).toBeGreaterThan(0);
+    fireEvent.change(campos[0], { target: { value: "2026-12-15" } });
+
+    // Contrato B tem start_date/installments IDÊNTICOS — só o id muda.
+    rerender(<ContractFormDialog open onOpenChange={() => {}} contract={contratoB} />);
+
+    const datasB = parcelasVisiveis().map((i) => i.value);
+    expect(datasB).not.toContain("2026-12-15");
+    expect(datasB[0]).toBe("2026-08-10");
+  });
+
+  it("edição manual não vaza de uma abertura para a seguinte", () => {
+    const { rerender } = render(<ContractFormDialog open onOpenChange={() => {}} />);
+    escolherMetodo("pix");
+    const campos = parcelasVisiveis();
+    fireEvent.change(campos[0], { target: { value: "2026-12-15" } });
+
+    // Fecha e reabre como contrato novo.
+    rerender(<ContractFormDialog open={false} onOpenChange={() => {}} />);
+    rerender(<ContractFormDialog open onOpenChange={() => {}} />);
+    escolherMetodo("pix");
+
+    expect(submitPayload().installment_dates).toEqual([]);
+  });
+
   it("COM edição manual: envia as datas escolhidas (precedência preservada)", () => {
     render(<ContractFormDialog open onOpenChange={() => {}} />);
     escolherMetodo("pix");
