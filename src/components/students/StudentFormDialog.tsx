@@ -58,7 +58,7 @@ const studentSchema = z.object({
   status: z.enum(["lead", "active", "inactive", "suspended"]).default("active"),
   lead_source: z.string().trim().max(100).optional().default(""),
   medical_conditions: z.string().trim().max(1000).optional().default(""),
-  address: addressSchema.optional().default({}),
+  address: addressSchema.optional().default(() => addressSchema.parse({})),
   emergency_contact_name: z.string().trim().max(120).or(z.literal("")),
   emergency_contact_phone: z.string().trim().max(20).or(z.literal("")),
   notes: z.string().trim().max(500).or(z.literal("")),
