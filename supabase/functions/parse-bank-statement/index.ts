@@ -1,6 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import {
+  parseOFX,
+  type ParsedResult,
+  type ParsedTransaction,
+} from "../_shared/bank/parseOfx.ts";
+import {
   isBankRequestError,
   parseBankStatementRequest,
   requestTooLarge,
@@ -12,69 +17,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-interface ParsedTransaction {
-  trnType: string;
-  dtPosted: string;
-  trnAmt: number;
-  fitId: string;
-  memo: string;
-}
-
-interface ParsedResult {
-  bankId: string | null;
-  accountId: string | null;
-  periodStart: string | null;
-  periodEnd: string | null;
-  transactions: ParsedTransaction[];
-}
-
-// ── OFX Parser ──
-
-function parseOFX(raw: string): ParsedResult {
-  const result: ParsedResult = {
-    bankId: null, accountId: null, periodStart: null, periodEnd: null, transactions: [],
-  };
-  const bankIdMatch = raw.match(/<BANKID>([^\s<]+)/);
-  const acctIdMatch = raw.match(/<ACCTID>([^\s<]+)/);
-  result.bankId = bankIdMatch?.[1] ?? null;
-  result.accountId = acctIdMatch?.[1] ?? null;
-  const dtStartMatch = raw.match(/<DTSTART>(\d{8})/);
-  const dtEndMatch = raw.match(/<DTEND>(\d{8})/);
-  if (dtStartMatch) result.periodStart = fmtDate(dtStartMatch[1]);
-  if (dtEndMatch) result.periodEnd = fmtDate(dtEndMatch[1]);
-
-  const trnBlocks = raw.split("<STMTTRN>");
-  for (let i = 1; i < trnBlocks.length; i++) {
-    const block = trnBlocks[i];
-    const endIdx = block.indexOf("</STMTTRN>");
-    const content = endIdx !== -1 ? block.substring(0, endIdx) : block;
-    const trnType = ef(content, "TRNTYPE");
-    const dtPosted = ef(content, "DTPOSTED");
-    const trnAmt = ef(content, "TRNAMT");
-    const fitId = ef(content, "FITID");
-    const memo = ef(content, "MEMO");
-    if (trnType && dtPosted && trnAmt && fitId) {
-      result.transactions.push({
-        trnType: trnType.trim(),
-        dtPosted: fmtDate(dtPosted.trim().substring(0, 8)),
-        trnAmt: parseFloat(trnAmt.trim()),
-        fitId: fitId.trim(),
-        memo: (memo ?? "").trim(),
-      });
-    }
-  }
-  return result;
-}
-
-function ef(block: string, field: string): string | null {
-  const m = block.match(new RegExp(`<${field}>([^<\\n]+)`, "i"));
-  return m ? m[1] : null;
-}
-
-function fmtDate(d: string): string {
-  return `${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}`;
-}
 
 // ── CSV Parser ──
 
