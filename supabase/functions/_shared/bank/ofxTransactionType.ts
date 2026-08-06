@@ -17,15 +17,21 @@
 
 export type CanonicalTrnType = "CREDIT" | "DEBIT";
 
-/** TRNTYPEs do padrão OFX que significam entrada de dinheiro. */
-const CREDIT_RAW_TYPES = new Set([
-  "CREDIT",
-  "DEP",
-  "DIRECTDEP",
-  "INT",
-  "DIV",
-  "CASH",
-]);
+/**
+ * TRNTYPEs DIRECIONAIS de entrada — declaram sentido por si só.
+ * `CASH` ficou de fora de propósito: no uso brasileiro costuma ser saque
+ * (saída). `INT` (juros) pode ser ganho ou pago, mas quando o valor é
+ * zero/ilegível o palpite conservador é crédito (juros pagos aparecem
+ * com valor negativo e nem chegam aqui).
+ */
+const CREDIT_RAW_TYPES = new Set(["CREDIT", "DEP", "DIRECTDEP", "INT", "DIV"]);
+
+/**
+ * TRNTYPEs DIRECIONAIS de saída. Tipos neutros (XFER, OTHER, ATM, POS,
+ * CASH, PAYMENT…) ficam fora das duas listas: eles não declaram sentido,
+ * só o sinal do valor decide — e por isso não geram alerta de divergência.
+ */
+const DEBIT_RAW_TYPES = new Set(["DEBIT", "FEE", "SRVCHG", "CHECK", "DIRECTDEBIT"]);
 
 /**
  * Decide o tipo canônico de uma transação de conta.
@@ -46,8 +52,10 @@ export function canonicalOfxType(
 }
 
 /**
- * true quando o TRNTYPE declarado pelo banco contradiz o sinal — vale
- * log de observabilidade: é exatamente o padrão que produziu o lixo.
+ * true só quando um TRNTYPE **direcional** contradiz o sinal — sinal de
+ * arquivo estranho, que merece log. Tipo neutro (XFER de PIX recebido,
+ * por exemplo) NÃO conta como divergência: seria ruído em toda entrada
+ * legítima.
  */
 export function ofxTypeDivergesFromSign(
   rawTrnType: string | null | undefined,
@@ -56,6 +64,9 @@ export function ofxTypeDivergesFromSign(
   if (!Number.isFinite(trnAmt) || trnAmt === 0) return false;
   const raw = (rawTrnType ?? "").trim().toUpperCase();
   if (raw.length === 0) return false;
-  const declared: CanonicalTrnType = CREDIT_RAW_TYPES.has(raw) ? "CREDIT" : "DEBIT";
+  let declared: CanonicalTrnType;
+  if (CREDIT_RAW_TYPES.has(raw)) declared = "CREDIT";
+  else if (DEBIT_RAW_TYPES.has(raw)) declared = "DEBIT";
+  else return false; // neutro: só o sinal manda, nada a alertar
   return declared !== canonicalOfxType(rawTrnType, trnAmt);
 }

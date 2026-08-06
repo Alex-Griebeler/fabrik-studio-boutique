@@ -62,12 +62,23 @@ describe("canonicalOfxType — empates e entradas inválidas", () => {
   it("é insensível a caixa e espaços no TRNTYPE", () => {
     expect(canonicalOfxType("  dep  ", 0)).toBe("CREDIT");
   });
+
+  it("CASH (saque, no uso BR) não é tratado como crédito no empate", () => {
+    expect(canonicalOfxType("CASH", 0)).toBe("DEBIT");
+  });
 });
 
 describe("ofxTypeDivergesFromSign — observabilidade", () => {
-  it("acusa o padrão exato que gerou o lixo (DEP positivo lido como débito)", () => {
-    expect(ofxTypeDivergesFromSign("XFER", 1400)).toBe(true);
-    expect(ofxTypeDivergesFromSign("FEE", 500)).toBe(true);
+  it("acusa tipo DIRECIONAL que contradiz o sinal", () => {
+    expect(ofxTypeDivergesFromSign("FEE", 500)).toBe(true);      // tarifa positiva
+    expect(ofxTypeDivergesFromSign("DEP", -100)).toBe(true);     // depósito negativo
+    expect(ofxTypeDivergesFromSign("CREDIT", -100)).toBe(true);
+  });
+
+  it("NÃO acusa tipo neutro (evita ruído em todo PIX recebido)", () => {
+    expect(ofxTypeDivergesFromSign("XFER", 1400)).toBe(false);
+    expect(ofxTypeDivergesFromSign("OTHER", 1400)).toBe(false);
+    expect(ofxTypeDivergesFromSign("POS", 500)).toBe(false);
   });
 
   it("não acusa quando declarado e sinal concordam", () => {
