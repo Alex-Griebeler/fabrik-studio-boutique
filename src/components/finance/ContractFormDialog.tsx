@@ -15,6 +15,10 @@ import {
   type Contract,
   type ContractFormData,
 } from "@/hooks/useContracts";
+// Importa o módulo CANÔNICO das edge functions (tsconfig tem
+// allowImportingTsExtensions + moduleResolution bundler). Uma regra só:
+// sem espelho para sair de sincronia.
+import { contractDueDates } from "../../../supabase/functions/_shared/finance/dueDateRule.ts";
 import { useStudents } from "@/hooks/useStudents";
 import { usePlans, formatCents, categoryLabels, durationLabels } from "@/hooks/usePlans";
 import type { Database } from "@/integrations/supabase/types";
@@ -25,16 +29,6 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   contract?: Contract | null;
-}
-
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function toDateStr(d: Date): string {
-  return d.toISOString().substring(0, 10);
 }
 
 export function ContractFormDialog({ open, onOpenChange, contract }: Props) {
@@ -84,6 +78,7 @@ export function ContractFormDialog({ open, onOpenChange, contract }: Props) {
         student_id: contract.student_id,
         plan_id: contract.plan_id,
         start_date: contract.start_date,
+        payment_day: contract.payment_day ?? undefined,
         end_date: contract.end_date || "",
         status: contract.status,
         total_value_cents: contract.total_value_cents || contract.monthly_value_cents || 0,
@@ -139,22 +134,48 @@ export function ContractFormDialog({ open, onOpenChange, contract }: Props) {
     }
   }, [form.payment_method, selectedPlan, contract]);
 
-  // Generate installment dates when installments or start_date changes
+  // Preview dos vencimentos pela REGRA DA FABRIK (dueDateRule): cada
+  // aluna vence no dia do início do contrato, mês a mês — o passo antigo
+  // de +30 dias escorregava o vencimento e pulava fevereiro pra quem
+  // fechava dia 31. Datas auto-geradas NÃO são enviadas ao backend (ele
+  // aplica a mesma regra, com payment_day); só edição manual viaja.
+  const [datesEdited, setDatesEdited] = useState(false);
+
   useEffect(() => {
     if (!showInstallments) {
       setInstallmentDates([]);
+      setDatesEdited(false);
       return;
     }
     const n = form.installments || 1;
-    const start = new Date(form.start_date + "T00:00:00");
-    const dates: string[] = [];
-    for (let i = 0; i < n; i++) {
-      dates.push(toDateStr(addDays(start, i * 30)));
+    try {
+      setInstallmentDates(
+        contractDueDates({
+          startDateISO: form.start_date,
+          // Sem isto, um contrato existente com vencimento dia 10 iniciado
+          // dia 25 exibia preview no dia 25 — tela enganosa.
+          paymentDay: form.payment_day ?? null,
+          installments: n,
+        }),
+      );
+    } catch {
+      setInstallmentDates([]);
     }
-    setInstallmentDates(dates);
-  }, [form.installments, form.start_date, showInstallments]);
+    setDatesEdited(false);
+  }, [
+    form.installments,
+    form.start_date,
+    form.payment_day,
+    form.payment_method,
+    showInstallments,
+    // Abrir/trocar de contrato recomeça do zero: edição manual de uma
+    // abertura anterior não pode vazar para a seguinte.
+    open,
+    contract?.id,
+  ]);
 
   const handleInstallmentDateChange = (index: number, value: string) => {
+    setDatesEdited(true);
     setInstallmentDates((prev) => {
       const next = [...prev];
       next[index] = value;
@@ -175,7 +196,13 @@ export function ContractFormDialog({ open, onOpenChange, contract }: Props) {
       );
     } else {
       createContract.mutate(
-        { ...form, monthly_value_cents: monthlyValue, installment_dates: installmentDates },
+        {
+          ...form,
+          monthly_value_cents: monthlyValue,
+          // Só datas EDITADAS pelo usuário viajam; auto-geradas ficam a
+          // cargo do backend (fonte única da regra, com payment_day).
+          installment_dates: datesEdited ? installmentDates : [],
+        },
         { onSuccess: () => onOpenChange(false) }
       );
     }

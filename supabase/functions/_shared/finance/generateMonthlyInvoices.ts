@@ -1,3 +1,5 @@
+import { installmentDueDate } from "./dueDateRule.ts";
+
 // Handler do `generate-monthly-invoices`.
 //
 // Os dois modos continuam identicos: `contract-created` (gera as parcelas do
@@ -136,14 +138,20 @@ export async function handleGenerateMonthlyInvoices(
             ? netValue - baseAmount * (installments - 1)
             : baseAmount;
 
-          let dueDate: string;
-          if (installmentDates[i]) {
-            dueDate = installmentDates[i];
-          } else {
-            const d = new Date(startDate);
-            d.setDate(d.getDate() + i * 30);
-            dueDate = d.toISOString().substring(0, 10);
-          }
+          // Regra da Fabrik (dueDateRule.ts): cada aluna vence no SEU dia
+          // do mês (payment_day; default = dia do início do contrato).
+          // O comportamento antigo somava 30 dias e escorregava o
+          // vencimento (10/01 → 09/02 → 11/03…); quem fechava dia 31
+          // pulava fevereiro. Data explícita do caller tem precedência —
+          // mas string vazia (campo apagado na UI) NÃO é data: cai na
+          // regra em vez de estourar o NOT NULL do banco.
+          const explicit = installmentDates[i]?.trim();
+          const dueDate: string = explicit ||
+            installmentDueDate({
+              startDateISO: contract.start_date,
+              paymentDay: contract.payment_day,
+              installmentIndex: i,
+            });
 
           const invoiceNumber = `FAT-${year}-${String(seq).padStart(5, "0")}`;
           const status = paymentMethod === "dcc" ? "scheduled" : "pending";
@@ -164,8 +172,17 @@ export async function handleGenerateMonthlyInvoices(
           seq++;
         }
       } else {
-        // Single charge (card_machine, cash, single PIX)
-        const dueDate = installmentDates[0] || contract.start_date;
+        // Single charge (card_machine, cash, single PIX) — também segue a
+        // regra: com payment_day definido, vence na primeira ocorrência
+        // do dia; sem payment_day a regra devolve o próprio start_date
+        // (à vista no ato preservado). String vazia não é data.
+        const explicitSingle = installmentDates[0]?.trim();
+        const dueDate = explicitSingle ||
+          installmentDueDate({
+            startDateISO: contract.start_date,
+            paymentDay: contract.payment_day,
+            installmentIndex: 0,
+          });
         const invoiceNumber = `FAT-${year}-${String(seq).padStart(5, "0")}`;
 
         invoicesToCreate.push({

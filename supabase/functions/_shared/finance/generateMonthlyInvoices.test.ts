@@ -34,6 +34,7 @@ const CONTRACT = {
   id: "contract-1",
   student_id: "student-1",
   start_date: "2026-08-01",
+  payment_day: null,
   payment_method: "dcc",
   installments: 3,
   total_value_cents: 10000,
@@ -61,10 +62,17 @@ const RECURRING_EXPENSE = {
  */
 const isoDay = (date: Date) => date.toISOString().substring(0, 10);
 
-function installmentDue(offsetDays: number) {
-  const date = new Date(`${CONTRACT.start_date}T00:00:00`);
-  date.setDate(date.getDate() + offsetDays);
-  return isoDay(date);
+// Regra NOVA (dueDateRule): cada parcela vence no MESMO dia do mes do
+// inicio do contrato (2026-08-01 -> 01/08, 01/09, 01/10). O passo de
+// 30 dias que escorregava o vencimento morreu na Onda 2a.
+function installmentDue(installmentIndex: number) {
+  const [y, m, d] = CONTRACT.start_date.split("-").map(Number);
+  const zero = m - 1 + installmentIndex;
+  const year = y + Math.floor(zero / 12);
+  const month = (zero % 12) + 1;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const day = Math.min(d, last);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 const COMPETENCE_DATE = new Date(2026, 7, 1);
@@ -376,6 +384,89 @@ describe("handleGenerateMonthlyInvoices", () => {
 
   // (f)
   describe("execução real", () => {
+    it("parcela ÚNICA também segue a regra (payment_day, não o start_date)", async () => {
+      const fake = setup({
+        contract: {
+          ...CONTRACT,
+          start_date: "2026-08-25",
+          payment_day: 10,
+          payment_method: "pix",
+          installments: 1,
+        },
+      });
+
+      await handleGenerateMonthlyInvoices(
+        financeRequest({
+          cronSecret: STORED_SECRET,
+          body: { mode: "contract-created", contract_id: "contract-1" },
+        }),
+        dependencies,
+      );
+
+      const inserted = fake.queries
+        .find((q) => q.table === "invoices" && used(q, "insert"))
+        ?.ops.find((op) => op.method === "insert")?.args[0] as Array<Record<string, unknown>>;
+
+      expect(inserted).toHaveLength(1);
+      expect(inserted[0].due_date).toBe("2026-09-10");
+    });
+
+    it("data explícita VAZIA não vira due_date nulo — cai na regra", async () => {
+      const fake = setup({
+        contract: { ...CONTRACT, start_date: "2026-08-10", payment_day: null },
+      });
+
+      await handleGenerateMonthlyInvoices(
+        financeRequest({
+          cronSecret: STORED_SECRET,
+          body: {
+            mode: "contract-created",
+            contract_id: "contract-1",
+            installment_dates: ["", "  ", ""],
+          },
+        }),
+        dependencies,
+      );
+
+      const inserted = fake.queries
+        .find((q) => q.table === "invoices" && used(q, "insert"))
+        ?.ops.find((op) => op.method === "insert")?.args[0] as Array<Record<string, unknown>>;
+
+      expect(inserted.map((i) => i.due_date)).toEqual([
+        "2026-08-10",
+        "2026-09-10",
+        "2026-10-10",
+      ]);
+    });
+
+    it("contract-created: payment_day do contrato manda no vencimento (mata a fiação nula)", async () => {
+      const fake = setup({
+        contract: { ...CONTRACT, start_date: "2026-08-25", payment_day: 10 },
+      });
+
+      const res = await handleGenerateMonthlyInvoices(
+        financeRequest({
+          cronSecret: STORED_SECRET,
+          body: { mode: "contract-created", contract_id: "contract-1" },
+        }),
+        dependencies,
+      );
+
+      expect(res.status).toBe(200);
+
+      const inserted = fake.queries
+        .find((q) => q.table === "invoices" && used(q, "insert"))
+        ?.ops.find((op) => op.method === "insert")?.args[0] as Array<Record<string, unknown>>;
+
+      // Assinou dia 25 com vencimento dia 10: 1ª parcela na PRIMEIRA
+      // ocorrência do dia 10 após o início — nunca antes do contrato.
+      expect(inserted.map((i) => i.due_date)).toEqual([
+        "2026-09-10",
+        "2026-10-10",
+        "2026-11-10",
+      ]);
+    });
+
     it("contract-created: insere as parcelas com o mesmo payload de antes", async () => {
       const fake = setup();
 
@@ -407,17 +498,17 @@ describe("handleGenerateMonthlyInvoices", () => {
         invoice_number: "FAT-2026-00008",
         reference_month: installmentDue(0).substring(0, 7),
       });
-      // Parcelas seguem o passo de 30 dias e a última absorve o arredondamento.
+      // Parcelas mes a mes no dia do contrato; a última absorve o arredondamento.
       expect(inserted[1]).toMatchObject({
         amount_cents: 3333,
-        due_date: installmentDue(30),
+        due_date: installmentDue(1),
         invoice_number: "FAT-2026-00009",
       });
       expect(inserted[2]).toMatchObject({
         amount_cents: 3334,
         installment_number: 3,
         invoice_number: "FAT-2026-00010",
-        due_date: installmentDue(60),
+        due_date: installmentDue(2),
       });
     });
 
