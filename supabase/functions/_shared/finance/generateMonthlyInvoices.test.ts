@@ -384,6 +384,61 @@ describe("handleGenerateMonthlyInvoices", () => {
 
   // (f)
   describe("execução real", () => {
+    it("parcela ÚNICA também segue a regra (payment_day, não o start_date)", async () => {
+      const fake = setup({
+        contract: {
+          ...CONTRACT,
+          start_date: "2026-08-25",
+          payment_day: 10,
+          payment_method: "pix",
+          installments: 1,
+        },
+      });
+
+      await handleGenerateMonthlyInvoices(
+        financeRequest({
+          cronSecret: STORED_SECRET,
+          body: { mode: "contract-created", contract_id: "contract-1" },
+        }),
+        dependencies,
+      );
+
+      const inserted = fake.queries
+        .find((q) => q.table === "invoices" && used(q, "insert"))
+        ?.ops.find((op) => op.method === "insert")?.args[0] as Array<Record<string, unknown>>;
+
+      expect(inserted).toHaveLength(1);
+      expect(inserted[0].due_date).toBe("2026-09-10");
+    });
+
+    it("data explícita VAZIA não vira due_date nulo — cai na regra", async () => {
+      const fake = setup({
+        contract: { ...CONTRACT, start_date: "2026-08-10", payment_day: null },
+      });
+
+      await handleGenerateMonthlyInvoices(
+        financeRequest({
+          cronSecret: STORED_SECRET,
+          body: {
+            mode: "contract-created",
+            contract_id: "contract-1",
+            installment_dates: ["", "  ", ""],
+          },
+        }),
+        dependencies,
+      );
+
+      const inserted = fake.queries
+        .find((q) => q.table === "invoices" && used(q, "insert"))
+        ?.ops.find((op) => op.method === "insert")?.args[0] as Array<Record<string, unknown>>;
+
+      expect(inserted.map((i) => i.due_date)).toEqual([
+        "2026-08-10",
+        "2026-09-10",
+        "2026-10-10",
+      ]);
+    });
+
     it("contract-created: payment_day do contrato manda no vencimento (mata a fiação nula)", async () => {
       const fake = setup({
         contract: { ...CONTRACT, start_date: "2026-08-25", payment_day: 10 },

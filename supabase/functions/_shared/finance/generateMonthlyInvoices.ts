@@ -142,8 +142,11 @@ export async function handleGenerateMonthlyInvoices(
           // do mês (payment_day; default = dia do início do contrato).
           // O comportamento antigo somava 30 dias e escorregava o
           // vencimento (10/01 → 09/02 → 11/03…); quem fechava dia 31
-          // pulava fevereiro. Datas explícitas do caller têm precedência.
-          const dueDate: string = installmentDates[i] ??
+          // pulava fevereiro. Data explícita do caller tem precedência —
+          // mas string vazia (campo apagado na UI) NÃO é data: cai na
+          // regra em vez de estourar o NOT NULL do banco.
+          const explicit = installmentDates[i]?.trim();
+          const dueDate: string = explicit ||
             installmentDueDate({
               startDateISO: contract.start_date,
               paymentDay: contract.payment_day,
@@ -169,8 +172,17 @@ export async function handleGenerateMonthlyInvoices(
           seq++;
         }
       } else {
-        // Single charge (card_machine, cash, single PIX)
-        const dueDate = installmentDates[0] || contract.start_date;
+        // Single charge (card_machine, cash, single PIX) — também segue a
+        // regra: com payment_day definido, vence na primeira ocorrência
+        // do dia; sem payment_day a regra devolve o próprio start_date
+        // (à vista no ato preservado). String vazia não é data.
+        const explicitSingle = installmentDates[0]?.trim();
+        const dueDate = explicitSingle ||
+          installmentDueDate({
+            startDateISO: contract.start_date,
+            paymentDay: contract.payment_day,
+            installmentIndex: 0,
+          });
         const invoiceNumber = `FAT-${year}-${String(seq).padStart(5, "0")}`;
 
         invoicesToCreate.push({
