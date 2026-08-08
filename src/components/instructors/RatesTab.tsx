@@ -492,6 +492,22 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                   const confirmedSnap = cur
                     ? { [key]: { rateText: cur.rateText, basisText: cur.basisText } }
                     : {};
+                  // Pós-remoção, a célula está VAZIA no servidor: sobrevivente
+                  // re-editado em voo é rebaseado pra baseline null — senão o
+                  // próximo save leria a remoção como conflito e o apagaria.
+                  const settleAfterDelete = () =>
+                    setDraft((d) => {
+                      const c = d[key];
+                      if (!c) return d;
+                      const next = { ...d };
+                      const snap = confirmedSnap[key];
+                      if (snap && c.rateText === snap.rateText && c.basisText === snap.basisText) {
+                        delete next[key];
+                      } else {
+                        next[key] = { ...c, baseCents: null, baseBasis: null };
+                      }
+                      return next;
+                    });
                   deleteRate.mutate(
                     {
                       id: pendingDelete.rate.id,
@@ -499,10 +515,9 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                       expectedBasis: pendingDelete.rate.rate_basis,
                     },
                     {
-                      onSuccess: () => dropDraftIfUnchanged(confirmedSnap),
+                      onSuccess: settleAfterDelete,
                       onError: (e) => {
-                        if (e instanceof RateConflictError)
-                          dropDraftIfUnchanged(confirmedSnap);
+                        if (e instanceof RateConflictError) settleAfterDelete();
                       },
                     },
                   );

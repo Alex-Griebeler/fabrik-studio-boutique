@@ -114,7 +114,12 @@ const saveMutate = vi.fn((input: unknown, opts?: MutateOpts) => {
   if (saveAutoSuccess) opts?.onSuccess?.();
 });
 const applyMutate = vi.fn((_rows: unknown, opts?: MutateOpts) => opts?.onSuccess?.());
-const deleteMutate = vi.fn((_id: unknown, opts?: MutateOpts) => opts?.onSuccess?.());
+let deleteAutoSuccess = true;
+const deleteCalls: Array<{ input: unknown; opts: MutateOpts }> = [];
+const deleteMutate = vi.fn((input: unknown, opts?: MutateOpts) => {
+  deleteCalls.push({ input, opts });
+  if (deleteAutoSuccess) opts?.onSuccess?.();
+});
 
 const saveState = { mutate: saveMutate, isPending: false };
 const applyState = { mutate: applyMutate, isPending: false };
@@ -171,6 +176,8 @@ describe("RatesTab", () => {
     toastError.mockClear();
     saveCalls.length = 0;
     saveAutoSuccess = true;
+    deleteCalls.length = 0;
+    deleteAutoSuccess = true;
     saveState.isPending = false;
     applyState.isPending = false;
     deleteState.isPending = false;
@@ -340,6 +347,35 @@ describe("RatesTab", () => {
     // e não há mais nada pra salvar.
     expect(cell("Alex Griebeler", "Grupo")).toHaveValue("100,00");
     expect(screen.queryByRole("button", { name: /Salvar alterações \(/ })).toBeNull();
+  });
+
+  it("re-edição durante o voo do DELETE sobrevive com baseline vazia", () => {
+    deleteAutoSuccess = false;
+    const { rerender } = render(<RatesTab isAdmin />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remover tarifa de Alex Griebeler em Grupo" }),
+    );
+    fireEvent.click(within(screen.getByTestId("delete-dialog")).getByRole("button", { name: "Remover" }));
+
+    // Durante o voo do DELETE, o usuário digita um valor novo na célula:
+    fireEvent.change(cell("Alex Griebeler", "Grupo"), { target: { value: "110,00" } });
+    act(() => deleteCalls[0].opts?.onSuccess?.());
+
+    // Refetch: o servidor não tem mais a tarifa r1.
+    RATES = RATES.filter((r) => r.id !== "r1");
+    rerender(<RatesTab isAdmin />);
+
+    // O 110 sobreviveu e salvar NÃO é conflito (baseline rebaseada pra vazio):
+    expect(cell("Alex Griebeler", "Grupo")).toHaveValue("110,00");
+    fireEvent.click(screen.getByRole("button", { name: /Salvar alterações \(1\)/ }));
+    expect(toastError).not.toHaveBeenCalled();
+    expect(saveCalls).toHaveLength(1);
+    const input = saveCalls[0].input as {
+      rows: Array<{ rate_cents: number }>;
+      baselines: Record<string, unknown>;
+    };
+    expect(input.rows[0].rate_cents).toBe(11000);
+    expect(input.baselines["t-alex|s-grupo"]).toBeNull();
   });
 
   it("pending trava os BOTÕES de ação, mas digitar segue livre", () => {
