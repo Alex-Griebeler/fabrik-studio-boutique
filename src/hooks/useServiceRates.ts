@@ -134,8 +134,10 @@ export function useSaveTrainerServiceRates() {
         .upsert(rows as never[], { onConflict: "trainer_id,service_type_id" });
       if (error) throw error;
     },
-    onSuccess: (_d, { rows }) => {
-      qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
+    onSuccess: async (_d, { rows }) => {
+      // Aguardar o refetch: o settle do componente (limpar rascunho) só
+      // roda com o cache já fresco — sem janela exibindo valor antigo.
+      await qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       toast.success(
         rows.length === 1 ? "Tarifa salva." : `${rows.length} tarifas salvas.`,
       );
@@ -173,8 +175,8 @@ export function useApplyDefaultRates() {
         });
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       toast.success("Padrão aplicado nos pares vazios.");
     },
     onError: (e) =>
@@ -210,8 +212,8 @@ export function useDeleteTrainerServiceRate() {
       if (error) throw error;
       if ((data ?? []).length === 0) throw new RateConflictError([id]);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       toast.success("Tarifa removida.");
     },
     onError: (e) => {

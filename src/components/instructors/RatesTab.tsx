@@ -78,8 +78,8 @@ interface RatesTabProps {
 }
 
 export function RatesTab({ isAdmin }: RatesTabProps) {
-  const { data: trainers, isLoading: loadingTrainers } = useTrainers(true);
-  const { data: services, isLoading: loadingServices } = useServiceTypes();
+  const { data: trainers, isLoading: loadingTrainers, isError: trainersError } = useTrainers(true);
+  const { data: services, isLoading: loadingServices, isError: servicesError } = useServiceTypes();
   const { data: rates, isLoading: loadingRates, isError: ratesError } = useTrainerServiceRates();
   const saveRates = useSaveTrainerServiceRates();
   const applyDefaults = useApplyDefaultRates();
@@ -331,10 +331,13 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
     );
   }
 
-  if (ratesError) {
+  // Qualquer fonte falhou = painel de erro. Renderizar com lista vazia
+  // MENTIRIA na cobertura ("Grupo: completo" sem nenhum treinador checado).
+  if (ratesError || trainersError || servicesError) {
     return (
       <div className="py-16 text-center text-sm text-destructive">
-        Erro ao carregar as tarifas. Recarregue a página — nada foi alterado.
+        Erro ao carregar {ratesError ? "as tarifas" : trainersError ? "os treinadores" : "o catálogo de serviços"}.
+        Recarregue a página — nada foi alterado.
       </div>
     );
   }
@@ -471,7 +474,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
             <AlertDialogTitle>Remover tarifa?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete
-                ? `${pendingDelete.label} — sessões já criadas mantêm o valor congelado; a remoção só afeta agendamentos futuros (que ficarão sem tarifa e serão pulados com aviso).`
+                ? `${pendingDelete.label} — atenção: até a etapa da agenda (PR-C) entrar no ar, a folha atual segue usando a tarifa legada do cadastro e NADA muda no pagamento. Quando as tarifas por serviço assumirem, agendamentos futuros deste par ficarão sem tarifa (pulados com aviso); sessões já criadas mantêm o valor congelado.`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

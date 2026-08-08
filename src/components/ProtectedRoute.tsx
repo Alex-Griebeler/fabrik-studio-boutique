@@ -10,7 +10,7 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { user, loading: authLoading } = useAuth();
-  const { roles, loading: rolesLoading, hasAnyRole } = useUserRoles();
+  const { roles, loading: rolesLoading, error: rolesError, hasAnyRole } = useUserRoles();
   const location = useLocation();
 
   if (authLoading || rolesLoading) {
@@ -22,6 +22,24 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   if (!user) return <Navigate to="/login" replace />;
+
+  // Falha ao BUSCAR papéis ≠ "sem papel": redirecionar aqui mandaria um
+  // admin legítimo pro /sem-acesso por um soluço de rede. Fail-visible.
+  if (rolesError) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+        <p className="text-sm text-destructive">
+          Não foi possível confirmar seu papel de acesso.
+        </p>
+        <button
+          className="text-sm underline text-muted-foreground"
+          onClick={() => window.location.reload()}
+        >
+          Recarregar
+        </button>
+      </div>
+    );
+  }
 
   if (allowedRoles && allowedRoles.length > 0 && !hasAnyRole(allowedRoles)) {
     const home = homeRouteForRoles(roles);
