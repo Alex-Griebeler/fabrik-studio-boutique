@@ -140,6 +140,25 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
       return next;
     });
 
+  // Pós-SUCESSO: célula idêntica ao enviado é limpa; re-edição em voo
+  // sobrevive REBASEADA pro valor recém-gravado — sem isso, o próximo
+  // save leria a própria gravação como "conflito" e apagaria a re-edição.
+  const settleSavedDrafts = (sent: SentSnapshot, savedByKey: Record<string, RateUpsertRow>) =>
+    setDraft((d) => {
+      const next = { ...d };
+      for (const [k, snap] of Object.entries(sent)) {
+        const cur = next[k];
+        if (!cur) continue;
+        if (cur.rateText === snap.rateText && cur.basisText === snap.basisText) {
+          delete next[k];
+        } else {
+          const saved = savedByKey[k];
+          next[k] = { ...cur, baseCents: saved.rate_cents, baseBasis: saved.rate_basis };
+        }
+      }
+      return next;
+    });
+
   // Uma célula é "suja" se o rascunho difere do persistido (ou cria valor novo).
   const dirtyKeys = useMemo(() => {
     return Object.keys(draft).filter((key) => {
@@ -219,11 +238,13 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
           : null;
       sent[key] = { rateText: c.rateText, basisText: c.basisText };
     }
+    const savedByKey: Record<string, RateUpsertRow> = {};
+    for (const r of rows) savedByKey[cellKey(r.trainer_id, r.service_type_id)] = r;
     saveRates.mutate(
       { rows, baselines },
       {
-        // Limpa por VERSÃO: re-edição da mesma célula durante o voo sobrevive.
-        onSuccess: () => dropDraftIfUnchanged(sent),
+        // Limpa por VERSÃO e REBASEIA sobreviventes pro valor gravado.
+        onSuccess: () => settleSavedDrafts(sent, savedByKey),
         // Conflito no servidor: descarta os rascunhos conflitados COMO
         // ENVIADOS (re-edição em voo fica; se mantiver baseline velha, o
         // próximo save conflita de novo e aí cai).

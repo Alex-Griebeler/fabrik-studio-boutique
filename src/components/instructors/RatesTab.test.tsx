@@ -253,6 +253,33 @@ describe("RatesTab", () => {
     expect(screen.getByRole("button", { name: /Salvar alterações \(1\)/ })).toBeInTheDocument();
   });
 
+  it("sobrevivente é REBASEADO: salvar o 130 depois do 120 gravado não vira conflito", () => {
+    saveAutoSuccess = false;
+    const { rerender } = render(<RatesTab isAdmin />);
+    fireEvent.change(cell("Alexandre Ceniz", "Fisioterapia"), { target: { value: "120,00" } });
+    fireEvent.click(screen.getByRole("button", { name: /Salvar alterações \(1\)/ }));
+    fireEvent.change(cell("Alexandre Ceniz", "Fisioterapia"), { target: { value: "130,00" } });
+    act(() => saveCalls[0].opts?.onSuccess?.());
+
+    // Invalidação traz o 120 recém-gravado do servidor:
+    RATES = [
+      ...RATES,
+      { id: "r3", trainer_id: "t-ceniz", service_type_id: "s-fisio", rate_basis: "hourly", rate_cents: 12000 },
+    ];
+    rerender(<RatesTab isAdmin />);
+
+    // Salvar o 130: NÃO é conflito (baseline foi rebaseada pro 120 gravado):
+    fireEvent.click(screen.getByRole("button", { name: /Salvar alterações \(1\)/ }));
+    expect(toastError).not.toHaveBeenCalled();
+    expect(saveCalls).toHaveLength(2);
+    const second = saveCalls[1].input as {
+      rows: Array<{ rate_cents: number }>;
+      baselines: Record<string, { cents: number; basis: string } | null>;
+    };
+    expect(second.rows[0].rate_cents).toBe(13000);
+    expect(second.baselines["t-ceniz|s-fisio"]).toEqual({ cents: 12000, basis: "hourly" });
+  });
+
   it("conflito: tarifa mudou no servidor → rascunho descartado, nada salvo", () => {
     const { rerender } = render(<RatesTab isAdmin />);
     fireEvent.change(cell("Alex Griebeler", "Grupo"), { target: { value: "80,00" } });
