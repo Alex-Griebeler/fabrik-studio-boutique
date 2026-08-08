@@ -1,25 +1,23 @@
-// Conversão centavos ↔ "R$ em texto" usada nas telas de tarifa.
-// Mesma semântica dos conversores locais do TrainerFormDialog (que ficam lá
-// até a PR-C aposentar os campos legados).
+// Conversão centavos ↔ "R$ em texto" das telas de tarifa (RatesTab e
+// TrainerFormDialog importam DAQUI — fonte única; duas telas aceitando a
+// mesma digitação e gravando centavos diferentes é bug de folha).
 
 export function centsToReal(cents: number): string {
   return (cents / 100).toFixed(2).replace(".", ",");
 }
 
 /**
- * Texto em R$ → centavos. Aceita os dois hábitos de digitação:
- *  - com vírgula decimal ("75,00", "1.234,56" — ponto é milhar)
- *  - com ponto decimal ("75.00", "75.5" — sem vírgula, ponto é decimal)
- * Vazio ou não-numérico → NaN (o chamador decide o que é erro; 0 é parse
- * válido, mas tarifa inválida — a regra rate_cents > 0 é do banco e da tela).
+ * Texto em R$ → centavos, ESTRITO: dígitos + separador decimal opcional
+ * (vírgula OU ponto) com 1–2 casas. Qualquer outra coisa → NaN e o
+ * chamador aborta com erro visível.
+ *
+ * Estrito de propósito: separador de milhar é AMBÍGUO ("1.234" seria
+ * R$ 1.234,00 ou R$ 1,234 arredondado?) e ambiguidade aqui vira folha
+ * errada. Quem quer mil e duzentos digita 1234.
  */
 export function realToCents(input: string): number {
   const trimmed = input.trim();
-  if (trimmed === "") return NaN;
-  const normalized = trimmed.includes(",")
-    ? trimmed.replace(/\./g, "").replace(",", ".")
-    : trimmed;
-  const value = Number(normalized);
-  if (!Number.isFinite(value)) return NaN;
+  if (!/^\d+([.,]\d{1,2})?$/.test(trimmed)) return NaN;
+  const value = Number(trimmed.replace(",", "."));
   return Math.round(value * 100);
 }

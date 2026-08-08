@@ -89,7 +89,10 @@ export function useSaveTrainerServiceRates() {
         rows.length === 1 ? "Tarifa salva." : `${rows.length} tarifas salvas.`,
       );
     },
-    onError: () => toast.error("Erro ao salvar tarifas. Nada foi gravado."),
+    onError: (e) =>
+      toast.error(
+        `Erro ao salvar tarifas — nada foi gravado. (${e instanceof Error ? e.message : "erro desconhecido"})`,
+      ),
   });
 }
 
@@ -115,7 +118,10 @@ export function useApplyDefaultRates() {
       qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       toast.success("Padrão aplicado nos pares vazios.");
     },
-    onError: () => toast.error("Erro ao aplicar o padrão. Nada foi gravado."),
+    onError: (e) =>
+      toast.error(
+        `Erro ao aplicar o padrão — nada foi gravado. (${e instanceof Error ? e.message : "erro desconhecido"})`,
+      ),
   });
 }
 
@@ -133,6 +139,9 @@ export function useDeleteTrainerServiceRate() {
       qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       toast.success("Tarifa removida.");
     },
-    onError: () => toast.error("Erro ao remover tarifa."),
+    onError: (e) =>
+      toast.error(
+        `Erro ao remover tarifa. (${e instanceof Error ? e.message : "erro desconhecido"})`,
+      ),
   });
 }

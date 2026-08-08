@@ -9,7 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { X } from "lucide-react";
+import { toast } from "sonner";
 import { useCreateTrainer, useTrainerAdmin, useUpdateTrainer } from "@/hooks/useTrainers";
+import { centsToReal, realToCents } from "@/lib/money";
 import type { Trainer } from "@/hooks/schedule/types";
 
 interface Props {
@@ -40,8 +42,14 @@ const emptyForm = {
   bank_account: "",
 };
 
+const emptyRateTexts = { main: "0,00", assistant: "0,00", session: "0,00" };
+
 export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   const [form, setForm] = useState(emptyForm);
+  // Taxas como TEXTO livre, parseadas no submit (parser estrito de
+  // @/lib/money). O modelo antigo — reparsear a cada tecla e reformatar o
+  // input — gravava centavos errados com milhar ("1.234,56" → R$ 1,23).
+  const [rateTexts, setRateTexts] = useState(emptyRateTexts);
   const [newSpecialty, setNewSpecialty] = useState("");
   const [newCert, setNewCert] = useState("");
 
@@ -68,6 +76,7 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     }
     if (!trainer) {
       setForm(emptyForm);
+      setRateTexts(emptyRateTexts);
       setHydratedForId(null);
       return;
     }
@@ -103,6 +112,11 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
         bank_agency: t.bank_agency || "",
         bank_account: t.bank_account || "",
       });
+      setRateTexts({
+        main: centsToReal(t.hourly_rate_main_cents || 0),
+        assistant: centsToReal(t.hourly_rate_assistant_cents || 0),
+        session: centsToReal(t.session_rate_cents || 0),
+      });
       setHydratedForId(trainer.id);
     }
   }, [open, trainer, hydratedForId, fullTrainer.isSuccess, fullTrainer.isFetching, fullTrainer.data]);
@@ -110,8 +124,12 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   const set = <K extends keyof typeof emptyForm>(k: K, v: (typeof emptyForm)[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const centsToReal = (c: number) => (c / 100).toFixed(2).replace(".", ",");
-  const realToCents = (s: string) => Math.round(parseFloat(s.replace(",", ".") || "0") * 100);
+  // "" e "0" significam "sem taxa" (0); texto não-numérico é ERRO de
+  // digitação e aborta o save — nunca vira silenciosamente outro valor.
+  const parseRateText = (text: string): number => {
+    if (text.trim() === "") return 0;
+    return realToCents(text);
+  };
 
   const addTag = (field: "specialties" | "certifications", value: string, setter: (v: string) => void) => {
     const trimmed = value.trim();
@@ -129,8 +147,22 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     // Guard anti-perda de dados: em edição, nunca salvar sem o registro
     // completo DESTE treinador carregado e estável (fetch concluído).
     if (isEdit && !fullLoaded) return;
+
+    const mainCents = parseRateText(rateTexts.main);
+    const assistantCents = parseRateText(rateTexts.assistant);
+    const sessionCents = parseRateText(rateTexts.session);
+    if ([mainCents, assistantCents, sessionCents].some((c) => !Number.isFinite(c))) {
+      toast.error('Taxa inválida — use números como "75", "75,50" ou "1234,56" (sem ponto de milhar).');
+      return;
+    }
+
     const { hired_at, ...rest } = form;
-    const payload: Partial<Trainer> = hired_at ? { ...rest, hired_at } : rest;
+    const payload: Partial<Trainer> = {
+      ...(hired_at ? { ...rest, hired_at } : rest),
+      hourly_rate_main_cents: mainCents,
+      hourly_rate_assistant_cents: assistantCents,
+      session_rate_cents: sessionCents,
+    };
 
     if (isEdit) {
       update.mutate({ id: trainer!.id, ...payload }, { onSuccess: () => onOpenChange(false) });
@@ -273,15 +305,17 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
                 <div>
                   <Label>Taxa/hora — Principal (R$)</Label>
                   <Input
-                    value={centsToReal(form.hourly_rate_main_cents)}
-                    onChange={(e) => set("hourly_rate_main_cents", realToCents(e.target.value))}
+                    inputMode="decimal"
+                    value={rateTexts.main}
+                    onChange={(e) => setRateTexts((r) => ({ ...r, main: e.target.value }))}
                   />
                 </div>
                 <div>
                   <Label>Taxa/hora — Assistente (R$)</Label>
                   <Input
-                    value={centsToReal(form.hourly_rate_assistant_cents)}
-                    onChange={(e) => set("hourly_rate_assistant_cents", realToCents(e.target.value))}
+                    inputMode="decimal"
+                    value={rateTexts.assistant}
+                    onChange={(e) => setRateTexts((r) => ({ ...r, assistant: e.target.value }))}
                   />
                 </div>
               </>
@@ -291,8 +325,9 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
               <div>
                 <Label>Taxa por sessão (R$)</Label>
                 <Input
-                  value={centsToReal(form.session_rate_cents)}
-                  onChange={(e) => set("session_rate_cents", realToCents(e.target.value))}
+                  inputMode="decimal"
+                  value={rateTexts.session}
+                  onChange={(e) => setRateTexts((r) => ({ ...r, session: e.target.value }))}
                 />
               </div>
             )}

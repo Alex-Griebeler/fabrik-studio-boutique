@@ -56,7 +56,16 @@ const BASIS_LABEL: Record<RateBasis, string> = {
   per_session: "R$/sessão",
 };
 
-type CellDraft = { basisText: RateBasis; rateText: string };
+// Rascunho por célula com BASELINE congelada no primeiro toque: se outro
+// admin mudar a mesma tarifa enquanto se edita, o save detecta (baseline
+// ≠ persistido atual), descarta o rascunho conflitado e avisa — nunca
+// sobrescreve às cegas um valor que o usuário nem viu.
+type CellDraft = {
+  basisText: RateBasis;
+  rateText: string;
+  baseCents: number | null;
+  baseBasis: RateBasis | null;
+};
 type DraftMap = Record<string, CellDraft>;
 
 const cellKey = (trainerId: string, serviceId: string) => `${trainerId}|${serviceId}`;
@@ -78,6 +87,9 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchSelected, setBatchSelected] = useState<Record<string, boolean>>({});
 
+  const busy = saveRates.isPending || applyDefaults.isPending || deleteRate.isPending;
+  const canEdit = isAdmin && !busy;
+
   const rateByCell = useMemo(() => {
     const map: Record<string, TrainerServiceRate> = {};
     for (const r of rates ?? []) map[cellKey(r.trainer_id, r.service_type_id)] = r;
@@ -91,10 +103,19 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
         ({
           basisText: persisted?.rate_basis ?? "hourly",
           rateText: persisted ? centsToReal(persisted.rate_cents) : "",
+          baseCents: persisted?.rate_cents ?? null,
+          baseBasis: persisted?.rate_basis ?? null,
         } satisfies CellDraft);
       return { ...d, [key]: { ...current, ...patch } };
     });
   };
+
+  const dropDraftKeys = (keys: string[]) =>
+    setDraft((d) => {
+      const next = { ...d };
+      for (const k of keys) delete next[k];
+      return next;
+    });
 
   // Uma célula é "suja" se o rascunho difere do persistido (ou cria valor novo).
   const dirtyKeys = useMemo(() => {
@@ -115,6 +136,32 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
     services?.find((s) => s.id === id)?.name ?? id;
 
   const handleSave = () => {
+    // 1º passe: conflito de concorrência — baseline do rascunho vs
+    // persistido ATUAL. Conflitado é descartado (mostra o valor novo do
+    // servidor), nada é salvo nesta passada.
+    const conflicted = dirtyKeys.filter((key) => {
+      const c = draft[key];
+      const persisted = rateByCell[key] ?? null;
+      return (
+        (persisted?.rate_cents ?? null) !== c.baseCents ||
+        (persisted?.rate_basis ?? null) !== c.baseBasis
+      );
+    });
+    if (conflicted.length > 0) {
+      const labels = conflicted
+        .map((k) => {
+          const [t, s] = k.split("|");
+          return `${trainerName(t)} × ${serviceName(s)}`;
+        })
+        .join("; ");
+      dropDraftKeys(conflicted);
+      toast.error(
+        `Tarifa alterada em outra sessão: ${labels}. O valor atual foi recarregado — revise antes de salvar.`,
+      );
+      return;
+    }
+
+    // 2º passe: validação — qualquer célula inválida aborta o lote inteiro.
     const rows: RateUpsertRow[] = [];
     for (const key of dirtyKeys) {
       const [trainerId, serviceId] = key.split("|");
@@ -123,7 +170,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
       if (!Number.isFinite(cents) || cents <= 0) {
         toast.error(
           `Tarifa inválida: ${trainerName(trainerId)} × ${serviceName(serviceId)}. ` +
-            "Informe um valor maior que zero (ou remova a tarifa pela lixeira).",
+            'Use números como "75", "75,50" ou "1234,56" (maior que zero, sem ponto de milhar) — ou remova pela lixeira.',
         );
         return; // nada é salvo — ou tudo válido, ou nada
       }
@@ -135,13 +182,23 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
       });
     }
     if (rows.length === 0) return;
-    saveRates.mutate(rows, { onSuccess: () => setDraft({}) });
+    const savedKeys = rows.map((r) => cellKey(r.trainer_id, r.service_type_id));
+    // Limpa SÓ as células deste lote: edição feita durante o voo sobrevive.
+    saveRates.mutate(rows, { onSuccess: () => dropDraftKeys(savedKeys) });
   };
 
   // ---- Ação em lote: pares vazios de grupo/personal dos treinadores marcados.
   const batchServices = useMemo(
     () => (services ?? []).filter((s) => s.slug in HOUSE_DEFAULTS && s.is_active),
     [services],
+  );
+  // Serviço do padrão desativado no catálogo = padrão PARCIAL (avisado no diálogo).
+  const unavailableDefaults = useMemo(
+    () =>
+      Object.keys(HOUSE_DEFAULTS).filter(
+        (slug) => !batchServices.some((s) => s.slug === slug),
+      ),
+    [batchServices],
   );
 
   const missingPairsFor = (trainerId: string): Array<{ service: ServiceType; cents: number }> =>
@@ -150,6 +207,10 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
       .map((s) => ({ service: s, cents: HOUSE_DEFAULTS[s.slug] }));
 
   const openBatch = () => {
+    if (dirtyKeys.length > 0) {
+      toast.error("Salve (ou descarte) as edições pendentes antes de aplicar o padrão em lote.");
+      return;
+    }
     const preSelected: Record<string, boolean> = {};
     for (const t of trainers ?? []) {
       if (missingPairsFor(t.id).length > 0) preSelected[t.id] = true;
@@ -226,7 +287,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
         ))}
         <div className="ml-auto flex gap-2">
           {isAdmin && (
-            <Button size="sm" variant="outline" onClick={openBatch}>
+            <Button size="sm" variant="outline" onClick={openBatch} disabled={busy}>
               <Wand2 className="h-4 w-4 mr-1" />
               Aplicar padrão 75/45
             </Button>
@@ -235,7 +296,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={dirtyKeys.length === 0 || saveRates.isPending}
+              disabled={dirtyKeys.length === 0 || busy}
             >
               {saveRates.isPending ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -280,7 +341,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                           className="h-8 w-24"
                           inputMode="decimal"
                           placeholder="—"
-                          disabled={!isAdmin}
+                          disabled={!canEdit}
                           value={rateValue}
                           onChange={(e) =>
                             setCell(key, { rateText: e.target.value }, persisted)
@@ -291,7 +352,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                           onValueChange={(v) =>
                             setCell(key, { basisText: v as RateBasis }, persisted)
                           }
-                          disabled={!isAdmin}
+                          disabled={!canEdit}
                         >
                           <SelectTrigger
                             aria-label={`Base de ${t.full_name} em ${s.name}`}
@@ -310,6 +371,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                             size="icon"
                             className="h-8 w-8 text-muted-foreground"
                             aria-label={`Remover tarifa de ${t.full_name} em ${s.name}`}
+                            disabled={busy}
                             onClick={() =>
                               setPendingDelete({
                                 rate: persisted,
@@ -345,7 +407,17 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (pendingDelete) deleteRate.mutate(pendingDelete.rate.id);
+                if (pendingDelete) {
+                  const key = cellKey(
+                    pendingDelete.rate.trainer_id,
+                    pendingDelete.rate.service_type_id,
+                  );
+                  // Rascunho da célula morre junto — senão o próximo save
+                  // ressuscitaria a tarifa recém-removida.
+                  deleteRate.mutate(pendingDelete.rate.id, {
+                    onSuccess: () => dropDraftKeys([key]),
+                  });
+                }
                 setPendingDelete(null);
               }}
             >
@@ -366,6 +438,13 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
               (ex.: fisioterapia) continuam manuais.
             </DialogDescription>
           </DialogHeader>
+          {unavailableDefaults.length > 0 && (
+            <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+              Atenção: o serviço {unavailableDefaults.join(" e ")} está
+              desativado no catálogo — o padrão será aplicado só nos serviços
+              ativos listados abaixo.
+            </div>
+          )}
           <div className="max-h-72 overflow-y-auto space-y-2">
             {(trainers ?? []).map((t) => {
               const missing = missingPairsFor(t.id);
@@ -384,7 +463,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                   <span className="font-medium">{t.full_name}</span>
                   <span className="ml-auto text-xs text-muted-foreground">
                     {missing.length === 0
-                      ? "já completo"
+                      ? "sem pares vazios do padrão"
                       : missing
                           .map((m) => `${m.service.name} R$ ${centsToReal(m.cents)}/h`)
                           .join(" · ")}

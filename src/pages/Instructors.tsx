@@ -14,9 +14,11 @@ export default function Instructors() {
   const [showForm, setShowForm] = useState(false);
   const [editingTrainer, setEditingTrainer] = useState<Trainer | null>(null);
   const { data: trainers, isLoading } = useTrainers();
-  const { roles } = useUserRoles();
+  const { roles, loading: rolesLoading } = useUserRoles();
   // A aba Taxas é ADMIN-only: a RLS de trainer_service_rates não dá leitura
   // a manager — exibir a aba pra ele seria mostrar uma matriz sempre vazia.
+  // Espera os papéis resolverem antes de decidir o layout: sem isso o admin
+  // vê primeiro a versão sem aba e a tela "pisca" (lição do redirect 04/08).
   const isAdmin = roles.includes("admin");
 
   const handleEdit = (t: Trainer) => {
@@ -62,7 +64,12 @@ export default function Instructors() {
         }
       />
 
-      {isAdmin ? (
+      {rolesLoading ? (
+        <div className="flex items-center justify-center py-24 text-muted-foreground">
+          <GraduationCap className="h-8 w-8 animate-pulse mr-2" />
+          <span className="text-sm">Carregando...</span>
+        </div>
+      ) : isAdmin ? (
         <Tabs defaultValue="trainers">
           <TabsList className="mb-4">
             <TabsTrigger value="trainers">Treinadores</TabsTrigger>
