@@ -142,8 +142,10 @@ export function useSaveTrainerServiceRates() {
         rows.length === 1 ? "Tarifa salva." : `${rows.length} tarifas salvas.`,
       );
     },
-    onError: (e) => {
-      qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
+    onError: async (e) => {
+      // Mesmo contrato do sucesso: só liberar as ações com cache fresco —
+      // o toast diz "recarregado" e a tela TEM que estar recarregada.
+      await qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       if (e instanceof RateConflictError) {
         toast.error(
           "Tarifa alterada em outra sessão — o valor atual foi recarregado. Revise antes de salvar.",
@@ -216,8 +218,8 @@ export function useDeleteTrainerServiceRate() {
       await qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       toast.success("Tarifa removida.");
     },
-    onError: (e) => {
-      qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
+    onError: async (e) => {
+      await qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       if (e instanceof RateConflictError) {
         toast.error(
           "Esta tarifa mudou (ou já foi removida) em outra sessão — valor recarregado, revise.",
