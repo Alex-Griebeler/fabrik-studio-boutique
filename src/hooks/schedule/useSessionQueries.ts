@@ -72,7 +72,19 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
           return;
         }
         for (const t of trainerRows ?? []) {
-          if (t.profile_id) trainerByProfile.set(t.profile_id, t);
+          if (!t.profile_id) continue;
+          // trainers.profile_id NÃO tem UNIQUE: dois treinadores no mesmo
+          // perfil deixariam o mapa (e a folha) não determinísticos.
+          if (trainerByProfile.has(t.profile_id)) {
+            console.error(
+              `useAutoGenerateSessions: perfil ${t.profile_id} vinculado a mais de um treinador`,
+            );
+            toast.error(
+              "Há dois cadastros de treinador vinculados ao mesmo perfil — corrija em Treinadores antes de gerar a agenda.",
+            );
+            return;
+          }
+          trainerByProfile.set(t.profile_id, t);
         }
 
         // Vínculo ou tarifa ausente NÃO vira R$ 0,00 silencioso (era o
@@ -169,11 +181,31 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
       if (sessionsToInsert.length > 0) {
         const { error } = await supabase.from("sessions").insert(sessionsToInsert);
         if (error) {
-          // 23505 = corrida benigna com outra aba gerando o mesmo período
-          // (o UNIQUE parcial de template_id+session_date segura a
-          // duplicata; migration no repo). Qualquer outro erro é visível:
-          // agenda vazia sem aviso era o modo de falha antigo.
+          // 23505 = corrida com outra aba (o UNIQUE parcial segura a
+          // duplicata). Num insert em LOTE o conflito derruba o lote
+          // inteiro — inclusive linhas que não conflitavam. Retry único:
+          // relê o que já existe e insere só o restante.
           if (error.code === "23505") {
+            const { data: nowExisting } = await supabase
+              .from("sessions")
+              .select("template_id, session_date")
+              .gte("session_date", startDate)
+              .lte("session_date", endDate)
+              .not("template_id", "is", null);
+            const nowSet = new Set(
+              (nowExisting ?? []).map((e) => `${e.template_id}_${e.session_date}`),
+            );
+            const remaining = sessionsToInsert.filter(
+              (s) => !nowSet.has(`${s.template_id}_${s.session_date}`),
+            );
+            if (remaining.length > 0) {
+              const { error: retryErr } = await supabase.from("sessions").insert(remaining);
+              if (retryErr && retryErr.code !== "23505") {
+                console.error("useAutoGenerateSessions: retry falhou", retryErr.message);
+                toast.error("Não foi possível gerar a agenda do período. Recarregue e tente de novo.");
+                return;
+              }
+            }
             qc.invalidateQueries({ queryKey: ["sessions", startDate, endDate] });
             return;
           }

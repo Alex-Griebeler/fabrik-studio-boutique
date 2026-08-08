@@ -9,9 +9,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
 let EXISTING: Array<{ template_id: string; session_date: string }> = [];
+let EXISTING_AFTER_CONFLICT: Array<{ template_id: string; session_date: string }> | null = null;
+let SESSION_SELECT_COUNT = 0;
 let TRAINERS: Array<{ id: string; profile_id: string | null; hourly_rate_main_cents: number }> = [];
-let INSERTED: Array<Record<string, unknown>> | null = null;
-let INSERT_ERROR: { code: string; message: string } | null = null;
+let INSERT_CALLS: Array<Array<Record<string, unknown>>> = [];
+let INSERT_ERRORS: Array<{ code: string; message: string } | null> = [];
 let ROLES: string[] = ["admin"];
 
 vi.mock("sonner", () => ({
@@ -59,12 +61,19 @@ vi.mock("@/integrations/supabase/client", () => {
       from: (table: string) => {
         if (table === "sessions") {
           return {
-            select: () => thenable({ data: EXISTING, error: null }),
+            select: () => {
+              SESSION_SELECT_COUNT += 1;
+              const data =
+                SESSION_SELECT_COUNT > 1 && EXISTING_AFTER_CONFLICT !== null
+                  ? EXISTING_AFTER_CONFLICT
+                  : EXISTING;
+              return thenable({ data, error: null });
+            },
             insert: (rows: Array<Record<string, unknown>>) => {
-              INSERTED = rows;
+              INSERT_CALLS.push(rows);
+              const err = INSERT_ERRORS.length > 0 ? INSERT_ERRORS.shift()! : null;
               return {
-                then: (resolve: (v: unknown) => void) =>
-                  resolve({ error: INSERT_ERROR }),
+                then: (resolve: (v: unknown) => void) => resolve({ error: err }),
               };
             },
           };
@@ -94,17 +103,19 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
   beforeEach(() => {
     EXISTING = [];
     TRAINERS = [{ id: "trainer-9", profile_id: "profile-1", hourly_rate_main_cents: 12000 }];
-    INSERTED = null;
-    INSERT_ERROR = null;
+    INSERT_CALLS = [];
+    INSERT_ERRORS = [];
+    EXISTING_AFTER_CONFLICT = null;
+    SESSION_SELECT_COUNT = 0;
     ROLES = ["admin"];
     vi.clearAllMocks();
   });
 
   it("grava trainers.id (NUNCA o profiles.id do template) + snapshot correto", async () => {
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
-    await waitFor(() => expect(INSERTED).not.toBeNull());
+    await waitFor(() => expect(INSERT_CALLS.length).toBeGreaterThan(0));
 
-    const row = INSERTED![0];
+    const row = INSERT_CALLS[0][0];
     expect(row.trainer_id).toBe("trainer-9");
     expect(row.trainer_id).not.toBe("profile-1");
     expect(row.trainer_hourly_rate_cents).toBe(12000);
@@ -116,14 +127,14 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     TRAINERS = [];
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
     await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
-    expect(INSERTED).toBeNull();
+    expect(INSERT_CALLS).toHaveLength(0);
   });
 
   it("treinador sem tarifa: aborta com aviso, nada inserido (nunca R$0 silencioso)", async () => {
     TRAINERS = [{ id: "trainer-9", profile_id: "profile-1", hourly_rate_main_cents: 0 }];
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
     await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
-    expect(INSERTED).toBeNull();
+    expect(INSERT_CALLS).toHaveLength(0);
   });
 
   it("recepção NÃO tenta gerar (policy de INSERT não permite; antes falhava mudo)", async () => {
@@ -131,28 +142,53 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
     // dá tempo do effect rodar se fosse rodar
     await new Promise((r) => setTimeout(r, 50));
-    expect(INSERTED).toBeNull();
+    expect(INSERT_CALLS).toHaveLength(0);
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
   });
 
   it("erro real de insert vira aviso visível (agenda vazia sem aviso era o modo antigo)", async () => {
-    INSERT_ERROR = { code: "42501", message: "permission denied" };
+    INSERT_ERRORS = [{ code: "42501", message: "permission denied" }];
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
     await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
   });
 
   it("corrida benigna (23505, outra aba gerou primeiro) NÃO vira erro pro usuário", async () => {
-    INSERT_ERROR = { code: "23505", message: "duplicate key" };
+    INSERT_ERRORS = [{ code: "23505", message: "duplicate key" }];
+    // Na releitura pós-conflito, a sessão JÁ existe (outra aba criou):
+    // nada resta a inserir e nenhum erro chega ao usuário.
+    EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
-    await waitFor(() => expect(INSERTED).not.toBeNull());
+    await waitFor(() => expect(INSERT_CALLS.length).toBe(1));
     await new Promise((r) => setTimeout(r, 50));
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it("conflito PARCIAL (23505): retry único insere só o que faltou", async () => {
+    INSERT_ERRORS = [{ code: "23505", message: "duplicate key" }, null];
+    // Outra aba criou apenas ESTA sessão; nada mais existia. O retry
+    // relê e — como o único item do lote agora existe — não reinsere.
+    EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
+    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
+    await waitFor(() => expect(INSERT_CALLS.length).toBe(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(INSERT_CALLS).toHaveLength(1); // sem reinserção do que já existe
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it("dois treinadores no MESMO perfil: aborta (mapa não determinístico)", async () => {
+    TRAINERS = [
+      { id: "trainer-9", profile_id: "profile-1", hourly_rate_main_cents: 12000 },
+      { id: "trainer-10", profile_id: "profile-1", hourly_rate_main_cents: 9000 },
+    ];
+    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
+    expect(INSERT_CALLS).toHaveLength(0);
   });
 
   it("sessão já existente no período não é recriada", async () => {
     EXISTING = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
     await new Promise((r) => setTimeout(r, 50));
-    expect(INSERTED).toBeNull();
+    expect(INSERT_CALLS).toHaveLength(0);
   });
 });
