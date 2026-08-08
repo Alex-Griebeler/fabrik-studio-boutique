@@ -103,10 +103,13 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
         duration_minutes: number;
         modality: string;
         capacity: number;
-        trainer_id: string | null;
-        trainer_hourly_rate_cents: number | null;
-        payment_hours: number | null;
-        payment_amount_cents: number | null;
+        // NÃO-nulos de propósito: depois da revisão fria, só template com
+        // treinador e tarifa íntegros gera sessão — se alguém reabrir um
+        // caminho nulo, o compilador acusa aqui.
+        trainer_id: string;
+        trainer_hourly_rate_cents: number;
+        payment_hours: number;
+        payment_amount_cents: number;
       }> = [];
       const start = new Date(startDate + "T00:00:00");
       const end = new Date(endDate + "T00:00:00");
