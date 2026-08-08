@@ -109,7 +109,9 @@ CREATE TABLE public.sessions (
   modality text NOT NULL,
   session_date date NOT NULL,
   start_time time NOT NULL,
-  duration_minutes integer NOT NULL
+  end_time time NOT NULL,
+  duration_minutes integer NOT NULL,
+  status text NOT NULL DEFAULT 'scheduled'
 );
 
 -- Postura de produção nas tabelas legadas: RLS ligada e as policies de
@@ -151,7 +153,9 @@ VALUES
 INSERT INTO public.class_templates (id, modality, day_of_week, start_time, duration_minutes)
 VALUES ('22222222-2222-2222-2222-222222222222', 'flow', 1, '06:00', 60);
 
-INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, duration_minutes)
+-- A sessão personal não existe em produção HOJE, mas o branch personal do
+-- backfill e do trigger precisa de cobertura (a tela de personal cria).
+INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, end_time, duration_minutes)
 VALUES
-  ('33333333-3333-3333-3333-333333333333', 'group',    'flow', '2026-08-03', '06:00', 60),
-  ('44444444-4444-4444-4444-444444444444', 'personal', 'personal', '2026-08-04', '07:00', 60);
+  ('33333333-3333-3333-3333-333333333333', 'group',    'flow', '2026-08-03', '06:00', '07:00', 60),
+  ('44444444-4444-4444-4444-444444444444', 'personal', 'personal', '2026-08-04', '07:00', '08:00', 60);

@@ -7,7 +7,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(44);
+SELECT plan(47);
 
 -- ---------- Estrutura ----------
 SELECT has_table('public'::name, 'service_types'::name, 'service_types existe');
@@ -81,23 +81,23 @@ SET LOCAL ROLE authenticated;
 SET LOCAL request.jwt.claim.sub = 'f8000000-0000-0000-0000-000000000001';
 SET LOCAL request.jwt.claims = '{"sub":"f8000000-0000-0000-0000-000000000001","role":"authenticated"}';
 
-INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, duration_minutes)
-VALUES ('55555555-5555-5555-5555-555555555555', 'group', 'hiit', '2026-08-10', '08:00', 60);
+INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, end_time, duration_minutes)
+VALUES ('55555555-5555-5555-5555-555555555555', 'group', 'hiit', '2026-08-10', '08:00', '09:00', 60);
 SELECT is(
   (SELECT st.slug FROM public.sessions s JOIN public.service_types st ON st.id = s.service_type_id
     WHERE s.id = '55555555-5555-5555-5555-555555555555'),
   'grupo', 'sessão nova de turma sem serviço ganha grupo no INSERT');
 
-INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, duration_minutes)
-VALUES ('66666666-6666-6666-6666-666666666666', 'personal', 'personal', '2026-08-10', '09:00', 60);
+INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, end_time, duration_minutes)
+VALUES ('66666666-6666-6666-6666-666666666666', 'personal', 'personal', '2026-08-10', '09:00', '10:00', 60);
 SELECT is(
   (SELECT st.slug FROM public.sessions s JOIN public.service_types st ON st.id = s.service_type_id
     WHERE s.id = '66666666-6666-6666-6666-666666666666'),
   'personal', 'sessão nova personal sem serviço ganha personal no INSERT');
 
 -- Bundle antigo às vezes nem manda session_type (DEFAULT 'group' cobre):
-INSERT INTO public.sessions (id, modality, session_date, start_time, duration_minutes)
-VALUES ('88888888-8888-8888-8888-888888888888', 'flow', '2026-08-11', '06:00', 60);
+INSERT INTO public.sessions (id, modality, session_date, start_time, end_time, duration_minutes)
+VALUES ('88888888-8888-8888-8888-888888888888', 'flow', '2026-08-11', '06:00', '07:00', 60);
 SELECT is(
   (SELECT st.slug FROM public.sessions s JOIN public.service_types st ON st.id = s.service_type_id
     WHERE s.id = '88888888-8888-8888-8888-888888888888'),
@@ -112,8 +112,8 @@ SELECT is(
 
 -- Guarda de coerência: serviço tem que bater com o formato.
 SELECT throws_ok(
-  $$INSERT INTO public.sessions (session_type, modality, session_date, start_time, duration_minutes, service_type_id)
-    SELECT 'group', 'flow', '2026-08-12', '06:00', 60, id
+  $$INSERT INTO public.sessions (session_type, modality, session_date, start_time, end_time, duration_minutes, service_type_id)
+    SELECT 'group', 'flow', '2026-08-12', '06:00', '07:00', 60, id
       FROM public.service_types WHERE slug = 'fisioterapia'$$,
   '23514', NULL, 'sessão de turma não nasce precificada como fisioterapia');
 SELECT throws_ok(
@@ -126,6 +126,16 @@ SELECT throws_ok(
     SELECT 'fisio', 4, '11:00', 60, id
       FROM public.service_types WHERE slug = 'fisioterapia'$$,
   '23514', NULL, 'template não aponta para serviço de formato individual nesta fase');
+
+-- Fluxo real do bundle no ar: cancelar sessão (UPDATE de status) não pode
+-- tropeçar no trigger que agora roda em todo UPDATE.
+WITH cancelled AS (
+  UPDATE public.sessions SET status = 'cancelled_on_time'
+   WHERE id = '55555555-5555-5555-5555-555555555555'
+  RETURNING 1
+)
+SELECT is((SELECT count(*) FROM cancelled), 1::bigint,
+  'cancelamento (UPDATE de status) passa pelo trigger sem atrito');
 
 RESET ROLE;
 
@@ -205,6 +215,16 @@ SELECT throws_ok(
     SELECT '11111111-1111-1111-1111-111111111111', id, 'hourly', 4500
       FROM public.service_types WHERE slug = 'grupo'$$,
   '42501', NULL, 'instructor não cria tarifa');
+WITH changed AS (
+  UPDATE public.service_types SET name = 'Hackeado' WHERE slug = 'grupo'
+  RETURNING 1
+)
+SELECT is((SELECT count(*) FROM changed), 0::bigint,
+  'instructor não edita o catálogo (0 linhas)');
+SELECT throws_ok(
+  $$INSERT INTO public.service_types (slug, name, delivery_type)
+    VALUES ('pilates', 'Pilates', 'group')$$,
+  '42501', NULL, 'instructor não cria serviço');
 RESET ROLE;
 
 SET LOCAL ROLE authenticated;
