@@ -105,21 +105,40 @@ CREATE TABLE public.class_templates (
 
 CREATE TABLE public.sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_type public.session_type NOT NULL,
+  session_type public.session_type NOT NULL DEFAULT 'group',
   modality text NOT NULL,
   session_date date NOT NULL,
   start_time time NOT NULL,
   duration_minutes integer NOT NULL
 );
 
--- Postura de produção nas tabelas legadas: RLS ligada (o conteúdo das
--- policies legadas não é objeto desta PR; o trigger transitório roda em
--- INSERT feito como postgres/service nos testes).
+-- Postura de produção nas tabelas legadas: RLS ligada e as policies de
+-- sessions/class_templates VERBATIM de produção (aplicam a PUBLIC e
+-- chamam has_role(auth.uid(), ...) sem embrulho) — os testes do trigger
+-- transitório atravessam esse caminho real como authenticated.
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trainers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.class_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY sessions_select ON public.sessions FOR SELECT
+  USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role) OR has_role(auth.uid(), 'reception'::app_role));
+CREATE POLICY sessions_insert ON public.sessions FOR INSERT
+  WITH CHECK (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role));
+CREATE POLICY sessions_update ON public.sessions FOR UPDATE
+  USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role));
+CREATE POLICY sessions_delete ON public.sessions FOR DELETE
+  USING (has_role(auth.uid(), 'admin'::app_role));
+
+CREATE POLICY class_templates_select ON public.class_templates FOR SELECT
+  USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role) OR has_role(auth.uid(), 'reception'::app_role));
+CREATE POLICY class_templates_insert ON public.class_templates FOR INSERT
+  WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
+CREATE POLICY class_templates_update ON public.class_templates FOR UPDATE
+  USING (has_role(auth.uid(), 'admin'::app_role));
+CREATE POLICY class_templates_delete ON public.class_templates FOR DELETE
+  USING (has_role(auth.uid(), 'admin'::app_role));
 
 -- Linhas representativas de produção:
 -- o Alex (uuid REAL de produção — a migration semeia as tarifas dele por id),

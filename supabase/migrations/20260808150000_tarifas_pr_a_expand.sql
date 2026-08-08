@@ -9,6 +9,11 @@
 -- Idempotente de ponta a ponta: o CI aplica esta migration DUAS vezes.
 -- =====================================================================
 
+-- Tabelas são minúsculas (~20 sessões), mas ALTER TABLE toma ACCESS
+-- EXCLUSIVE: falha rápido atrás de transação longa em vez de enfileirar.
+SET LOCAL lock_timeout = '10s';
+SET LOCAL statement_timeout = '120s';
+
 -- ---------------------------------------------------------------------
 -- 1) Catálogo de serviços (o que PRECIFICA: grupo, personal, fisio...).
 --    delivery_type reusa o enum session_type: serviço declara o FORMATO
@@ -209,10 +214,17 @@ UPDATE public.class_templates ct
  WHERE ct.service_type_id IS NULL;
 
 -- ---------------------------------------------------------------------
--- 7) TRIGGER TRANSITÓRIO DE COMPATIBILIDADE (remover na PR-E).
---    O bundle antigo insere sessão/template sem service_type_id; este
---    trigger preenche pelo mesmo mapeamento do backfill, garantindo que
---    nenhuma linha nasça sem serviço durante a transição.
+-- 7) TRIGGER TRANSITÓRIO DE COMPATIBILIDADE + GUARDA DE COERÊNCIA.
+--    (a) Preenche service_type_id quando o bundle antigo insere sem
+--        (ou quando um UPDATE anula) — mesmo mapeamento do backfill.
+--    (b) Em INSERT E UPDATE, garante a invariante do modelo: o formato
+--        do serviço (delivery_type) TEM que bater com session_type —
+--        senão um staff gravaria sessão de turma precificada como
+--        fisioterapia direto pela API. Template nesta fase só gera
+--        turma, então o serviço dele precisa ser de formato group
+--        (PR-C revisita quando template ganhar escolha de serviço).
+--    O preenchimento (a) morre na PR-E; a guarda (b) vira constraint
+--    definitiva lá.
 --    SECURITY INVOKER de propósito: quem insere é authenticated, que lê
 --    o catálogo pela policy de SELECT (true).
 -- ---------------------------------------------------------------------
@@ -234,6 +246,26 @@ BEGIN
        WHERE slug = 'grupo';
     END IF;
   END IF;
+
+  IF TG_TABLE_NAME = 'sessions' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.service_types st
+       WHERE st.id = NEW.service_type_id
+         AND st.delivery_type = NEW.session_type
+    ) THEN
+      RAISE EXCEPTION 'serviço incompatível com o formato da sessão (session_type=%)', NEW.session_type
+        USING ERRCODE = '23514';
+    END IF;
+  ELSE
+    IF NOT EXISTS (
+      SELECT 1 FROM public.service_types st
+       WHERE st.id = NEW.service_type_id
+         AND st.delivery_type = 'group'::public.session_type
+    ) THEN
+      RAISE EXCEPTION 'template só gera turma nesta fase: o serviço precisa ter formato group'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -241,12 +273,12 @@ REVOKE ALL ON FUNCTION public.fn_fill_service_type() FROM PUBLIC, anon, authenti
 
 DROP TRIGGER IF EXISTS sessions_fill_service_type ON public.sessions;
 CREATE TRIGGER sessions_fill_service_type
-  BEFORE INSERT ON public.sessions
+  BEFORE INSERT OR UPDATE ON public.sessions
   FOR EACH ROW EXECUTE FUNCTION public.fn_fill_service_type();
 
 DROP TRIGGER IF EXISTS class_templates_fill_service_type ON public.class_templates;
 CREATE TRIGGER class_templates_fill_service_type
-  BEFORE INSERT ON public.class_templates
+  BEFORE INSERT OR UPDATE ON public.class_templates
   FOR EACH ROW EXECUTE FUNCTION public.fn_fill_service_type();
 
 -- ---------------------------------------------------------------------

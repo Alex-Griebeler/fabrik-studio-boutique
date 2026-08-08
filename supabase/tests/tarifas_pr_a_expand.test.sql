@@ -7,7 +7,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(39);
+SELECT plan(43);
 
 -- ---------- Estrutura ----------
 SELECT has_table('public'::name, 'service_types'::name, 'service_types existe');
@@ -71,6 +71,16 @@ SELECT is(
   'grupo', 'template existente classificado como grupo');
 
 -- ---------- Trigger transitório (bundle antigo insere sem serviço) ----------
+-- Atravessa o caminho REAL de produção: authenticated + policy de INSERT
+-- (admin/instructor) + trigger INVOKER lendo o catálogo pela policy.
+INSERT INTO public.user_roles (user_id, role) VALUES
+  ('f8000000-0000-0000-0000-000000000001', 'admin'),
+  ('f8000000-0000-0000-0000-000000000002', 'instructor');
+
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = 'f8000000-0000-0000-0000-000000000001';
+SET LOCAL request.jwt.claims = '{"sub":"f8000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
 INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, duration_minutes)
 VALUES ('55555555-5555-5555-5555-555555555555', 'group', 'hiit', '2026-08-10', '08:00', 60);
 SELECT is(
@@ -85,12 +95,39 @@ SELECT is(
     WHERE s.id = '66666666-6666-6666-6666-666666666666'),
   'personal', 'sessão nova personal sem serviço ganha personal no INSERT');
 
+-- Bundle antigo às vezes nem manda session_type (DEFAULT 'group' cobre):
+INSERT INTO public.sessions (id, modality, session_date, start_time, duration_minutes)
+VALUES ('88888888-8888-8888-8888-888888888888', 'flow', '2026-08-11', '06:00', 60);
+SELECT is(
+  (SELECT st.slug FROM public.sessions s JOIN public.service_types st ON st.id = s.service_type_id
+    WHERE s.id = '88888888-8888-8888-8888-888888888888'),
+  'grupo', 'sessão sem session_type usa o DEFAULT group e ganha grupo');
+
 INSERT INTO public.class_templates (id, modality, day_of_week, start_time, duration_minutes)
 VALUES ('77777777-7777-7777-7777-777777777777', 'btb', 3, '10:00', 60);
 SELECT is(
   (SELECT st.slug FROM public.class_templates ct JOIN public.service_types st ON st.id = ct.service_type_id
     WHERE ct.id = '77777777-7777-7777-7777-777777777777'),
   'grupo', 'template novo sem serviço ganha grupo no INSERT');
+
+-- Guarda de coerência: serviço tem que bater com o formato.
+SELECT throws_ok(
+  $$INSERT INTO public.sessions (session_type, modality, session_date, start_time, duration_minutes, service_type_id)
+    SELECT 'group', 'flow', '2026-08-12', '06:00', 60, id
+      FROM public.service_types WHERE slug = 'fisioterapia'$$,
+  '23514', NULL, 'sessão de turma não nasce precificada como fisioterapia');
+SELECT throws_ok(
+  $$UPDATE public.sessions
+       SET service_type_id = (SELECT id FROM public.service_types WHERE slug = 'fisioterapia')
+     WHERE id = '55555555-5555-5555-5555-555555555555'$$,
+  '23514', NULL, 'UPDATE não troca sessão de turma para serviço individual');
+SELECT throws_ok(
+  $$INSERT INTO public.class_templates (modality, day_of_week, start_time, duration_minutes, service_type_id)
+    SELECT 'fisio', 4, '11:00', 60, id
+      FROM public.service_types WHERE slug = 'fisioterapia'$$,
+  '23514', NULL, 'template não aponta para serviço de formato individual nesta fase');
+
+RESET ROLE;
 
 -- ---------- Constraints ----------
 SELECT throws_ok(
@@ -129,11 +166,7 @@ SELECT is(
       AND new_data->>'rate_cents' = '7500'),
   1::bigint, 'INSERT de tarifa cai na auditoria');
 
--- ---------- RLS por papel ----------
-INSERT INTO public.user_roles (user_id, role) VALUES
-  ('f8000000-0000-0000-0000-000000000001', 'admin'),
-  ('f8000000-0000-0000-0000-000000000002', 'instructor');
-
+-- ---------- RLS por papel (usuários semeados no bloco do trigger) ----------
 SET LOCAL ROLE anon;
 SELECT throws_ok(
   $$SELECT count(*) FROM public.trainer_service_rates$$,
