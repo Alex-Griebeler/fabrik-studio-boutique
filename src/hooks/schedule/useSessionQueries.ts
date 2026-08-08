@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Session } from "./types";
 import { useClassTemplates } from "./useTemplates";
 import { useQueryClient } from "@tanstack/react-query";
+import { useUserRoles } from "@/hooks/useUserRoles";
 import { sessionPaymentSnapshot } from "@/lib/sessionPayment";
 
 // =========================================
@@ -12,48 +14,90 @@ import { sessionPaymentSnapshot } from "@/lib/sessionPayment";
 export function useAutoGenerateSessions(startDate: string, endDate: string) {
   const qc = useQueryClient();
   const { data: templates } = useClassTemplates();
+  const { hasAnyRole, loading: rolesLoading } = useUserRoles();
+
+  // A policy de INSERT em sessions só aceita admin/instructor — antes,
+  // a recepção abria a agenda, o gerador tentava inserir e falhava em
+  // SILÊNCIO. Agora só quem PODE gerar tenta gerar (rodada Codex 2d).
+  const canGenerate = !rolesLoading && hasAnyRole(["admin", "instructor"]);
 
   useEffect(() => {
-    if (!templates?.length) return;
+    if (!templates?.length || !canGenerate) return;
 
     const generate = async () => {
-      const { data: existing } = await supabase
+      const { data: existing, error: existErr } = await supabase
         .from("sessions")
         .select("template_id, session_date")
         .gte("session_date", startDate)
         .lte("session_date", endDate)
         .not("template_id", "is", null);
 
+      if (existErr) {
+        console.error("useAutoGenerateSessions: falha ao ler agenda existente", existErr.message);
+        toast.error("Não foi possível verificar a agenda existente — geração adiada.");
+        return;
+      }
+
       const existingSet = new Set(
         (existing ?? []).map((e) => `${e.template_id}_${e.session_date}`)
       );
 
       // Onda 2d: o template TEM instructor_id, mas o gerador criava a
-      // sessão sem treinador e sem snapshot de pagamento — 18/18 sessões
-      // de produção estavam assim e a folha somava R$ 0,00. Busca as
-      // tarifas dos instrutores dos templates uma vez e carimba cada
-      // sessão gerada (mesma matemática do SessionFormDialog).
-      const instructorIds = [
+      // sessão sem treinador e sem snapshot — 18/18 sessões de produção
+      // assim, folha somando R$ 0,00.
+      //
+      // ⚠ CHAVES: class_templates.instructor_id referencia PROFILES.id;
+      // sessions.trainer_id referencia TRAINERS.id. O elo é
+      // trainers.profile_id (pego pela auditoria — usar profiles.id
+      // direto violaria a FK e derrubaria o insert inteiro em silêncio).
+      const instructorProfileIds = [
         ...new Set(
           templates
             .map((t) => t.instructor_id)
             .filter((id): id is string => Boolean(id)),
         ),
       ];
-      const rateByTrainer = new Map<string, number>();
-      if (instructorIds.length > 0) {
-        const { data: trainerRates, error: ratesErr } = await supabase
+      const trainerByProfile = new Map<
+        string,
+        { id: string; hourly_rate_main_cents: number }
+      >();
+      if (instructorProfileIds.length > 0) {
+        const { data: trainerRows, error: ratesErr } = await supabase
           .from("trainers")
-          .select("id, hourly_rate_main_cents")
-          .in("id", instructorIds);
+          .select("id, profile_id, hourly_rate_main_cents")
+          .in("profile_id", instructorProfileIds);
         if (ratesErr) {
-          // Sem tarifa não se gera sessão sem valor de novo: aborta a
-          // geração deste ciclo em vez de recriar o problema da folha.
           console.error("useAutoGenerateSessions: falha ao ler tarifas", ratesErr.message);
+          toast.error("Não foi possível ler as tarifas dos treinadores — geração adiada.");
           return;
         }
-        for (const t of trainerRates ?? []) {
-          rateByTrainer.set(t.id, t.hourly_rate_main_cents);
+        for (const t of trainerRows ?? []) {
+          if (t.profile_id) trainerByProfile.set(t.profile_id, t);
+        }
+
+        // Vínculo ou tarifa ausente NÃO vira R$ 0,00 silencioso (era o
+        // defeito original): aborta e aponta o template a corrigir.
+        for (const t of templates) {
+          if (!t.instructor_id) continue;
+          const trainer = trainerByProfile.get(t.instructor_id);
+          if (!trainer) {
+            console.error(
+              `useAutoGenerateSessions: template ${t.id} tem instrutor sem cadastro de treinador vinculado`,
+            );
+            toast.error(
+              "Há turma com instrutor sem cadastro de treinador vinculado — corrija em Treinadores antes de gerar a agenda.",
+            );
+            return;
+          }
+          if (!trainer.hourly_rate_main_cents || trainer.hourly_rate_main_cents <= 0) {
+            console.error(
+              `useAutoGenerateSessions: treinador ${trainer.id} sem tarifa configurada`,
+            );
+            toast.error(
+              "Há treinador sem tarifa configurada — defina a tarifa antes de gerar a agenda.",
+            );
+            return;
+          }
         }
       }
 
@@ -92,10 +136,13 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
                 t.duration_minutes;
               const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
 
-              const snapshot = t.instructor_id
+              const trainer = t.instructor_id
+                ? trainerByProfile.get(t.instructor_id) ?? null
+                : null;
+              const snapshot = trainer
                 ? sessionPaymentSnapshot(
                     t.duration_minutes,
-                    rateByTrainer.get(t.instructor_id),
+                    trainer.hourly_rate_main_cents,
                   )
                 : null;
 
@@ -108,7 +155,7 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
                 duration_minutes: t.duration_minutes,
                 modality: t.modality,
                 capacity: t.capacity,
-                trainer_id: t.instructor_id ?? null,
+                trainer_id: trainer?.id ?? null,
                 trainer_hourly_rate_cents: snapshot?.trainer_hourly_rate_cents ?? null,
                 payment_hours: snapshot?.payment_hours ?? null,
                 payment_amount_cents: snapshot?.payment_amount_cents ?? null,
@@ -121,14 +168,25 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
 
       if (sessionsToInsert.length > 0) {
         const { error } = await supabase.from("sessions").insert(sessionsToInsert);
-        if (!error) {
-          qc.invalidateQueries({ queryKey: ["sessions", startDate, endDate] });
+        if (error) {
+          // 23505 = corrida benigna com outra aba gerando o mesmo período
+          // (o UNIQUE parcial de template_id+session_date segura a
+          // duplicata; migration no repo). Qualquer outro erro é visível:
+          // agenda vazia sem aviso era o modo de falha antigo.
+          if (error.code === "23505") {
+            qc.invalidateQueries({ queryKey: ["sessions", startDate, endDate] });
+            return;
+          }
+          console.error("useAutoGenerateSessions: insert falhou", error.message);
+          toast.error("Não foi possível gerar a agenda do período. Recarregue e tente de novo.");
+          return;
         }
+        qc.invalidateQueries({ queryKey: ["sessions", startDate, endDate] });
       }
     };
 
     generate();
-  }, [templates, startDate, endDate, qc]);
+  }, [templates, startDate, endDate, qc, canGenerate]);
 }
 
 // =========================================

@@ -66,6 +66,9 @@ export function usePayableSessions(filters: {
           .in("status", ["completed", "cancelled_late", "no_show", "late_arrival"])
           .order("session_date", { ascending: true })
           .order("start_time", { ascending: true })
+          // Desempate por id: sem ordem TOTAL, empates de data+hora podem
+          // trocar de página entre requisições e duplicar/perder linha.
+          .order("id", { ascending: true })
           .range(page * PAGE, (page + 1) * PAGE - 1);
 
         if (filters.trainerId) {
@@ -83,7 +86,7 @@ export function usePayableSessions(filters: {
       }
 
       throw new Error(
-        `Folha: mais de ${MAX_PAGES * PAGE} sessões no período — reduza o intervalo de datas.`,
+        `Folha: o período retornou ${MAX_PAGES * PAGE}+ sessões — reduza o intervalo de datas.`,
       );
     },
   });
