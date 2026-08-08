@@ -999,6 +999,7 @@ export type Database = {
           modality: string
           recurrence_end: string | null
           recurrence_start: string
+          service_type_id: string | null
           start_time: string
           updated_at: string
         }
@@ -1014,6 +1015,7 @@ export type Database = {
           modality: string
           recurrence_end?: string | null
           recurrence_start?: string
+          service_type_id?: string | null
           start_time: string
           updated_at?: string
         }
@@ -1029,6 +1031,7 @@ export type Database = {
           modality?: string
           recurrence_end?: string | null
           recurrence_start?: string
+          service_type_id?: string | null
           start_time?: string
           updated_at?: string
         }
@@ -1038,6 +1041,13 @@ export type Database = {
             columns: ["instructor_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_templates_service_type_id_fkey"
+            columns: ["service_type_id"]
+            isOneToOne: false
+            referencedRelation: "service_types"
             referencedColumns: ["id"]
           },
         ]
@@ -2678,6 +2688,39 @@ export type Database = {
           },
         ]
       }
+      service_types: {
+        Row: {
+          created_at: string
+          delivery_type: Database["public"]["Enums"]["session_type"]
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          delivery_type: Database["public"]["Enums"]["session_type"]
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          delivery_type?: Database["public"]["Enums"]["session_type"]
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       sessions: {
         Row: {
           actual_start_time: string | null
@@ -2712,8 +2755,10 @@ export type Database = {
           paid_at: string | null
           payment_amount_cents: number | null
           payment_hours: number | null
+          payment_rate_basis: string | null
           resolved_at: string | null
           resolved_by: string | null
+          service_type_id: string | null
           session_date: string
           session_type: Database["public"]["Enums"]["session_type"]
           start_time: string
@@ -2769,8 +2814,10 @@ export type Database = {
           paid_at?: string | null
           payment_amount_cents?: number | null
           payment_hours?: number | null
+          payment_rate_basis?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
+          service_type_id?: string | null
           session_date: string
           session_type?: Database["public"]["Enums"]["session_type"]
           start_time: string
@@ -2826,8 +2873,10 @@ export type Database = {
           paid_at?: string | null
           payment_amount_cents?: number | null
           payment_hours?: number | null
+          payment_rate_basis?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
+          service_type_id?: string | null
           session_date?: string
           session_type?: Database["public"]["Enums"]["session_type"]
           start_time?: string
@@ -2877,6 +2926,13 @@ export type Database = {
             columns: ["makeup_credit_id"]
             isOneToOne: false
             referencedRelation: "makeup_credits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_service_type_id_fkey"
+            columns: ["service_type_id"]
+            isOneToOne: false
+            referencedRelation: "service_types"
             referencedColumns: ["id"]
           },
           {
@@ -3132,6 +3188,58 @@ export type Database = {
             columns: ["student_id"]
             isOneToOne: false
             referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trainer_service_rates: {
+        Row: {
+          created_at: string
+          id: string
+          rate_basis: string
+          rate_cents: number
+          service_type_id: string
+          trainer_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          rate_basis: string
+          rate_cents: number
+          service_type_id: string
+          trainer_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          rate_basis?: string
+          rate_cents?: number
+          service_type_id?: string
+          trainer_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trainer_service_rates_service_type_id_fkey"
+            columns: ["service_type_id"]
+            isOneToOne: false
+            referencedRelation: "service_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trainer_service_rates_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trainer_service_rates_trainer_id_fkey"
+            columns: ["trainer_id"]
+            isOneToOne: false
+            referencedRelation: "trainers_admin"
             referencedColumns: ["id"]
           },
         ]
