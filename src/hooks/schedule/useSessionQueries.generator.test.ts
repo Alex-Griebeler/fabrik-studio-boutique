@@ -11,6 +11,7 @@ import React from "react";
 let EXISTING: Array<{ template_id: string; session_date: string }> = [];
 let EXISTING_AFTER_CONFLICT: Array<{ template_id: string; session_date: string }> | null = null;
 let SESSION_SELECT_COUNT = 0;
+let SESSION_SELECT_ERROR_AFTER: { message: string } | null = null;
 let TRAINERS: Array<{ id: string; profile_id: string | null; hourly_rate_main_cents: number }> = [];
 let INSERT_CALLS: Array<Array<Record<string, unknown>>> = [];
 let INSERT_ERRORS: Array<{ code: string; message: string } | null> = [];
@@ -63,6 +64,9 @@ vi.mock("@/integrations/supabase/client", () => {
           return {
             select: () => {
               SESSION_SELECT_COUNT += 1;
+              if (SESSION_SELECT_COUNT > 1 && SESSION_SELECT_ERROR_AFTER) {
+                return thenable({ data: null, error: SESSION_SELECT_ERROR_AFTER });
+              }
               const data =
                 SESSION_SELECT_COUNT > 1 && EXISTING_AFTER_CONFLICT !== null
                   ? EXISTING_AFTER_CONFLICT
@@ -107,6 +111,7 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     INSERT_ERRORS = [];
     EXISTING_AFTER_CONFLICT = null;
     SESSION_SELECT_COUNT = 0;
+    SESSION_SELECT_ERROR_AFTER = null;
     ROLES = ["admin"];
     vi.clearAllMocks();
   });
@@ -163,16 +168,27 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
   });
 
-  it("conflito PARCIAL (23505): retry único insere só o que faltou", async () => {
+  it("conflito PARCIAL (23505): retry reinsere SÓ a linha que faltou", async () => {
     INSERT_ERRORS = [{ code: "23505", message: "duplicate key" }, null];
-    // Outra aba criou apenas ESTA sessão; nada mais existia. O retry
-    // relê e — como o único item do lote agora existe — não reinsere.
+    // Range com DUAS segundas (10 e 17/08). Outra aba criou só a do
+    // dia 10 → o lote de 2 conflita inteiro; o retry deve inserir
+    // exatamente a do dia 17, nada mais.
     EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
-    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
-    await waitFor(() => expect(INSERT_CALLS.length).toBe(1));
-    await new Promise((r) => setTimeout(r, 50));
-    expect(INSERT_CALLS).toHaveLength(1); // sem reinserção do que já existe
+    renderHook(() => useAutoGenerateSessions("2026-08-10", "2026-08-17"), { wrapper });
+    await waitFor(() => expect(INSERT_CALLS.length).toBe(2));
+
+    expect(INSERT_CALLS[0]).toHaveLength(2); // lote original: 10 e 17
+    expect(INSERT_CALLS[1]).toHaveLength(1); // retry: só a que faltou
+    expect(INSERT_CALLS[1][0].session_date).toBe("2026-08-17");
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it("releitura pós-conflito com ERRO: aborta com aviso (nunca reinsere às cegas)", async () => {
+    INSERT_ERRORS = [{ code: "23505", message: "duplicate key" }];
+    SESSION_SELECT_ERROR_AFTER = { message: "network down" };
+    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
+    expect(INSERT_CALLS).toHaveLength(1); // nenhum segundo insert às cegas
   });
 
   it("dois treinadores no MESMO perfil: aborta (mapa não determinístico)", async () => {

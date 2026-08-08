@@ -186,12 +186,19 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
           // inteiro — inclusive linhas que não conflitavam. Retry único:
           // relê o que já existe e insere só o restante.
           if (error.code === "23505") {
-            const { data: nowExisting } = await supabase
+            const { data: nowExisting, error: rereadErr } = await supabase
               .from("sessions")
               .select("template_id, session_date")
               .gte("session_date", startDate)
               .lte("session_date", endDate)
               .not("template_id", "is", null);
+            if (rereadErr) {
+              // Sem a releitura não dá para saber o que faltou — reinserir
+              // o lote às cegas mascararia lacunas atrás de outro 23505.
+              console.error("useAutoGenerateSessions: releitura pós-conflito falhou", rereadErr.message);
+              toast.error("Não foi possível gerar a agenda do período. Recarregue e tente de novo.");
+              return;
+            }
             const nowSet = new Set(
               (nowExisting ?? []).map((e) => `${e.template_id}_${e.session_date}`),
             );
