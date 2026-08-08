@@ -238,6 +238,21 @@ describe("RatesTab", () => {
     expect(screen.getByRole("button", { name: /Salvar alterações \(1\)/ })).toBeInTheDocument();
   });
 
+  it("re-edição da MESMA célula durante o voo NÃO é apagada pelo sucesso", () => {
+    saveAutoSuccess = false;
+    render(<RatesTab isAdmin />);
+    fireEvent.change(cell("Alexandre Ceniz", "Fisioterapia"), { target: { value: "120,00" } });
+    fireEvent.click(screen.getByRole("button", { name: /Salvar alterações \(1\)/ }));
+
+    // Durante o voo, o usuário muda de ideia NA MESMA célula:
+    fireEvent.change(cell("Alexandre Ceniz", "Fisioterapia"), { target: { value: "130,00" } });
+    act(() => saveCalls[0].opts?.onSuccess?.());
+
+    // A versão nova (130) sobrevive — a limpeza é por versão, não por chave:
+    expect(cell("Alexandre Ceniz", "Fisioterapia")).toHaveValue("130,00");
+    expect(screen.getByRole("button", { name: /Salvar alterações \(1\)/ })).toBeInTheDocument();
+  });
+
   it("conflito: tarifa mudou no servidor → rascunho descartado, nada salvo", () => {
     const { rerender } = render(<RatesTab isAdmin />);
     fireEvent.change(cell("Alex Griebeler", "Grupo"), { target: { value: "80,00" } });

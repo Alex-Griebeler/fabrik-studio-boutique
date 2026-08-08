@@ -122,6 +122,24 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
       return next;
     });
 
+  /** Snapshot do que foi enviado, por célula (texto+base no momento do send). */
+  type SentSnapshot = Record<string, { rateText: string; basisText: RateBasis }>;
+
+  // Limpeza por VERSÃO, não por chave: só remove o rascunho se ele ainda
+  // for exatamente o que foi enviado — re-edição da MESMA célula durante o
+  // voo sobrevive (inputs ficam livres de propósito).
+  const dropDraftIfUnchanged = (sent: SentSnapshot) =>
+    setDraft((d) => {
+      const next = { ...d };
+      for (const [k, snap] of Object.entries(sent)) {
+        const cur = next[k];
+        if (cur && cur.rateText === snap.rateText && cur.basisText === snap.basisText) {
+          delete next[k];
+        }
+      }
+      return next;
+    });
+
   // Uma célula é "suja" se o rascunho difere do persistido (ou cria valor novo).
   const dirtyKeys = useMemo(() => {
     return Object.keys(draft).filter((key) => {
@@ -192,22 +210,29 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
     // imediatamente antes do upsert e aborta se algo mudou por baixo
     // (cache local desatualizado não passa).
     const baselines: Record<string, RateBaseline> = {};
+    const sent: SentSnapshot = {};
     for (const key of savedKeys) {
       const c = draft[key];
       baselines[key] =
         c.baseCents !== null && c.baseBasis !== null
           ? { cents: c.baseCents, basis: c.baseBasis }
           : null;
+      sent[key] = { rateText: c.rateText, basisText: c.basisText };
     }
     saveRates.mutate(
       { rows, baselines },
       {
-        // Limpa SÓ as células deste lote: edição feita durante o voo sobrevive.
-        onSuccess: () => dropDraftKeys(savedKeys),
-        // Conflito detectado no servidor: descarta os rascunhos conflitados
-        // (o invalidate do hook recarrega o valor novo).
+        // Limpa por VERSÃO: re-edição da mesma célula durante o voo sobrevive.
+        onSuccess: () => dropDraftIfUnchanged(sent),
+        // Conflito no servidor: descarta os rascunhos conflitados COMO
+        // ENVIADOS (re-edição em voo fica; se mantiver baseline velha, o
+        // próximo save conflita de novo e aí cai).
         onError: (e) => {
-          if (e instanceof RateConflictError) dropDraftKeys(e.keys);
+          if (e instanceof RateConflictError) {
+            const conflictedSent: SentSnapshot = {};
+            for (const k of e.keys) if (sent[k]) conflictedSent[k] = sent[k];
+            dropDraftIfUnchanged(conflictedSent);
+          }
         },
       },
     );
@@ -439,8 +464,13 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                     pendingDelete.rate.service_type_id,
                   );
                   // CAS no banco: só remove se ainda for exatamente o que o
-                  // usuário confirmou. Rascunho da célula morre junto — senão
-                  // o próximo save ressuscitaria a tarifa recém-removida.
+                  // usuário confirmou. O rascunho da célula morre junto (por
+                  // VERSÃO — edição feita após confirmar sobrevive), senão o
+                  // próximo save ressuscitaria a tarifa recém-removida.
+                  const cur = draft[key];
+                  const confirmedSnap = cur
+                    ? { [key]: { rateText: cur.rateText, basisText: cur.basisText } }
+                    : {};
                   deleteRate.mutate(
                     {
                       id: pendingDelete.rate.id,
@@ -448,9 +478,10 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                       expectedBasis: pendingDelete.rate.rate_basis,
                     },
                     {
-                      onSuccess: () => dropDraftKeys([key]),
+                      onSuccess: () => dropDraftIfUnchanged(confirmedSnap),
                       onError: (e) => {
-                        if (e instanceof RateConflictError) dropDraftKeys([key]);
+                        if (e instanceof RateConflictError)
+                          dropDraftIfUnchanged(confirmedSnap);
                       },
                     },
                   );
