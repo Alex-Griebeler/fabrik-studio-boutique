@@ -57,8 +57,8 @@ export default function Payroll() {
   const [onlyUnpaid, setOnlyUnpaid] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const startDate = format(startOfMonth(new Date(month + "-01")), "yyyy-MM-dd");
-  const endDate = format(endOfMonth(new Date(month + "-01")), "yyyy-MM-dd");
+  const startDate = format(startOfMonth(new Date(month + "-01T00:00:00")), "yyyy-MM-dd");
+  const endDate = format(endOfMonth(new Date(month + "-01T00:00:00")), "yyyy-MM-dd");
 
   const { data: summaries, isLoading } = usePayrollSummary({
     startDate,

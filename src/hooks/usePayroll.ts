@@ -49,26 +49,42 @@ export function usePayableSessions(filters: {
   return useQuery({
     queryKey: ["payable_sessions", filters],
     queryFn: async () => {
-      let query = supabase
-        .from("payable_sessions")
-        .select("*")
-        .gte("session_date", filters.startDate)
-        .lte("session_date", filters.endDate)
-        .in("status", ["completed", "cancelled_late", "no_show", "late_arrival"])
-        .order("session_date", { ascending: true })
-         .order("start_time", { ascending: true })
-         .limit(1000);
+      // Onda 2d: o `.limit(1000)` silencioso truncava a folha — sessão
+      // que não entra na soma é treinador subpago sem ninguém perceber.
+      // Busca paginada com teto EXPLÍCITO: estourar vira erro visível,
+      // nunca truncamento mudo.
+      const PAGE = 1000;
+      const MAX_PAGES = 20; // 20k sessões/período: muito acima do real
+      const all: PayableSession[] = [];
 
-      if (filters.trainerId) {
-        query = query.eq("trainer_id", filters.trainerId);
-      }
-      if (filters.onlyUnpaid) {
-        query = query.eq("is_paid", false);
+      for (let page = 0; page < MAX_PAGES; page++) {
+        let query = supabase
+          .from("payable_sessions")
+          .select("*")
+          .gte("session_date", filters.startDate)
+          .lte("session_date", filters.endDate)
+          .in("status", ["completed", "cancelled_late", "no_show", "late_arrival"])
+          .order("session_date", { ascending: true })
+          .order("start_time", { ascending: true })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+
+        if (filters.trainerId) {
+          query = query.eq("trainer_id", filters.trainerId);
+        }
+        if (filters.onlyUnpaid) {
+          query = query.eq("is_paid", false);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        all.push(...((data ?? []) as PayableSession[]));
+        if (!data || data.length < PAGE) return all;
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
-      return data as PayableSession[];
+      throw new Error(
+        `Folha: mais de ${MAX_PAGES * PAGE} sessões no período — reduza o intervalo de datas.`,
+      );
     },
   });
 }

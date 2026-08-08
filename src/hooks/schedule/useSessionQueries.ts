@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Session } from "./types";
 import { useClassTemplates } from "./useTemplates";
 import { useQueryClient } from "@tanstack/react-query";
+import { sessionPaymentSnapshot } from "@/lib/sessionPayment";
 
 // =========================================
 // Auto-generate sessions from templates
@@ -27,6 +28,35 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
         (existing ?? []).map((e) => `${e.template_id}_${e.session_date}`)
       );
 
+      // Onda 2d: o template TEM instructor_id, mas o gerador criava a
+      // sessão sem treinador e sem snapshot de pagamento — 18/18 sessões
+      // de produção estavam assim e a folha somava R$ 0,00. Busca as
+      // tarifas dos instrutores dos templates uma vez e carimba cada
+      // sessão gerada (mesma matemática do SessionFormDialog).
+      const instructorIds = [
+        ...new Set(
+          templates
+            .map((t) => t.instructor_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const rateByTrainer = new Map<string, number>();
+      if (instructorIds.length > 0) {
+        const { data: trainerRates, error: ratesErr } = await supabase
+          .from("trainers")
+          .select("id, hourly_rate_main_cents")
+          .in("id", instructorIds);
+        if (ratesErr) {
+          // Sem tarifa não se gera sessão sem valor de novo: aborta a
+          // geração deste ciclo em vez de recriar o problema da folha.
+          console.error("useAutoGenerateSessions: falha ao ler tarifas", ratesErr.message);
+          return;
+        }
+        for (const t of trainerRates ?? []) {
+          rateByTrainer.set(t.id, t.hourly_rate_main_cents);
+        }
+      }
+
       const sessionsToInsert: Array<{
         template_id: string;
         session_type: "group";
@@ -36,6 +66,10 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
         duration_minutes: number;
         modality: string;
         capacity: number;
+        trainer_id: string | null;
+        trainer_hourly_rate_cents: number | null;
+        payment_hours: number | null;
+        payment_amount_cents: number | null;
       }> = [];
       const start = new Date(startDate + "T00:00:00");
       const end = new Date(endDate + "T00:00:00");
@@ -58,6 +92,13 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
                 t.duration_minutes;
               const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
 
+              const snapshot = t.instructor_id
+                ? sessionPaymentSnapshot(
+                    t.duration_minutes,
+                    rateByTrainer.get(t.instructor_id),
+                  )
+                : null;
+
               sessionsToInsert.push({
                 template_id: t.id,
                 session_type: "group",
@@ -67,6 +108,10 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
                 duration_minutes: t.duration_minutes,
                 modality: t.modality,
                 capacity: t.capacity,
+                trainer_id: t.instructor_id ?? null,
+                trainer_hourly_rate_cents: snapshot?.trainer_hourly_rate_cents ?? null,
+                payment_hours: snapshot?.payment_hours ?? null,
+                payment_amount_cents: snapshot?.payment_amount_cents ?? null,
               });
             }
           }

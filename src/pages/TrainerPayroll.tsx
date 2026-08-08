@@ -70,8 +70,8 @@ export default function TrainerPayroll() {
 
   const [activeMonth, setActiveMonth] = useState(months[0].value);
 
-  const startDate = format(startOfMonth(new Date(activeMonth + "-01")), "yyyy-MM-dd");
-  const endDate = format(endOfMonth(new Date(activeMonth + "-01")), "yyyy-MM-dd");
+  const startDate = format(startOfMonth(new Date(activeMonth + "-01T00:00:00")), "yyyy-MM-dd");
+  const endDate = format(endOfMonth(new Date(activeMonth + "-01T00:00:00")), "yyyy-MM-dd");
 
   const { data: sessions, isLoading: sessionsLoading } = useTrainerPayrollSessions({
     startDate,
@@ -82,9 +82,9 @@ export default function TrainerPayroll() {
   const stats = useTrainerPayrollStats(sessions);
 
   // Previous month comparison
-  const prevMonthStr = format(subMonths(new Date(activeMonth + "-01"), 1), "yyyy-MM");
-  const prevStart = format(startOfMonth(new Date(prevMonthStr + "-01")), "yyyy-MM-dd");
-  const prevEnd = format(endOfMonth(new Date(prevMonthStr + "-01")), "yyyy-MM-dd");
+  const prevMonthStr = format(subMonths(new Date(activeMonth + "-01T00:00:00"), 1), "yyyy-MM");
+  const prevStart = format(startOfMonth(new Date(prevMonthStr + "-01T00:00:00")), "yyyy-MM-dd");
+  const prevEnd = format(endOfMonth(new Date(prevMonthStr + "-01T00:00:00")), "yyyy-MM-dd");
   const { data: prevSessions } = useTrainerPayrollSessions({
     startDate: prevStart,
     endDate: prevEnd,
