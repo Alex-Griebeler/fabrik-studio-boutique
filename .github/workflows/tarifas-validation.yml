@@ -1,0 +1,52 @@
+name: Tarifas por servico validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/p0-test-fixtures/tarifas-base.sql"
+      - ".github/workflows/tarifas-validation.yml"
+      - "supabase/migrations/20260808150000_tarifas_pr_a_expand.sql"
+      - "supabase/tests/tarifas_pr_a_expand.test.sql"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tarifas-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Tarifas migration and pgTAP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+
+      - name: Prepare isolated tarifas database project
+        env:
+          TARIFAS_WORKDIR: ${{ runner.temp }}/tarifas-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p "$TARIFAS_WORKDIR/supabase/migrations" "$TARIFAS_WORKDIR/supabase/tests"
+          cp supabase/config.toml "$TARIFAS_WORKDIR/supabase/config.toml"
+          cp .github/p0-test-fixtures/tarifas-base.sql "$TARIFAS_WORKDIR/supabase/migrations/20260808140000_tarifas_base.sql"
+          cp supabase/migrations/20260808150000_tarifas_pr_a_expand.sql "$TARIFAS_WORKDIR/supabase/migrations/20260808150000_tarifas_pr_a_expand.sql"
+          cp supabase/migrations/20260808150000_tarifas_pr_a_expand.sql "$TARIFAS_WORKDIR/supabase/migrations/20260808150001_tarifas_idempotency.sql"
+          cp supabase/tests/tarifas_pr_a_expand.test.sql "$TARIFAS_WORKDIR/supabase/tests/"
+
+      - name: Start isolated database and apply expand twice
+        env:
+          TARIFAS_WORKDIR: ${{ runner.temp }}/tarifas-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase db start --workdir "$TARIFAS_WORKDIR"
+
+      - name: Run tarifas database tests
+        env:
+          TARIFAS_WORKDIR: ${{ runner.temp }}/tarifas-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase test db --workdir "$TARIFAS_WORKDIR"
