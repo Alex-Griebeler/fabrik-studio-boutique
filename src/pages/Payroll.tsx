@@ -57,10 +57,10 @@ export default function Payroll() {
   const [onlyUnpaid, setOnlyUnpaid] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const startDate = format(startOfMonth(new Date(month + "-01")), "yyyy-MM-dd");
-  const endDate = format(endOfMonth(new Date(month + "-01")), "yyyy-MM-dd");
+  const startDate = format(startOfMonth(new Date(month + "-01T00:00:00")), "yyyy-MM-dd");
+  const endDate = format(endOfMonth(new Date(month + "-01T00:00:00")), "yyyy-MM-dd");
 
-  const { data: summaries, isLoading } = usePayrollSummary({
+  const { data: summaries, isLoading, isError, error } = usePayrollSummary({
     startDate,
     endDate,
     trainerId: trainerId || undefined,
@@ -210,6 +210,16 @@ export default function Payroll() {
             <KPICard title="Total" value={centsToReal(totals.total)} icon={DollarSign} />
             <KPICard title="A pagar" value={centsToReal(totals.unpaid)} icon={Banknote} />
           </div>
+
+          {/* Falha de carga NUNCA vira "R$ 0,00" mudo (revisão fria 2d):
+              KPI zerado por erro é folha errada com cara de folha vazia. */}
+          {isError && (
+            <Card className="border-destructive">
+              <CardContent className="py-4 text-sm text-destructive">
+                Não foi possível carregar a folha: {error instanceof Error ? error.message : "erro inesperado"}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Trainer summaries */}
           {isLoading ? (

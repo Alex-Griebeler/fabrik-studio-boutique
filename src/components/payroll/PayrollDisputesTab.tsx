@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -40,10 +41,18 @@ export function PayrollDisputesTab() {
   const { data: disputes = [], isLoading } = usePayrollDisputes({
     status: "open",
   });
-  const { data: sessions = [] } = usePayableSessions({
+  // Onda 2d: erro de carga não pode virar lista vazia silenciosa —
+  // destrutura isError e avisa (o `= []` sozinho mascarava o teto).
+  const { data: sessions = [], isError: sessionsError } = usePayableSessions({
     startDate: new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0],
     endDate: new Date().toISOString().split("T")[0],
   });
+
+  useEffect(() => {
+    if (sessionsError) {
+      toast.error("Não foi possível carregar as sessões dos últimos 90 dias — a lista de disputas pode estar incompleta.");
+    }
+  }, [sessionsError]);
 
   const createDispute = useCreatePayrollDispute();
   const resolveDispute = useResolvePayrollDispute();

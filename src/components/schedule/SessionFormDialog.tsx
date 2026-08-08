@@ -15,6 +15,7 @@ import {
 } from "@/hooks/useSchedule";
 import { useTrainers } from "@/hooks/useTrainers";
 import { useStudents } from "@/hooks/useStudents";
+import { sessionPaymentSnapshot } from "@/lib/sessionPayment";
 import { RecurringAction } from "./RecurringActionDialog";
 
 interface Props {
@@ -82,13 +83,16 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
     e.preventDefault();
     if (!modality) return;
 
-    // Calculate rate snapshot
+    // Snapshot de pagamento — MESMA função do gerador automático
+    // (fonte única, Onda 2d).
     const durationNum = parseInt(duration);
-    const paymentHours = durationNum / 60;
-    const trainerRate = selectedTrainer?.hourly_rate_main_cents ?? 0;
-    const paymentAmount = Math.round(paymentHours * trainerRate);
+    const {
+      payment_hours: paymentHours,
+      trainer_hourly_rate_cents: trainerRate,
+      payment_amount_cents: paymentAmount,
+    } = sessionPaymentSnapshot(durationNum, selectedTrainer?.hourly_rate_main_cents);
 
-    const sessionData: any = {
+    const sessionData = {
       session_type: sessionType,
       session_date: date,
       start_time: startTime,
