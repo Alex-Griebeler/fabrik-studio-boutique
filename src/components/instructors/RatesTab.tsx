@@ -37,6 +37,9 @@ import {
   useSaveTrainerServiceRates,
   useApplyDefaultRates,
   useDeleteTrainerServiceRate,
+  pairKey,
+  RateConflictError,
+  type RateBaseline,
   type RateBasis,
   type RateUpsertRow,
   type ServiceType,
@@ -68,7 +71,7 @@ type CellDraft = {
 };
 type DraftMap = Record<string, CellDraft>;
 
-const cellKey = (trainerId: string, serviceId: string) => `${trainerId}|${serviceId}`;
+const cellKey = pairKey;
 
 interface RatesTabProps {
   isAdmin: boolean;
@@ -87,8 +90,10 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchSelected, setBatchSelected] = useState<Record<string, boolean>>({});
 
+  // `busy` trava as AÇÕES (salvar/lote/remover) — nunca duas mutações
+  // sobrepostas. Digitar continua liberado durante o voo: o clear seletivo
+  // pós-sucesso garante que edição concorrente não se perde.
   const busy = saveRates.isPending || applyDefaults.isPending || deleteRate.isPending;
-  const canEdit = isAdmin && !busy;
 
   const rateByCell = useMemo(() => {
     const map: Record<string, TrainerServiceRate> = {};
@@ -183,8 +188,29 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
     }
     if (rows.length === 0) return;
     const savedKeys = rows.map((r) => cellKey(r.trainer_id, r.service_type_id));
-    // Limpa SÓ as células deste lote: edição feita durante o voo sobrevive.
-    saveRates.mutate(rows, { onSuccess: () => dropDraftKeys(savedKeys) });
+    // Baselines viajam com a mutação: o hook RELÊ os pares no servidor
+    // imediatamente antes do upsert e aborta se algo mudou por baixo
+    // (cache local desatualizado não passa).
+    const baselines: Record<string, RateBaseline> = {};
+    for (const key of savedKeys) {
+      const c = draft[key];
+      baselines[key] =
+        c.baseCents !== null && c.baseBasis !== null
+          ? { cents: c.baseCents, basis: c.baseBasis }
+          : null;
+    }
+    saveRates.mutate(
+      { rows, baselines },
+      {
+        // Limpa SÓ as células deste lote: edição feita durante o voo sobrevive.
+        onSuccess: () => dropDraftKeys(savedKeys),
+        // Conflito detectado no servidor: descarta os rascunhos conflitados
+        // (o invalidate do hook recarrega o valor novo).
+        onError: (e) => {
+          if (e instanceof RateConflictError) dropDraftKeys(e.keys);
+        },
+      },
+    );
   };
 
   // ---- Ação em lote: pares vazios de grupo/personal dos treinadores marcados.
@@ -341,7 +367,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                           className="h-8 w-24"
                           inputMode="decimal"
                           placeholder="—"
-                          disabled={!canEdit}
+                          disabled={!isAdmin}
                           value={rateValue}
                           onChange={(e) =>
                             setCell(key, { rateText: e.target.value }, persisted)
@@ -352,7 +378,7 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                           onValueChange={(v) =>
                             setCell(key, { basisText: v as RateBasis }, persisted)
                           }
-                          disabled={!canEdit}
+                          disabled={!isAdmin}
                         >
                           <SelectTrigger
                             aria-label={`Base de ${t.full_name} em ${s.name}`}
@@ -412,11 +438,22 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
                     pendingDelete.rate.trainer_id,
                     pendingDelete.rate.service_type_id,
                   );
-                  // Rascunho da célula morre junto — senão o próximo save
-                  // ressuscitaria a tarifa recém-removida.
-                  deleteRate.mutate(pendingDelete.rate.id, {
-                    onSuccess: () => dropDraftKeys([key]),
-                  });
+                  // CAS no banco: só remove se ainda for exatamente o que o
+                  // usuário confirmou. Rascunho da célula morre junto — senão
+                  // o próximo save ressuscitaria a tarifa recém-removida.
+                  deleteRate.mutate(
+                    {
+                      id: pendingDelete.rate.id,
+                      expectedCents: pendingDelete.rate.rate_cents,
+                      expectedBasis: pendingDelete.rate.rate_basis,
+                    },
+                    {
+                      onSuccess: () => dropDraftKeys([key]),
+                      onError: (e) => {
+                        if (e instanceof RateConflictError) dropDraftKeys([key]);
+                      },
+                    },
+                  );
                 }
                 setPendingDelete(null);
               }}

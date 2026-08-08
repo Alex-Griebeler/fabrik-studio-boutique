@@ -32,6 +32,25 @@ export interface RateUpsertRow {
   rate_cents: number;
 }
 
+/** Baseline que o usuário VIU quando começou a editar (null = célula vazia). */
+export type RateBaseline = { cents: number; basis: RateBasis } | null;
+
+export const pairKey = (trainerId: string, serviceId: string) =>
+  `${trainerId}|${serviceId}`;
+
+/**
+ * Conflito de concorrência: o servidor não está mais como o usuário viu.
+ * `keys` = pares "trainer|service" conflitados (ou o id, no delete).
+ */
+export class RateConflictError extends Error {
+  keys: string[];
+  constructor(keys: string[]) {
+    super("tarifa alterada em outra sessão");
+    this.name = "RateConflictError";
+    this.keys = keys;
+  }
+}
+
 export function useServiceTypes(includeInactive = false) {
   return useQuery({
     queryKey: ["service_types", includeInactive],
@@ -68,38 +87,78 @@ export function useTrainerServiceRates() {
   });
 }
 
+export interface SaveRatesInput {
+  rows: RateUpsertRow[];
+  /** por pairKey; o que o usuário viu ao começar a editar cada célula. */
+  baselines: Record<string, RateBaseline>;
+}
+
 /**
- * Salvamento ATÔMICO das células editadas: um único upsert em lote
- * (um statement no banco — ou entra tudo, ou nada entra). Nunca chamar
- * em loop célula a célula.
+ * Salvamento ATÔMICO com checagem de concorrência NO SERVIDOR: relê os
+ * pares imediatamente antes do upsert e aborta com RateConflictError se
+ * algum não estiver mais como o usuário viu (cache local desatualizado,
+ * outro admin, outra aba). Janela residual entre releitura e upsert é de
+ * milissegundos, num app de admin único e com tabela auditada — risco
+ * aceito e documentado. O upsert é um único statement: tudo ou nada.
  */
 export function useSaveTrainerServiceRates() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (rows: RateUpsertRow[]) => {
+    mutationFn: async ({ rows, baselines }: SaveRatesInput) => {
       if (rows.length === 0) return;
+      const trainerIds = [...new Set(rows.map((r) => r.trainer_id))];
+      const { data: current, error: readError } = await supabase
+        .from("trainer_service_rates")
+        .select("trainer_id, service_type_id, rate_basis, rate_cents")
+        .in("trainer_id", trainerIds);
+      if (readError) throw readError;
+
+      const serverByPair: Record<string, RateBaseline> = {};
+      for (const r of (current ?? []) as TrainerServiceRate[]) {
+        serverByPair[pairKey(r.trainer_id, r.service_type_id)] = {
+          cents: r.rate_cents,
+          basis: r.rate_basis,
+        };
+      }
+      const conflicted = rows
+        .map((r) => pairKey(r.trainer_id, r.service_type_id))
+        .filter((key) => {
+          const server = serverByPair[key] ?? null;
+          const base = baselines[key] ?? null;
+          return server?.cents !== base?.cents || server?.basis !== base?.basis;
+        });
+      if (conflicted.length > 0) throw new RateConflictError(conflicted);
+
       const { error } = await supabase
         .from("trainer_service_rates")
         .upsert(rows as never[], { onConflict: "trainer_id,service_type_id" });
       if (error) throw error;
     },
-    onSuccess: (_d, rows) => {
+    onSuccess: (_d, { rows }) => {
       qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       toast.success(
         rows.length === 1 ? "Tarifa salva." : `${rows.length} tarifas salvas.`,
       );
     },
-    onError: (e) =>
+    onError: (e) => {
+      qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
+      if (e instanceof RateConflictError) {
+        toast.error(
+          "Tarifa alterada em outra sessão — o valor atual foi recarregado. Revise antes de salvar.",
+        );
+        return;
+      }
       toast.error(
         `Erro ao salvar tarifas — nada foi gravado. (${e instanceof Error ? e.message : "erro desconhecido"})`,
-      ),
+      );
+    },
   });
 }
 
 /**
  * Ação em lote "aplicar padrão da casa": ON CONFLICT DO NOTHING
  * (ignoreDuplicates) — SÓ preenche pares vazios, NUNCA sobrescreve
- * tarifa existente. Sobrescrever é gesto manual, célula a célula.
+ * tarifa existente (por isso dispensa baseline: colisão = no-op).
  */
 export function useApplyDefaultRates() {
   const qc = useQueryClient();
@@ -125,23 +184,47 @@ export function useApplyDefaultRates() {
   });
 }
 
+export interface DeleteRateInput {
+  id: string;
+  /** O que o usuário estava VENDO ao confirmar — compare-and-swap no banco. */
+  expectedCents: number;
+  expectedBasis: RateBasis;
+}
+
+/**
+ * Remoção com compare-and-swap REAL: o DELETE só acontece se a tarifa
+ * ainda for exatamente a que o usuário confirmou (um único statement —
+ * sem janela). 0 linhas removidas = mudou por baixo → RateConflictError.
+ */
 export function useDeleteTrainerServiceRate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
+    mutationFn: async ({ id, expectedCents, expectedBasis }: DeleteRateInput) => {
+      const { data, error } = await supabase
         .from("trainer_service_rates")
         .delete()
-        .eq("id", id);
+        .eq("id", id)
+        .eq("rate_cents", expectedCents)
+        .eq("rate_basis", expectedBasis)
+        .select("id");
       if (error) throw error;
+      if ((data ?? []).length === 0) throw new RateConflictError([id]);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
       toast.success("Tarifa removida.");
     },
-    onError: (e) =>
+    onError: (e) => {
+      qc.invalidateQueries({ queryKey: ["trainer_service_rates"] });
+      if (e instanceof RateConflictError) {
+        toast.error(
+          "Esta tarifa mudou (ou já foi removida) em outra sessão — valor recarregado, revise.",
+        );
+        return;
+      }
       toast.error(
         `Erro ao remover tarifa. (${e instanceof Error ? e.message : "erro desconhecido"})`,
-      ),
+      );
+    },
   });
 }

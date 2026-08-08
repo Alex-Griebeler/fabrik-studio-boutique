@@ -8,6 +8,8 @@ interface RolesState {
   userId: string | null;
   roles: AppRole[];
   loading: boolean;
+  /** Falha ao buscar papéis — DIFERENTE de "sem papel" (telas podem avisar). */
+  error: boolean;
 }
 
 /**
@@ -24,11 +26,12 @@ export function useUserRoles() {
     userId: null,
     roles: [],
     loading: true,
+    error: false,
   });
 
   useEffect(() => {
     if (!user) {
-      setState({ userId: null, roles: [], loading: false });
+      setState({ userId: null, roles: [], loading: false, error: false });
       return;
     }
 
@@ -38,7 +41,7 @@ export function useUserRoles() {
     // Mesmo usuário (refetch por mudança de identidade do objeto):
     // mantém os papéis atuais sem piscar loading.
     setState((s) =>
-      s.userId === user.id ? s : { userId: user.id, roles: [], loading: true },
+      s.userId === user.id ? s : { userId: user.id, roles: [], loading: true, error: false },
     );
 
     const fetchRoles = async () => {
@@ -54,11 +57,12 @@ export function useUserRoles() {
             userId: user.id,
             roles: (data || []).map((r) => r.role as AppRole),
             loading: false,
+            error: false,
           });
         }
       } catch {
         if (!cancelled) {
-          setState({ userId: user.id, roles: [], loading: false });
+          setState({ userId: user.id, roles: [], loading: false, error: true });
         }
       }
     };
@@ -75,9 +79,12 @@ export function useUserRoles() {
   const matchesUser = state.userId === (user?.id ?? null);
   const roles = matchesUser ? state.roles : [];
   const loading = !!user && (!matchesUser || state.loading);
+  // Falha na BUSCA de papéis (≠ "sem papel"): telas podem avisar em vez
+  // de degradar silenciosamente pra visão de menor privilégio.
+  const error = matchesUser && state.error;
 
   const hasRole = (role: AppRole) => roles.includes(role);
   const hasAnyRole = (check: AppRole[]) => check.some((r) => roles.includes(r));
 
-  return { roles, loading, hasRole, hasAnyRole };
+  return { roles, loading, error, hasRole, hasAnyRole };
 }

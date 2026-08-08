@@ -148,13 +148,25 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     // completo DESTE treinador carregado e estável (fetch concluído).
     if (isEdit && !fullLoaded) return;
 
-    const mainCents = parseRateText(rateTexts.main);
-    const assistantCents = parseRateText(rateTexts.assistant);
-    const sessionCents = parseRateText(rateTexts.session);
-    if ([mainCents, assistantCents, sessionCents].some((c) => !Number.isFinite(c))) {
-      toast.error('Taxa inválida — use números como "75", "75,50" ou "1234,56" (sem ponto de milhar).');
+    // Valida os três campos (inclusive os ocultos pelo método de pagamento —
+    // eles são persistidos do mesmo jeito), NOMEANDO o campo inválido.
+    const rateEntries = [
+      { key: "main", label: "Taxa/hora — Principal", cents: parseRateText(rateTexts.main) },
+      { key: "assistant", label: "Taxa/hora — Assistente", cents: parseRateText(rateTexts.assistant) },
+      { key: "session", label: "Taxa por sessão", cents: parseRateText(rateTexts.session) },
+    ];
+    const invalid = rateEntries.find((r) => !Number.isFinite(r.cents));
+    if (invalid) {
+      toast.error(
+        `${invalid.label} inválida ("${rateTexts[invalid.key as keyof typeof rateTexts]}") — use números como "75", "75,50" ou "1234,56" (sem ponto de milhar). O campo pode estar em outra opção de método de pagamento.`,
+      );
       return;
     }
+    const [mainCents, assistantCents, sessionCents] = [
+      rateEntries[0].cents,
+      rateEntries[1].cents,
+      rateEntries[2].cents,
+    ];
 
     const { hired_at, ...rest } = form;
     const payload: Partial<Trainer> = {

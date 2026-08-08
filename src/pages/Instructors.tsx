@@ -14,7 +14,7 @@ export default function Instructors() {
   const [showForm, setShowForm] = useState(false);
   const [editingTrainer, setEditingTrainer] = useState<Trainer | null>(null);
   const { data: trainers, isLoading } = useTrainers();
-  const { roles, loading: rolesLoading } = useUserRoles();
+  const { roles, loading: rolesLoading, error: rolesError } = useUserRoles();
   // A aba Taxas é ADMIN-only: a RLS de trainer_service_rates não dá leitura
   // a manager — exibir a aba pra ele seria mostrar uma matriz sempre vazia.
   // Espera os papéis resolverem antes de decidir o layout: sem isso o admin
@@ -63,6 +63,13 @@ export default function Instructors() {
           </Button>
         }
       />
+
+      {rolesError && (
+        <p className="mb-3 text-sm text-destructive">
+          Não foi possível confirmar seu papel de acesso — a aba de taxas pode
+          estar oculta indevidamente. Recarregue a página.
+        </p>
+      )}
 
       {rolesLoading ? (
         <div className="flex items-center justify-center py-24 text-muted-foreground">

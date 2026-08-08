@@ -108,9 +108,9 @@ vi.mock("sonner", () => ({
 // isso, os caminhos de limpeza/sobrevivência de rascunho nunca rodam.
 type MutateOpts = { onSuccess?: () => void } | undefined;
 let saveAutoSuccess = true;
-const saveCalls: Array<{ rows: unknown; opts: MutateOpts }> = [];
-const saveMutate = vi.fn((rows: unknown, opts?: MutateOpts) => {
-  saveCalls.push({ rows, opts });
+const saveCalls: Array<{ input: unknown; opts: MutateOpts }> = [];
+const saveMutate = vi.fn((input: unknown, opts?: MutateOpts) => {
+  saveCalls.push({ input, opts });
   if (saveAutoSuccess) opts?.onSuccess?.();
 });
 const applyMutate = vi.fn((_rows: unknown, opts?: MutateOpts) => opts?.onSuccess?.());
@@ -143,6 +143,14 @@ vi.mock("@/hooks/useTrainers", () => ({
 }));
 
 vi.mock("@/hooks/useServiceRates", () => ({
+  pairKey: (trainerId: string, serviceId: string) => `${trainerId}|${serviceId}`,
+  RateConflictError: class RateConflictError extends Error {
+    keys: string[];
+    constructor(keys: string[]) {
+      super("conflict");
+      this.keys = keys;
+    }
+  },
   useServiceTypes: () => ({ data: SERVICES, isLoading: false }),
   useTrainerServiceRates: () => ({ data: RATES, isLoading: false, isError: false }),
   useSaveTrainerServiceRates: () => saveState,
@@ -184,7 +192,8 @@ describe("RatesTab", () => {
     fireEvent.click(screen.getByRole("button", { name: /Salvar alterações \(1\)/ }));
 
     expect(saveMutate).toHaveBeenCalledTimes(1);
-    expect(saveCalls[0].rows).toEqual([
+    const input = saveCalls[0].input as { rows: unknown; baselines: unknown };
+    expect(input.rows).toEqual([
       {
         trainer_id: "t-ceniz",
         service_type_id: "s-fisio",
@@ -192,6 +201,8 @@ describe("RatesTab", () => {
         rate_cents: 12000,
       },
     ]);
+    // Baseline viaja junto: célula era vazia quando a edição começou.
+    expect(input.baselines).toEqual({ "t-ceniz|s-fisio": null });
   });
 
   it("valor zero aborta o save inteiro; milhar ambíguo também", () => {
@@ -278,18 +289,26 @@ describe("RatesTab", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Remover" }));
 
     expect(deleteMutate).toHaveBeenCalledTimes(1);
-    expect(deleteMutate.mock.calls[0][0]).toBe("r1");
+    expect(deleteMutate.mock.calls[0][0]).toEqual({
+      id: "r1",
+      expectedCents: 10000,
+      expectedBasis: "hourly",
+    });
     // Rascunho morreu: célula volta ao persistido do mock (não "90,00"),
     // e não há mais nada pra salvar.
     expect(cell("Alex Griebeler", "Grupo")).toHaveValue("100,00");
     expect(screen.queryByRole("button", { name: /Salvar alterações \(/ })).toBeNull();
   });
 
-  it("pending desabilita células e botões", () => {
+  it("pending trava os BOTÕES de ação, mas digitar segue livre", () => {
     saveState.isPending = true;
     render(<RatesTab isAdmin />);
-    expect(cell("Alex Griebeler", "Grupo")).toBeDisabled();
+    // Inputs livres: o clear seletivo pós-sucesso protege a edição em voo.
+    expect(cell("Alex Griebeler", "Grupo")).toBeEnabled();
     expect(screen.getByRole("button", { name: /Aplicar padrão 75\/45/ })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Remover tarifa de Alex Griebeler em Grupo" }),
+    ).toBeDisabled();
   });
 
   it("sem admin: nada editável, sem salvar, sem lote", () => {
