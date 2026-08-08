@@ -33,8 +33,12 @@ CREATE TABLE IF NOT EXISTS public.service_types (
   CONSTRAINT service_types_name_not_blank CHECK (btrim(name) <> '')
 );
 
--- Slug é identidade estável (código e integrações penduram nele): imutável.
-CREATE OR REPLACE FUNCTION public.fn_service_types_slug_immutable()
+-- Slug e delivery_type são identidade do serviço: imutáveis. Slug porque
+-- código e integrações penduram nele; delivery_type porque sessões e
+-- templates já classificados herdariam incoerência retroativa (e a guarda
+-- de coerência passaria a bloquear cancelamento/edição dos existentes).
+-- Mudou o formato? Serviço novo + is_active=false no antigo.
+CREATE OR REPLACE FUNCTION public.fn_service_types_immutable_fields()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path TO 'public'
@@ -44,15 +48,19 @@ BEGIN
     RAISE EXCEPTION 'service_types.slug é imutável (%). Crie um serviço novo e desative o antigo.', OLD.slug
       USING ERRCODE = '0A000';
   END IF;
+  IF NEW.delivery_type IS DISTINCT FROM OLD.delivery_type THEN
+    RAISE EXCEPTION 'service_types.delivery_type é imutável (%). Crie um serviço novo e desative o antigo.', OLD.slug
+      USING ERRCODE = '0A000';
+  END IF;
   RETURN NEW;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.fn_service_types_slug_immutable() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_service_types_immutable_fields() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS service_types_slug_immutable ON public.service_types;
-CREATE TRIGGER service_types_slug_immutable
+DROP TRIGGER IF EXISTS service_types_immutable_fields ON public.service_types;
+CREATE TRIGGER service_types_immutable_fields
   BEFORE UPDATE ON public.service_types
-  FOR EACH ROW EXECUTE FUNCTION public.fn_service_types_slug_immutable();
+  FOR EACH ROW EXECUTE FUNCTION public.fn_service_types_immutable_fields();
 
 DROP TRIGGER IF EXISTS update_service_types_updated_at ON public.service_types;
 CREATE TRIGGER update_service_types_updated_at
@@ -311,6 +319,23 @@ BEGIN
 
   IF has_table_privilege('anon', 'public.trainer_service_rates', 'SELECT') THEN
     RAISE EXCEPTION 'pós: anon lê trainer_service_rates';
+  END IF;
+
+  -- Coerência global (pega deriva feita por fora do trigger, ex.: service_role):
+  SELECT count(*) INTO n
+    FROM public.sessions s
+    JOIN public.service_types st ON st.id = s.service_type_id
+   WHERE st.delivery_type <> s.session_type;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'pós: % sessão(ões) com serviço incoerente com o formato', n;
+  END IF;
+
+  SELECT count(*) INTO n
+    FROM public.class_templates ct
+    JOIN public.service_types st ON st.id = ct.service_type_id
+   WHERE st.delivery_type <> 'group'::public.session_type;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'pós: % template(s) com serviço de formato não-group', n;
   END IF;
 END
 $check$;

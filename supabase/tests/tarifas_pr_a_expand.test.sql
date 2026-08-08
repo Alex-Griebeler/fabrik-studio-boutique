@@ -7,7 +7,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(43);
+SELECT plan(44);
 
 -- ---------- Estrutura ----------
 SELECT has_table('public'::name, 'service_types'::name, 'service_types existe');
@@ -148,6 +148,9 @@ SELECT throws_ok(
 SELECT throws_ok(
   $$UPDATE public.service_types SET slug = 'grupo_novo' WHERE slug = 'grupo'$$,
   '0A000', NULL, 'slug é imutável');
+SELECT throws_ok(
+  $$UPDATE public.service_types SET delivery_type = 'personal' WHERE slug = 'grupo'$$,
+  '0A000', NULL, 'delivery_type é imutável (formato novo = serviço novo)');
 
 -- ---------- updated_at e auditoria ----------
 UPDATE public.service_types SET name = 'Grupo (turmas)' WHERE slug = 'grupo';
