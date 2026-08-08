@@ -30,23 +30,22 @@ vi.mock("@/hooks/useUserRoles", () => ({
   }),
 }));
 
+const BASE_TEMPLATE = {
+  id: "tpl-1",
+  instructor_id: "profile-1",
+  day_of_week: 1, // segunda
+  start_time: "07:00",
+  duration_minutes: 60,
+  modality: "flow",
+  capacity: 12,
+  recurrence_start: "2026-01-01",
+  recurrence_end: null,
+  is_active: true,
+};
+let TEMPLATES: Array<typeof BASE_TEMPLATE> = [BASE_TEMPLATE];
+
 vi.mock("./useTemplates", () => ({
-  useClassTemplates: () => ({
-    data: [
-      {
-        id: "tpl-1",
-        instructor_id: "profile-1",
-        day_of_week: 1, // segunda
-        start_time: "07:00",
-        duration_minutes: 60,
-        modality: "flow",
-        capacity: 12,
-        recurrence_start: "2026-01-01",
-        recurrence_end: null,
-        is_active: true,
-      },
-    ],
-  }),
+  useClassTemplates: () => ({ data: TEMPLATES }),
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -113,6 +112,7 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     SESSION_SELECT_COUNT = 0;
     SESSION_SELECT_ERROR_AFTER = null;
     ROLES = ["admin"];
+    TEMPLATES = [BASE_TEMPLATE];
     vi.clearAllMocks();
   });
 
@@ -191,7 +191,35 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     expect(INSERT_CALLS).toHaveLength(1); // nenhum segundo insert às cegas
   });
 
-  it("dois treinadores no MESMO perfil: aborta (mapa não determinístico)", async () => {
+  it("template SEM instrutor: turma é pulada com AVISO, e as demais geram", async () => {
+    TEMPLATES = [
+      { ...BASE_TEMPLATE, id: "tpl-sem-instrutor", instructor_id: null as unknown as string },
+      { ...BASE_TEMPLATE, id: "tpl-ok" },
+    ];
+    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
+    await waitFor(() => expect(INSERT_CALLS.length).toBe(1));
+    // só a turma íntegra entra; a incompleta NÃO vira sessão sem valor
+    expect(INSERT_CALLS[0]).toHaveLength(1);
+    expect(INSERT_CALLS[0][0].template_id).toBe("tpl-ok");
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("sem instrutor"),
+    );
+  });
+
+  it("template quebrado FORA do período não trava a geração dos válidos", async () => {
+    TEMPLATES = [
+      // encerrado em 2025: não produz nada no período → não valida nada
+      { ...BASE_TEMPLATE, id: "tpl-encerrado", instructor_id: "profile-fantasma", recurrence_end: "2025-12-31" },
+      { ...BASE_TEMPLATE, id: "tpl-ok" },
+    ];
+    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
+    await waitFor(() => expect(INSERT_CALLS.length).toBe(1));
+    expect(INSERT_CALLS[0]).toHaveLength(1);
+    expect(INSERT_CALLS[0][0].template_id).toBe("tpl-ok");
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it("dois treinadores no MESMO perfil: turma pulada com aviso (não trava as demais)", async () => {
     TRAINERS = [
       { id: "trainer-9", profile_id: "profile-1", hourly_rate_main_cents: 12000 },
       { id: "trainer-10", profile_id: "profile-1", hourly_rate_main_cents: 9000 },

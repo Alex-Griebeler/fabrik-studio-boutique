@@ -61,6 +61,7 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
         string,
         { id: string; hourly_rate_main_cents: number }
       >();
+      const ambiguousProfiles = new Set<string>();
       if (instructorProfileIds.length > 0) {
         const { data: trainerRows, error: ratesErr } = await supabase
           .from("trainers")
@@ -75,43 +76,23 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
           if (!t.profile_id) continue;
           // trainers.profile_id NÃO tem UNIQUE: dois treinadores no mesmo
           // perfil deixariam o mapa (e a folha) não determinísticos.
+          // Perfil ambíguo NÃO trava a agenda inteira: os templates que o
+          // usam serão pulados com aviso, os demais geram normalmente.
           if (trainerByProfile.has(t.profile_id)) {
             console.error(
               `useAutoGenerateSessions: perfil ${t.profile_id} vinculado a mais de um treinador`,
             );
-            toast.error(
-              "Há dois cadastros de treinador vinculados ao mesmo perfil — corrija em Treinadores antes de gerar a agenda.",
-            );
-            return;
+            ambiguousProfiles.add(t.profile_id);
+            continue;
           }
           trainerByProfile.set(t.profile_id, t);
         }
 
-        // Vínculo ou tarifa ausente NÃO vira R$ 0,00 silencioso (era o
-        // defeito original): aborta e aponta o template a corrigir.
-        for (const t of templates) {
-          if (!t.instructor_id) continue;
-          const trainer = trainerByProfile.get(t.instructor_id);
-          if (!trainer) {
-            console.error(
-              `useAutoGenerateSessions: template ${t.id} tem instrutor sem cadastro de treinador vinculado`,
-            );
-            toast.error(
-              "Há turma com instrutor sem cadastro de treinador vinculado — corrija em Treinadores antes de gerar a agenda.",
-            );
-            return;
-          }
-          if (!trainer.hourly_rate_main_cents || trainer.hourly_rate_main_cents <= 0) {
-            console.error(
-              `useAutoGenerateSessions: treinador ${trainer.id} sem tarifa configurada`,
-            );
-            toast.error(
-              "Há treinador sem tarifa configurada — defina a tarifa antes de gerar a agenda.",
-            );
-            return;
-          }
-        }
       }
+      // A validação de vínculo/tarifa acontece adiante, POR TEMPLATE QUE
+      // REALMENTE PRODUZ SESSÃO no período (revisão fria: validar todos
+      // os templates ativos deixava um template encerrado/irrelevante
+      // travar a agenda da semana inteira).
 
       const sessionsToInsert: Array<{
         template_id: string;
@@ -130,52 +111,87 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
       const start = new Date(startDate + "T00:00:00");
       const end = new Date(endDate + "T00:00:00");
 
+      // Templates PULADOS por configuração incompleta (sem instrutor,
+      // sem treinador vinculado, sem tarifa, perfil ambíguo): as outras
+      // turmas geram normalmente e o problema vira aviso VISÍVEL — nem
+      // silêncio (defeito original), nem agenda-refém (revisão fria).
+      const skippedReasons = new Set<string>();
+
       for (const t of templates) {
+        // 1º passo: quais datas este template produziria no período?
+        const dates: string[] = [];
         const current = new Date(start);
         while (current <= end) {
           const dayOfWeek = current.getDay();
           const dateStr = current.toISOString().split("T")[0];
-
           if (dayOfWeek === t.day_of_week) {
             const inRecurrence =
               dateStr >= t.recurrence_start &&
               (t.recurrence_end === null || dateStr <= t.recurrence_end);
-
             if (inRecurrence && !existingSet.has(`${t.id}_${dateStr}`)) {
-              const endMinutes =
-                parseInt(t.start_time.slice(0, 2)) * 60 +
-                parseInt(t.start_time.slice(3, 5)) +
-                t.duration_minutes;
-              const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
-
-              const trainer = t.instructor_id
-                ? trainerByProfile.get(t.instructor_id) ?? null
-                : null;
-              const snapshot = trainer
-                ? sessionPaymentSnapshot(
-                    t.duration_minutes,
-                    trainer.hourly_rate_main_cents,
-                  )
-                : null;
-
-              sessionsToInsert.push({
-                template_id: t.id,
-                session_type: "group",
-                session_date: dateStr,
-                start_time: t.start_time,
-                end_time: endTime,
-                duration_minutes: t.duration_minutes,
-                modality: t.modality,
-                capacity: t.capacity,
-                trainer_id: trainer?.id ?? null,
-                trainer_hourly_rate_cents: snapshot?.trainer_hourly_rate_cents ?? null,
-                payment_hours: snapshot?.payment_hours ?? null,
-                payment_amount_cents: snapshot?.payment_amount_cents ?? null,
-              });
+              dates.push(dateStr);
             }
           }
           current.setDate(current.getDate() + 1);
         }
+        // Template que não produz nada no período não valida nada nem
+        // bloqueia ninguém.
+        if (dates.length === 0) continue;
+
+        // 2º passo: só gera com treinador e tarifa íntegros.
+        if (!t.instructor_id) {
+          skippedReasons.add("turma sem instrutor definido");
+          console.error(`useAutoGenerateSessions: template ${t.id} sem instructor_id — pulado`);
+          continue;
+        }
+        if (ambiguousProfiles.has(t.instructor_id)) {
+          skippedReasons.add("perfil vinculado a dois cadastros de treinador");
+          continue;
+        }
+        const trainer = trainerByProfile.get(t.instructor_id);
+        if (!trainer) {
+          skippedReasons.add("instrutor sem cadastro de treinador vinculado");
+          console.error(`useAutoGenerateSessions: template ${t.id} com instrutor sem treinador — pulado`);
+          continue;
+        }
+        if (!trainer.hourly_rate_main_cents || trainer.hourly_rate_main_cents <= 0) {
+          skippedReasons.add("treinador sem tarifa configurada");
+          console.error(`useAutoGenerateSessions: treinador ${trainer.id} sem tarifa — template pulado`);
+          continue;
+        }
+
+        const snapshot = sessionPaymentSnapshot(
+          t.duration_minutes,
+          trainer.hourly_rate_main_cents,
+        );
+        for (const dateStr of dates) {
+          const endMinutes =
+            parseInt(t.start_time.slice(0, 2)) * 60 +
+            parseInt(t.start_time.slice(3, 5)) +
+            t.duration_minutes;
+          const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+
+          sessionsToInsert.push({
+            template_id: t.id,
+            session_type: "group",
+            session_date: dateStr,
+            start_time: t.start_time,
+            end_time: endTime,
+            duration_minutes: t.duration_minutes,
+            modality: t.modality,
+            capacity: t.capacity,
+            trainer_id: trainer.id,
+            trainer_hourly_rate_cents: snapshot.trainer_hourly_rate_cents,
+            payment_hours: snapshot.payment_hours,
+            payment_amount_cents: snapshot.payment_amount_cents,
+          });
+        }
+      }
+
+      if (skippedReasons.size > 0) {
+        toast.error(
+          `Turmas fora da agenda: ${[...skippedReasons].join("; ")}. Corrija em Turmas/Treinadores.`,
+        );
       }
 
       if (sessionsToInsert.length > 0) {
