@@ -13,6 +13,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 CREATE TYPE public.app_role AS ENUM ('admin', 'instructor', 'student', 'manager', 'reception');
 CREATE TYPE public.session_type AS ENUM ('personal', 'group');
+CREATE TYPE public.full_session_status AS ENUM (
+  'scheduled', 'cancelled_on_time', 'cancelled_late', 'no_show',
+  'completed', 'disputed', 'adjusted', 'late_arrival'
+);
 
 CREATE TABLE public.user_roles (
   user_id uuid NOT NULL,
@@ -86,8 +90,19 @@ $$;
 REVOKE ALL ON FUNCTION public.fn_audit_log() FROM PUBLIC, anon, authenticated;
 
 -- Alvos da migration, com as colunas que ela toca.
+CREATE TABLE public.profiles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  auth_user_id uuid,
+  full_name text NOT NULL
+);
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+-- réplica da postura de produção: cada um lê o próprio perfil
+CREATE POLICY profiles_select_own ON public.profiles FOR SELECT
+  USING (auth_user_id = auth.uid());
+
 CREATE TABLE public.trainers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id uuid REFERENCES public.profiles(id),
   full_name text NOT NULL,
   hourly_rate_main_cents integer NOT NULL DEFAULT 0,
   is_active boolean NOT NULL DEFAULT true
@@ -103,6 +118,11 @@ CREATE TABLE public.class_templates (
   is_active boolean NOT NULL DEFAULT true
 );
 
+CREATE TABLE public.students (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  full_name text NOT NULL
+);
+
 CREATE TABLE public.sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   session_type public.session_type NOT NULL DEFAULT 'group',
@@ -111,7 +131,19 @@ CREATE TABLE public.sessions (
   start_time time NOT NULL,
   end_time time NOT NULL,
   duration_minutes integer NOT NULL,
-  status text NOT NULL DEFAULT 'scheduled'
+  status public.full_session_status NOT NULL DEFAULT 'scheduled',
+  -- colunas que a view payable_sessions (PR-D) projeta:
+  trainer_id uuid REFERENCES public.trainers(id),
+  assistant_trainer_id uuid REFERENCES public.trainers(id),
+  student_id uuid REFERENCES public.students(id),
+  contract_id uuid,
+  trainer_hourly_rate_cents integer,
+  assistant_hourly_rate_cents integer,
+  payment_hours numeric,
+  payment_amount_cents integer,
+  assistant_payment_amount_cents integer,
+  is_paid boolean NOT NULL DEFAULT false,
+  paid_at timestamptz
 );
 
 -- Postura de produção nas tabelas legadas: RLS ligada e as policies de
@@ -123,6 +155,15 @@ ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trainers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.class_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
+
+-- réplica da postura de produção: linhas de trainers/students legíveis por
+-- logado (colunas sensíveis de trainers são gated por GRANT em produção;
+-- aqui o fixture só tem operacionais)
+CREATE POLICY trainers_select ON public.trainers FOR SELECT
+  USING (true);
+CREATE POLICY students_select ON public.students FOR SELECT
+  USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role) OR has_role(auth.uid(), 'reception'::app_role));
 
 CREATE POLICY sessions_select ON public.sessions FOR SELECT
   USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role) OR has_role(auth.uid(), 'reception'::app_role));
@@ -145,10 +186,15 @@ CREATE POLICY class_templates_delete ON public.class_templates FOR DELETE
 -- Linhas representativas de produção:
 -- o Alex (uuid REAL de produção — a migration semeia as tarifas dele por id),
 -- um treinador sem tarifas, um template de turma e uma sessão de cada formato.
-INSERT INTO public.trainers (id, full_name, hourly_rate_main_cents)
+-- Perfil do "dono" da sessão paga (vinculado ao usuário instructor dos
+-- testes de papel da PR-D):
+INSERT INTO public.profiles (id, auth_user_id, full_name)
+VALUES ('f9110000-0000-0000-0000-000000000011', 'f9000000-0000-0000-0000-000000000001', 'Alex Griebeler');
+
+INSERT INTO public.trainers (id, profile_id, full_name, hourly_rate_main_cents)
 VALUES
-  ('4fd214e3-214c-433d-bde2-5e91957dc95a', 'Alex Griebeler', 10000),
-  ('11111111-1111-1111-1111-111111111111', 'Treinador Sem Tarifa', 0);
+  ('4fd214e3-214c-433d-bde2-5e91957dc95a', 'f9110000-0000-0000-0000-000000000011', 'Alex Griebeler', 10000),
+  ('11111111-1111-1111-1111-111111111111', NULL, 'Treinador Sem Tarifa', 0);
 
 INSERT INTO public.class_templates (id, modality, day_of_week, start_time, duration_minutes)
 VALUES ('22222222-2222-2222-2222-222222222222', 'flow', 1, '06:00', 60);
@@ -159,3 +205,48 @@ INSERT INTO public.sessions (id, session_type, modality, session_date, start_tim
 VALUES
   ('33333333-3333-3333-3333-333333333333', 'group',    'flow', '2026-08-03', '06:00', '07:00', 60),
   ('44444444-4444-4444-4444-444444444444', 'personal', 'personal', '2026-08-04', '07:00', '08:00', 60);
+
+-- A view payable_sessions COMO ESTÁ EM PRODUÇÃO (22 colunas, invoker,
+-- WHERE por enum): a migration da PR-D faz um CREATE OR REPLACE de
+-- verdade por cima — ordem/tipo incompatível quebraria AQUI no CI.
+CREATE VIEW public.payable_sessions
+WITH (security_invoker = on) AS
+SELECT s.id,
+    s.session_date,
+    s.start_time,
+    s.end_time,
+    s.duration_minutes,
+    s.session_type,
+    s.modality,
+    s.status,
+    s.trainer_id,
+    t.full_name AS trainer_name,
+    s.assistant_trainer_id,
+    at.full_name AS assistant_trainer_name,
+    s.trainer_hourly_rate_cents,
+    s.assistant_hourly_rate_cents,
+    s.payment_hours,
+    s.payment_amount_cents,
+    s.assistant_payment_amount_cents,
+    s.is_paid,
+    s.paid_at,
+    s.student_id,
+    st.full_name AS student_name,
+    s.contract_id
+   FROM public.sessions s
+     LEFT JOIN public.trainers t ON t.id = s.trainer_id
+     LEFT JOIN public.trainers at ON at.id = s.assistant_trainer_id
+     LEFT JOIN public.students st ON st.id = s.student_id
+  WHERE s.status = ANY (ARRAY['completed'::public.full_session_status, 'cancelled_late'::public.full_session_status, 'no_show'::public.full_session_status, 'late_arrival'::public.full_session_status]);
+
+-- Sessão COMPLETED com snapshot: é a linha que a view payable_sessions
+-- (PR-D) precisa projetar com service_name resolvido pelo catálogo.
+INSERT INTO public.sessions (
+  id, session_type, modality, session_date, start_time, end_time,
+  duration_minutes, status, trainer_id, trainer_hourly_rate_cents,
+  payment_hours, payment_amount_cents
+) VALUES (
+  '99999999-9999-9999-9999-999999999999', 'group', 'flow', '2026-08-05',
+  '06:00', '07:00', 60, 'completed',
+  '4fd214e3-214c-433d-bde2-5e91957dc95a', 10000, 1, 10000
+);

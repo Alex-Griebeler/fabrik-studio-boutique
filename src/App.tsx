@@ -157,10 +157,12 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              {/* Folha é ADMIN-only: sessions_select não inclui manager e a
+                  view é security_invoker — ele veria folha VAZIA em silêncio. */}
               <Route
                 path="/payroll"
                 element={
-                  <ProtectedRoute allowedRoles={["admin", "manager"]}>
+                  <ProtectedRoute allowedRoles={["admin"]}>
                     <AppLayout><Payroll /></AppLayout>
                   </ProtectedRoute>
                 }

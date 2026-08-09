@@ -63,7 +63,7 @@ const financeItems: MenuItem[] = [
   { title: "Financeiro", url: "/finance", icon: DollarSign, roles: ["admin", "manager"] },
   { title: "Despesas", url: "/expenses", icon: Receipt, roles: ["admin"] },
   { title: "Comissões", url: "/commissions", icon: Percent, roles: ["admin", "manager"] },
-  { title: "Folha Pagto", url: "/payroll", icon: Banknote, roles: ["admin", "manager"] },
+  { title: "Folha Pagto", url: "/payroll", icon: Banknote, roles: ["admin"] },
   { title: "Minha Folha", url: "/trainer/payroll", icon: ClipboardList, roles: ["admin", "instructor"] },
   { title: "Conciliação", url: "/bank-reconciliation", icon: Landmark, roles: ["admin", "manager"] },
 ];

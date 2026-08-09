@@ -8,7 +8,9 @@ on:
       - ".github/p0-test-fixtures/tarifas-base.sql"
       - ".github/workflows/tarifas-validation.yml"
       - "supabase/migrations/20260808150000_tarifas_pr_a_expand.sql"
+      - "supabase/migrations/20260809150000_tarifas_pr_d_payable_view.sql"
       - "supabase/tests/tarifas_pr_a_expand.test.sql"
+      - "supabase/tests/tarifas_pr_d_view.test.sql"
 
 permissions:
   contents: read
@@ -39,7 +41,10 @@ jobs:
           cp .github/p0-test-fixtures/tarifas-base.sql "$TARIFAS_WORKDIR/supabase/migrations/20260808140000_tarifas_base.sql"
           cp supabase/migrations/20260808150000_tarifas_pr_a_expand.sql "$TARIFAS_WORKDIR/supabase/migrations/20260808150000_tarifas_pr_a_expand.sql"
           cp supabase/migrations/20260808150000_tarifas_pr_a_expand.sql "$TARIFAS_WORKDIR/supabase/migrations/20260808150001_tarifas_idempotency.sql"
+          cp supabase/migrations/20260809150000_tarifas_pr_d_payable_view.sql "$TARIFAS_WORKDIR/supabase/migrations/20260809150000_tarifas_pr_d_payable_view.sql"
+          cp supabase/migrations/20260809150000_tarifas_pr_d_payable_view.sql "$TARIFAS_WORKDIR/supabase/migrations/20260809150001_tarifas_pr_d_idempotency.sql"
           cp supabase/tests/tarifas_pr_a_expand.test.sql "$TARIFAS_WORKDIR/supabase/tests/"
+          cp supabase/tests/tarifas_pr_d_view.test.sql "$TARIFAS_WORKDIR/supabase/tests/"
 
       - name: Start isolated database and apply expand twice
         env:

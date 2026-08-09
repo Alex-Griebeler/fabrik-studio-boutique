@@ -25,6 +25,9 @@ export interface PayableSession {
   student_id: string | null;
   student_name: string | null;
   contract_id: string | null;
+  service_type_id: string | null;
+  payment_rate_basis: "hourly" | "per_session" | null;
+  service_name: string | null;
 }
 
 export interface TrainerPayrollSummary {

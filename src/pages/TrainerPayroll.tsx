@@ -11,6 +11,7 @@ import {
 import { useCreatePayrollDispute } from "@/hooks/usePayrollDisputes";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ServiceCell } from "@/components/payroll/ServiceCell";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -186,7 +187,7 @@ export default function TrainerPayroll() {
         />
         <KPICard title="Sessões Realizadas" value={String(stats.totalSessions)} icon={CalendarDays} />
         <KPICard title="Horas Trabalhadas" value={stats.totalHours.toFixed(1)} icon={Clock} />
-        <KPICard title="Taxa Média/Hora" value={centsToReal(stats.avgRateCents)} icon={TrendingUp} />
+        <KPICard title="Taxa Média/Hora" value={stats.hasHourly ? centsToReal(stats.avgRateCents) : "—"} icon={TrendingUp} />
       </div>
 
       {/* Payment status banner */}
@@ -222,7 +223,7 @@ export default function TrainerPayroll() {
                   <TableHead>Data</TableHead>
                   <TableHead>Horário</TableHead>
                   <TableHead>Modalidade</TableHead>
-                  <TableHead>Tipo</TableHead>
+                  <TableHead>Serviço</TableHead>
                   <TableHead>Aluno</TableHead>
                   <TableHead>Horas</TableHead>
                   <TableHead className="text-right">Valor</TableHead>
@@ -241,9 +242,11 @@ export default function TrainerPayroll() {
                     </TableCell>
                     <TableCell className="text-sm">{s.modality}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs capitalize">
-                        {s.session_type}
-                      </Badge>
+                      <ServiceCell
+                        serviceName={s.service_name}
+                        sessionType={s.session_type}
+                        paymentRateBasis={s.payment_rate_basis}
+                      />
                     </TableCell>
                     <TableCell className="text-sm">{s.student_name ?? "—"}</TableCell>
                     <TableCell className="text-sm">{(s.payment_hours ?? 0).toFixed(1)}h</TableCell>
