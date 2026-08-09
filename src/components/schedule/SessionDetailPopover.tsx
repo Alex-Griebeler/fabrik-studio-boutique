@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Users, Clock, User, Plus, X, UserCheck, UserX, Trash2, Pencil, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { useUserRoles } from "@/hooks/useUserRoles";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,6 +48,10 @@ interface SessionDetailPopoverProps {
 }
 
 export function SessionDetailPopover({ session, children }: SessionDetailPopoverProps) {
+  // UPDATE/DELETE em sessions é admin/instructor (policy) — recepção vê o
+  // detalhe, mas não botões que só falhariam.
+  const { hasAnyRole } = useUserRoles();
+  const canEditSessions = hasAnyRole(["admin", "instructor"]);
   const [open, setOpen] = useState(false);
   const [addingStudent, setAddingStudent] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -159,17 +164,21 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                 )}
               </div>
               <div className="flex items-center gap-0.5">
-                {isActive && (
+                {canEditSessions && isActive && (
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-warning" onClick={handleCancelClick} title="Cancelar sessão">
                     <Ban className="h-3.5 w-3.5" />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleEditClick}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={handleDeleteClick}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                {canEditSessions && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleEditClick}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {canEditSessions && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={handleDeleteClick}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
             </div>
 

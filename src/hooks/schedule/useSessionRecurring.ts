@@ -129,12 +129,16 @@ export function useUpdateThisAndFollowing() {
         recurrence_end: oldTemplate.recurrence_end,
       });
 
+      // Sessão PAGA é registro de folha: nunca some numa edição. Fica no
+      // lugar (o dia pode exibir a paga antiga + a nova regenerada — visível
+      // e não-destrutivo; redesenho da recorrência é backlog registrado).
       const { data: futureSessions } = await supabase
         .from("sessions")
         .select("id")
         .eq("template_id", session.template_id)
         .gte("session_date", session.session_date)
-        .eq("is_exception", false);
+        .eq("is_exception", false)
+        .eq("is_paid", false);
 
       if (futureSessions?.length) {
         const ids = futureSessions.map((s) => s.id);
@@ -185,6 +189,33 @@ export function useUpdateAllOccurrences() {
         .eq("template_id", templateId)
         .eq("is_exception", false)
         .gte("session_date", today);
+
+      // Duração mudou = dinheiro muda nas NÃO-pagas (base hourly). A
+      // tarifa congelada de cada sessão é respeitada — só horas/valor são
+      // recalculados; per_session mantém o valor cravado e atualiza as
+      // horas informativas. Paga não se toca (registro de folha).
+      if (updates.duration_minutes) {
+        const newHours = updates.duration_minutes / 60;
+        const { data: affected } = await supabase
+          .from("sessions")
+          .select("id, trainer_hourly_rate_cents, payment_rate_basis")
+          .eq("template_id", templateId)
+          .eq("is_exception", false)
+          .eq("is_paid", false)
+          .gte("session_date", today);
+        await Promise.all(
+          (affected ?? []).map((row) => {
+            const recompute: Record<string, unknown> = { payment_hours: newHours };
+            // Base null = era antiga/hourly implícito: recalcula por hora.
+            if (row.payment_rate_basis !== "per_session") {
+              recompute.payment_amount_cents = Math.round(
+                newHours * (row.trainer_hourly_rate_cents || 0),
+              );
+            }
+            return supabase.from("sessions").update(recompute).eq("id", row.id);
+          }),
+        );
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions"] });

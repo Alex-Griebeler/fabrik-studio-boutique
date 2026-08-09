@@ -22,9 +22,11 @@ export function useCreateSession() {
       assistant_trainer_id?: string | null;
       student_id?: string | null;
       contract_id?: string | null;
+      service_type_id?: string | null;
       trainer_hourly_rate_cents?: number;
       payment_hours?: number;
       payment_amount_cents?: number;
+      payment_rate_basis?: "hourly" | "per_session" | null;
       notes?: string | null;
     }) => {
       let endTime = data.end_time;
@@ -49,9 +51,11 @@ export function useCreateSession() {
         assistant_trainer_id: data.assistant_trainer_id || null,
         student_id: data.student_id || null,
         contract_id: data.contract_id || null,
+        service_type_id: data.service_type_id || null,
         trainer_hourly_rate_cents: data.trainer_hourly_rate_cents || 0,
         payment_hours: data.payment_hours || 0,
         payment_amount_cents: data.payment_amount_cents || 0,
+        payment_rate_basis: data.payment_rate_basis || null,
         notes: data.notes || null,
       });
       if (error) throw error;

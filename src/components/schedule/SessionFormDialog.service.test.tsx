@@ -41,9 +41,10 @@ vi.mock("sonner", () => ({
 }));
 
 const createMutate = vi.fn();
+const updateMutate = vi.fn();
 vi.mock("@/hooks/useSchedule", () => ({
   useCreateSession: () => ({ mutate: createMutate, isPending: false }),
-  useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateSession: () => ({ mutate: updateMutate, isPending: false }),
   useUpdateThisAndFollowing: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateAllOccurrences: () => ({ mutate: vi.fn(), isPending: false }),
   useActiveModalities: () => ({
@@ -90,7 +91,9 @@ const setup = () => {
   render(<SessionFormDialog open onOpenChange={() => {}} defaultDate="2026-08-10" />);
 };
 
-// selects na ordem do DOM: [modalidade, (serviço se >1 opção), treinador, (aluno)]
+// O mock do Select achata SelectTrigger (que carrega o aria-label) — os
+// selects continuam identificados pela ORDEM no DOM, com helpers nomeados
+// pra ficar legível e um único lugar pra ajustar se o form reordenar.
 const selects = () => screen.getAllByRole("combobox");
 
 describe("SessionFormDialog — serviço e tarifa por par", () => {
@@ -168,5 +171,99 @@ describe("SessionFormDialog — serviço e tarifa por par", () => {
     expect(payload.service_type_id).toBe("s-grupo");
     expect(payload.payment_amount_cents).toBe(0);
     expect(payload.payment_rate_basis).toBeNull();
+  });
+});
+
+const EDIT_BASE = {
+  id: "sess-1",
+  session_type: "group" as const,
+  modality: "flow",
+  session_date: "2026-08-10",
+  start_time: "07:00:00",
+  end_time: "08:00:00",
+  duration_minutes: 60,
+  capacity: 12,
+  trainer_id: "t-alex",
+  student_id: null,
+  template_id: null,
+  service_type_id: "s-grupo",
+  is_paid: false,
+  notes: "",
+};
+
+const renderEdit = (over: Partial<typeof EDIT_BASE> & Record<string, unknown> = {}) => {
+  render(
+    <SessionFormDialog
+      open
+      onOpenChange={() => {}}
+      editSession={{ ...EDIT_BASE, ...over } as never}
+    />,
+  );
+};
+
+describe("SessionFormDialog — edição e dinheiro congelado", () => {
+  beforeEach(() => {
+    createMutate.mockClear();
+    updateMutate.mockClear();
+    toastError.mockClear();
+  });
+
+  it("editar SÓ observações não recalcula nada: payload sem campos financeiros", () => {
+    renderEdit();
+    fireEvent.change(document.querySelector("textarea")!, { target: { value: "nota nova" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const [payload] = updateMutate.mock.calls[0];
+    expect(payload.notes).toBe("nota nova");
+    expect(payload).not.toHaveProperty("payment_amount_cents");
+    expect(payload).not.toHaveProperty("trainer_hourly_rate_cents");
+    expect(payload).not.toHaveProperty("payment_rate_basis");
+  });
+
+  it("sessão PAGA: mudar duração é bloqueado com aviso, nada gravado", () => {
+    renderEdit({ is_paid: true });
+    fireEvent.change(screen.getAllByRole("spinbutton")[0], { target: { value: "90" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(updateMutate).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(String(toastError.mock.calls[0][0])).toContain("paga");
+  });
+
+  it("mudar duração em NÃO-paga recalcula pela tarifa do par", () => {
+    renderEdit();
+    fireEvent.change(screen.getAllByRole("spinbutton")[0], { target: { value: "90" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const [payload] = updateMutate.mock.calls[0];
+    expect(payload.payment_amount_cents).toBe(15000); // 1,5h × 100/h
+    expect(payload.payment_rate_basis).toBe("hourly");
+  });
+
+  it("trocar para treinador SEM tarifa no serviço: bloqueio visível", () => {
+    renderEdit();
+    // Ceniz não tem tarifa de grupo:
+    fireEvent.change(selects()[1], { target: { value: "t-ceniz" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(updateMutate).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("serviço HISTÓRICO da sessão é preservado na edição (não flipa pro ativo único)", () => {
+    // sessão antiga classificada num serviço que nem está mais no catálogo ativo:
+    renderEdit({ service_type_id: "s-antigo", duration_minutes: 90 });
+    // muda a duração (mexe em dinheiro) SEM tocar no serviço: o par
+    // (t-alex × s-antigo) não tem tarifa → bloqueio explícito, e NUNCA
+    // troca silenciosa pro serviço ativo único.
+    fireEvent.change(screen.getAllByRole("spinbutton")[0], { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(updateMutate).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+    // e o aviso é sobre tarifa (par exato), não sobre serviço trocado:
+    expect(String(toastError.mock.calls[0][0])).toContain("tarifa");
   });
 });

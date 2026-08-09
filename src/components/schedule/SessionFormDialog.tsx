@@ -61,9 +61,12 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
   const serviceOptions = (services ?? []).filter(
     (s) => s.delivery_type === sessionType,
   );
+  // Estado explícito manda (edição preserva o serviço HISTÓRICO da sessão,
+  // mesmo se ele foi desativado no catálogo); auto-escolha só no vazio com
+  // opção única.
   const effectiveServiceId =
-    serviceOptions.length === 1 ? serviceOptions[0].id : serviceTypeId;
-  const selectedService = serviceOptions.find((s) => s.id === effectiveServiceId);
+    serviceTypeId || (serviceOptions.length === 1 ? serviceOptions[0].id : "");
+  const selectedService = (services ?? []).find((s) => s.id === effectiveServiceId);
 
   // Tarifa do PAR treinador × serviço (trainer_service_rates).
   const pairRate =
@@ -111,25 +114,11 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
     e.preventDefault();
     if (!modality) return;
 
-    if (!effectiveServiceId) {
-      toast.error("Escolha o serviço da sessão.");
-      return;
-    }
-    // Treinador escolhido mas sem tarifa neste serviço: bloqueio VISÍVEL
-    // — a alternativa seria sessão nascendo com R$ 0 mudo na folha.
-    if (trainerId && !pairRate) {
-      toast.error(
-        `${selectedTrainer?.full_name ?? "Treinador"} não tem tarifa cadastrada para ${selectedService?.name ?? "este serviço"}. Cadastre em Treinadores → Pagamentos à equipe.`,
-      );
-      return;
-    }
-
-    // Snapshot de pagamento — MESMA função do gerador automático
-    // (fonte única, Onda 2d; base por serviço na PR-C).
     const durationNum = parseInt(duration);
-    const snapshot = sessionPaymentSnapshot(durationNum, pairRate ?? null);
+    const action = isEditing ? recurringAction || "this" : null;
 
-    const sessionData = {
+    // Campos estruturais (sem dinheiro) — usados por todos os caminhos.
+    const baseData = {
       session_type: sessionType,
       session_date: date,
       start_time: startTime,
@@ -138,20 +127,72 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
       capacity: parseInt(capacity),
       trainer_id: trainerId || null,
       student_id: sessionType === "personal" ? (studentId || null) : null,
-      service_type_id: effectiveServiceId,
-      trainer_hourly_rate_cents: snapshot.trainer_hourly_rate_cents,
-      payment_hours: snapshot.payment_hours,
-      payment_amount_cents: snapshot.payment_amount_cents,
-      payment_rate_basis: snapshot.payment_rate_basis,
       notes: notes || null,
     };
 
-    if (isEditing) {
-      const action = recurringAction || "this";
+    // O snapshot financeiro SÓ é recalculado quando este submit realmente
+    // escreve dinheiro: criação, ou edição "this" não-paga com mudança em
+    // treinador/serviço/duração. Fora disso, valores congelados ficam
+    // congelados (sessão paga é registro de folha; edição de horário de
+    // uma sessão antiga não pode ser refém de tarifa não cadastrada).
+    const buildFinancials = () => {
+      if (!effectiveServiceId) {
+        toast.error("Escolha o serviço da sessão.");
+        return null;
+      }
+      if (trainerId && !pairRate) {
+        toast.error(
+          `${selectedTrainer?.full_name ?? "Treinador"} não tem tarifa cadastrada para ${selectedService?.name ?? "este serviço"}. Cadastre em Treinadores → Pagamentos à equipe.`,
+        );
+        return null;
+      }
+      const snapshot = sessionPaymentSnapshot(durationNum, pairRate ?? null);
+      return {
+        service_type_id: effectiveServiceId,
+        trainer_hourly_rate_cents: snapshot.trainer_hourly_rate_cents,
+        payment_hours: snapshot.payment_hours,
+        payment_amount_cents: snapshot.payment_amount_cents,
+        payment_rate_basis: snapshot.payment_rate_basis,
+      };
+    };
 
+    if (!isEditing) {
+      const financials = buildFinancials();
+      if (!financials) return;
+      createSession.mutate(
+        { ...baseData, ...financials },
+        { onSuccess: () => onOpenChange(false) },
+      );
+      return;
+    }
+
+    {
       if (action === "this") {
+        const isPaid = !!editSession!.is_paid;
+        const financialsChanged =
+          (trainerId || null) !== (editSession!.trainer_id || null) ||
+          (effectiveServiceId || null) !== (editSession!.service_type_id || null) ||
+          durationNum !== editSession!.duration_minutes;
+
+        let payload: Record<string, unknown> = {
+          ...baseData,
+          is_exception: !!editSession!.template_id,
+        };
+        if (isPaid) {
+          // Dinheiro congelado: nem treinador/duração alteram o pago.
+          if (financialsChanged) {
+            toast.error(
+              "Sessão já paga: horário e observações podem mudar, mas treinador, serviço e duração ficam congelados (ajuste tem fluxo próprio).",
+            );
+            return;
+          }
+        } else if (financialsChanged) {
+          const financials = buildFinancials();
+          if (!financials) return;
+          payload = { ...payload, ...financials };
+        }
         updateSession.mutate(
-          { id: editSession!.id, ...sessionData, is_exception: !!editSession!.template_id },
+          { id: editSession!.id, ...payload },
           { onSuccess: () => onOpenChange(false) }
         );
       } else if (action === "this_and_following" && editSession!.template_id) {
@@ -165,8 +206,6 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
           { onSuccess: () => onOpenChange(false) }
         );
       }
-    } else {
-      createSession.mutate(sessionData, { onSuccess: () => onOpenChange(false) });
     }
   };
 
@@ -200,7 +239,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
             <div>
               <Label>Modalidade</Label>
               <Select value={modality} onValueChange={setModality}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger aria-label="Modalidade"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {modalities?.map((m) => (
                     <SelectItem key={m.id} value={m.slug}>{m.name}</SelectItem>
@@ -234,7 +273,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
             <div>
               <Label>Serviço</Label>
               <Select value={serviceTypeId} onValueChange={setServiceTypeId}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger aria-label="Serviço"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {serviceOptions.map((s) => (
                     <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
@@ -247,7 +286,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
           <div>
             <Label>Treinador</Label>
             <Select value={trainerId} onValueChange={setTrainerId}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+              <SelectTrigger aria-label="Treinador"><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
                 {trainers?.map((t) => {
                   const r = effectiveServiceId
@@ -291,7 +330,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
             <div>
               <Label>Aluno</Label>
               <Select value={studentId} onValueChange={setStudentId}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger aria-label="Aluno"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {students?.map((s) => (
                     <SelectItem key={s.id} value={s.id}>{s.full_name}</SelectItem>

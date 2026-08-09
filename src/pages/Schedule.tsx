@@ -9,11 +9,16 @@ import { useClassSessions, useActiveModalities, useAutoGenerateSessions } from "
 import { WeeklyCalendar } from "@/components/schedule/WeeklyCalendar";
 import { DailyList } from "@/components/schedule/DailyList";
 import { SessionFormDialog } from "@/components/schedule/SessionFormDialog";
+import { useUserRoles } from "@/hooks/useUserRoles";
 import { ModalitiesManager } from "@/components/schedule/ModalitiesManager";
 import { TemplateManager } from "@/components/schedule/TemplateManager";
 import { ModalityFilterPopover } from "@/components/schedule/ModalityFilterPopover";
 
 export default function Schedule() {
+  // A policy de INSERT em sessions só aceita admin/instructor — recepção e
+  // manager veem a agenda, mas não o botão de criar (antes: form que só falha).
+  const { hasAnyRole } = useUserRoles();
+  const canCreateSessions = hasAnyRole(["admin", "instructor"]);
   const [view, setView] = useState<"week" | "day">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [modalityFilter, setModalityFilter] = useState<string[] | null>(null);
@@ -120,9 +125,11 @@ export default function Schedule() {
             </SheetContent>
           </Sheet>
 
-          <Button size="sm" onClick={() => setShowNewSession(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Nova Sessão
-          </Button>
+          {canCreateSessions && (
+            <Button size="sm" onClick={() => setShowNewSession(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Nova Sessão
+            </Button>
+          )}
         </div>
       </div>
 
