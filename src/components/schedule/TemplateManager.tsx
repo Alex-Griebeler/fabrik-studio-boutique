@@ -77,6 +77,7 @@ export function TemplateManager() {
     setDuration("60");
     setCapacity("12");
     setInstructorId("");
+    setServiceTypeId("");
     setLocation("");
     setSelectedDays([]);
     setRecurrenceStart(new Date().toISOString().slice(0, 10));
@@ -92,6 +93,7 @@ export function TemplateManager() {
     setDuration(String(t.duration_minutes));
     setCapacity(String(t.capacity));
     setInstructorId(t.instructor_id || "");
+    setServiceTypeId(t.service_type_id || "");
     setLocation(t.location || "");
     setSelectedDays([t.day_of_week]);
     setRecurrenceStart(t.recurrence_start);
@@ -114,7 +116,9 @@ export function TemplateManager() {
 
   const handleSave = () => {
     if (!modality) return;
-    if (!effectiveServiceId) {
+    // Serviço só é exigido na CRIAÇÃO (o update não troca o serviço da
+    // série — editar horário de turma antiga nunca fica refém do catálogo).
+    if (!editingTemplate && !effectiveServiceId) {
       toast.error("Escolha o serviço da turma (catálogo de Pagamentos à equipe).");
       return;
     }
