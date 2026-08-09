@@ -214,9 +214,18 @@ describe("useUpdateThisAndFollowing — paga é intocável", () => {
       "duration_minutes",
       "capacity",
       "instructor_id",
+      "location",
+      "recurrence_end",
       "is_active",
     ]) {
       expect(cols).toContain(required);
+    }
+    // nulls entram via .is() (eq com null não casa NULL no PostgREST):
+    const nullFiltered = (existsCheck?.filters ?? [])
+      .filter(([m]) => m === "is")
+      .map(([, col]) => col);
+    for (const nullable of ["instructor_id", "location", "recurrence_end"]) {
+      expect(nullFiltered).toContain(nullable);
     }
   });
 

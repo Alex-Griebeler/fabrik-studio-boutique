@@ -176,6 +176,14 @@ export function useUpdateThisAndFollowing() {
         newTpl.instructor_id === null
           ? existsQuery.is("instructor_id", null)
           : existsQuery.eq("instructor_id", newTpl.instructor_id);
+      existsQuery =
+        newTpl.location === null
+          ? existsQuery.is("location", null)
+          : existsQuery.eq("location", newTpl.location);
+      existsQuery =
+        newTpl.recurrence_end === null
+          ? existsQuery.is("recurrence_end", null)
+          : existsQuery.eq("recurrence_end", newTpl.recurrence_end);
       const { data: existingNew, error: existsErr } = await existsQuery;
       if (existsErr) throw existsErr;
 
