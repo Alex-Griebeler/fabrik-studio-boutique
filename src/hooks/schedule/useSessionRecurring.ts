@@ -111,13 +111,13 @@ export function useUpdateThisAndFollowing() {
         .single();
       if (!oldTemplate) throw new Error("Template não encontrado");
 
-      // ORDEM pensada pra retry seguro (não há transação client-side):
-      // 1º apaga futuras não-pagas, 2º encerra o template antigo, 3º cria
-      // o novo. Falha em qualquer passo → retry re-executa tudo sem
-      // duplicar (delete de 0 linhas e update repetido são no-ops; o
-      // insert é o ÚLTIMO passo). Residual documentado: se o insert
-      // gravar e a RESPOSTA se perder, um retry duplicaria a série —
-      // visível em Turmas, remoção manual.
+      // ORDEM pensada pra retry IDEMPOTENTE (não há transação client-side):
+      // 1º apaga futuras não-pagas; 2º cria o template novo SE ainda não
+      // existir (checagem por assinatura: dia+horário+início da série);
+      // 3º trunca o antigo por ÚLTIMO. Qualquer falha → retry re-executa
+      // no-ops e converge: sem série duplicada e sem "template morto"
+      // (inserir antes de truncar preserva o recurrence_end ORIGINAL do
+      // antigo pra copiar no novo).
       const { data: futureSessions, error: futErr } = await supabase
         .from("sessions")
         .select("id")
@@ -141,25 +141,37 @@ export function useUpdateThisAndFollowing() {
         if (delErr) throw delErr;
       }
 
+      const newStartTime = updates.start_time || oldTemplate.start_time;
+      const { data: existingNew, error: existsErr } = await supabase
+        .from("class_templates")
+        .select("id")
+        .eq("day_of_week", oldTemplate.day_of_week)
+        .eq("start_time", newStartTime)
+        .eq("recurrence_start", session.session_date)
+        .eq("is_active", true);
+      if (existsErr) throw existsErr;
+
+      if (!existingNew?.length) {
+        const { error: newTplErr } = await supabase.from("class_templates").insert({
+          modality: updates.modality || oldTemplate.modality,
+          day_of_week: oldTemplate.day_of_week,
+          start_time: newStartTime,
+          duration_minutes: updates.duration_minutes || oldTemplate.duration_minutes,
+          capacity: updates.capacity || oldTemplate.capacity,
+          instructor_id: updates.instructor_id !== undefined ? updates.instructor_id : oldTemplate.instructor_id,
+          location: oldTemplate.location,
+          is_active: true,
+          recurrence_start: session.session_date,
+          recurrence_end: oldTemplate.recurrence_end,
+        });
+        if (newTplErr) throw newTplErr;
+      }
+
       const { error: endErr } = await supabase
         .from("class_templates")
         .update({ recurrence_end: oldEnd })
         .eq("id", session.template_id);
       if (endErr) throw endErr;
-
-      const { error: newTplErr } = await supabase.from("class_templates").insert({
-        modality: updates.modality || oldTemplate.modality,
-        day_of_week: oldTemplate.day_of_week,
-        start_time: updates.start_time || oldTemplate.start_time,
-        duration_minutes: updates.duration_minutes || oldTemplate.duration_minutes,
-        capacity: updates.capacity || oldTemplate.capacity,
-        instructor_id: updates.instructor_id !== undefined ? updates.instructor_id : oldTemplate.instructor_id,
-        location: oldTemplate.location,
-        is_active: true,
-        recurrence_start: session.session_date,
-        recurrence_end: oldTemplate.recurrence_end,
-      });
-      if (newTplErr) throw newTplErr;
       // (Sessão PAGA nunca é deletada — o delete lá em cima filtra
       // is_paid=false; a paga antiga pode coexistir visível com a série
       // nova. Redesenho da recorrência é backlog registrado.)

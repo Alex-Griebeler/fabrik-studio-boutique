@@ -16,6 +16,7 @@ type Row = Record<string, unknown>;
 let AFFECTED_SESSIONS: Row[] = [];
 let FUTURE_SESSIONS: Row[] = [];
 let ROW_UPDATE_ERROR_FOR: string | null = null;
+let TEMPLATE_EXISTS = false;
 const updateCalls: Array<{ table: string; data: Row; filters: Array<[string, string, unknown]> }> = [];
 const deleteCalls: Array<{ table: string; filters: Array<[string, string, unknown]> }> = [];
 const insertCalls: Array<{ table: string; data: Row }> = [];
@@ -50,6 +51,9 @@ vi.mock("@/integrations/supabase/client", () => {
       }
       if (op === "select") {
         selectCalls.push({ table, cols: String(data?.cols ?? ""), filters });
+        // checagem de existência do template novo
+        if (table === "class_templates")
+          return resolve({ data: TEMPLATE_EXISTS ? [{ id: "tpl-novo" }] : [], error: null });
         // dois selects de sessions: o de recompute (payment) e o de futuras (id)
         const wantsPayment = String(data?.cols ?? "").includes("payment_rate_basis");
         return resolve({ data: wantsPayment ? AFFECTED_SESSIONS : FUTURE_SESSIONS, error: null });
@@ -193,8 +197,29 @@ describe("useUpdateThisAndFollowing — paga é intocável", () => {
 
     const delIdx = opSequence.indexOf("delete:sessions");
     const insIdx = opSequence.indexOf("insert:class_templates");
+    const truncIdx = opSequence.indexOf("update:class_templates");
     expect(delIdx).toBeGreaterThanOrEqual(0);
-    expect(insIdx).toBeGreaterThan(delIdx); // insert é o ÚLTIMO passo
+    expect(insIdx).toBeGreaterThan(delIdx); // delete vem antes do insert
+    expect(truncIdx).toBeGreaterThan(insIdx); // truncar o antigo é o ÚLTIMO
+    // e a checagem de existência protege contra série duplicada no retry:
+    expect(selectCalls.some((c) => c.table === "class_templates")).toBe(true);
+  });
+
+  it("template novo JÁ existe (retry pós-falha): não duplica a série", async () => {
+    // o mock devolve [] por padrão; força existência via override local:
+    const origSelect = selectCalls.length; // marcador
+    void origSelect;
+    // simula existência: intercepta redefinindo o comportamento padrão
+    // (o builder consulta class_templates → devolvemos um registro)
+    TEMPLATE_EXISTS = true;
+    const { result } = renderHook(() => useUpdateThisAndFollowing(), { wrapper });
+    result.current.mutate({
+      session: { id: "s-1", template_id: "tpl-1", session_date: "2026-08-10" } as never,
+      updates: { duration_minutes: 90 },
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(opSequence).not.toContain("insert:class_templates");
+    TEMPLATE_EXISTS = false;
   });
 });
 

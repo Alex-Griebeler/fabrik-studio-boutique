@@ -376,10 +376,10 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
         editSession={session}
         recurringAction={pendingEditAction}
       />
-      <RecurringActionDialog open={showRecurringEdit} onOpenChange={setShowRecurringEdit}
+      <RecurringActionDialog allowSeries={hasRole("admin")} open={showRecurringEdit} onOpenChange={setShowRecurringEdit}
         title="Editar evento recorrente" description="Este evento faz parte de uma série recorrente."
         onSelect={handleRecurringEdit} variant="edit" />
-      <RecurringActionDialog open={showRecurringDelete} onOpenChange={setShowRecurringDelete}
+      <RecurringActionDialog allowSeries={hasRole("admin")} open={showRecurringDelete} onOpenChange={setShowRecurringDelete}
         title="Excluir evento recorrente" description="Este evento faz parte de uma série recorrente."
         onSelect={handleRecurringDelete} variant="delete"
         isPending={cancelSingle.isPending || deleteFollowing.isPending || deleteAll.isPending} />

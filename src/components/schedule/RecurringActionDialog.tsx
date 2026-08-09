@@ -19,6 +19,9 @@ interface Props {
   onSelect: (action: RecurringAction) => void;
   isPending?: boolean;
   variant?: "edit" | "delete";
+  /** Ações em série mexem em class_templates (policies ADMIN-only) —
+   *  false esconde "este e seguintes"/"todos" (ex.: instructor). */
+  allowSeries?: boolean;
 }
 
 export function RecurringActionDialog({
@@ -29,6 +32,7 @@ export function RecurringActionDialog({
   onSelect,
   isPending,
   variant = "edit",
+  allowSeries = true,
 }: Props) {
   const isDelete = variant === "delete";
 
@@ -48,22 +52,26 @@ export function RecurringActionDialog({
           >
             {isDelete ? "Excluir este evento" : "Editar este evento"}
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => onSelect("this_and_following")}
-            disabled={isPending}
-            className="justify-start"
-          >
-            {isDelete ? "Excluir este e os seguintes" : "Editar este e os seguintes"}
-          </Button>
-          <Button
-            variant={isDelete ? "destructive" : "outline"}
-            onClick={() => onSelect("all")}
-            disabled={isPending}
-            className="justify-start"
-          >
-            {isDelete ? "Excluir todos os eventos" : "Editar todos os eventos"}
-          </Button>
+          {allowSeries && (
+            <Button
+              variant="outline"
+              onClick={() => onSelect("this_and_following")}
+              disabled={isPending}
+              className="justify-start"
+            >
+              {isDelete ? "Excluir este e os seguintes" : "Editar este e os seguintes"}
+            </Button>
+          )}
+          {allowSeries && (
+            <Button
+              variant={isDelete ? "destructive" : "outline"}
+              onClick={() => onSelect("all")}
+              disabled={isPending}
+              className="justify-start"
+            >
+              {isDelete ? "Excluir todos os eventos" : "Editar todos os eventos"}
+            </Button>
+          )}
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
