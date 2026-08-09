@@ -15,7 +15,9 @@ import {
 } from "@/hooks/useSchedule";
 import { useTrainers } from "@/hooks/useTrainers";
 import { useStudents } from "@/hooks/useStudents";
+import { useServiceTypes, useTrainerServiceRates, pairKey } from "@/hooks/useServiceRates";
 import { sessionPaymentSnapshot } from "@/lib/sessionPayment";
+import { toast } from "sonner";
 import { RecurringAction } from "./RecurringActionDialog";
 
 interface Props {
@@ -35,6 +37,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
   const [capacity, setCapacity] = useState("12");
   const [trainerId, setTrainerId] = useState("");
   const [studentId, setStudentId] = useState("");
+  const [serviceTypeId, setServiceTypeId] = useState("");
   const [notes, setNotes] = useState("");
 
   const createSession = useCreateSession();
@@ -44,11 +47,31 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
   const { data: modalities } = useActiveModalities();
   const { data: trainers } = useTrainers(true);
   const { data: students } = useStudents("", "active");
+  const { data: services } = useServiceTypes();
+  const { data: serviceRates } = useTrainerServiceRates();
 
   const isEditing = !!editSession;
 
-  // Get selected trainer for rate calculation
   const selectedTrainer = trainers?.find((t) => t.id === trainerId);
+
+  // PR-C: o serviço PRECIFICA a sessão. As opções são os serviços cujo
+  // formato bate com o tipo (turma → Grupo; individual → Personal,
+  // Fisioterapia...). Com opção única o seletor nem aparece — escolha
+  // sem alternativa é ruído.
+  const serviceOptions = (services ?? []).filter(
+    (s) => s.delivery_type === sessionType,
+  );
+  const effectiveServiceId =
+    serviceOptions.length === 1 ? serviceOptions[0].id : serviceTypeId;
+  const selectedService = serviceOptions.find((s) => s.id === effectiveServiceId);
+
+  // Tarifa do PAR treinador × serviço (trainer_service_rates).
+  const pairRate =
+    trainerId && effectiveServiceId
+      ? serviceRates?.find(
+          (r) => pairKey(r.trainer_id, r.service_type_id) === pairKey(trainerId, effectiveServiceId),
+        )
+      : undefined;
 
   useEffect(() => {
     if (editSession) {
@@ -60,6 +83,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
       setCapacity(String(editSession.capacity));
       setTrainerId(editSession.trainer_id || "");
       setStudentId(editSession.student_id || "");
+      setServiceTypeId(editSession.service_type_id || "");
       setNotes(editSession.notes || "");
     } else {
       setSessionType("group");
@@ -70,27 +94,40 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
       setCapacity("12");
       setTrainerId("");
       setStudentId("");
+      setServiceTypeId("");
       setNotes("");
     }
   }, [editSession, defaultDate, open]);
 
-  // Auto-set capacity for personal
+  // Auto-set capacity for personal; troca de tipo zera o serviço escolhido
+  // (as opções mudam de conjunto).
   useEffect(() => {
     if (sessionType === "personal") setCapacity("1");
+    if (!isEditing) setServiceTypeId("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionType]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!modality) return;
 
+    if (!effectiveServiceId) {
+      toast.error("Escolha o serviço da sessão.");
+      return;
+    }
+    // Treinador escolhido mas sem tarifa neste serviço: bloqueio VISÍVEL
+    // — a alternativa seria sessão nascendo com R$ 0 mudo na folha.
+    if (trainerId && !pairRate) {
+      toast.error(
+        `${selectedTrainer?.full_name ?? "Treinador"} não tem tarifa cadastrada para ${selectedService?.name ?? "este serviço"}. Cadastre em Treinadores → Pagamentos à equipe.`,
+      );
+      return;
+    }
+
     // Snapshot de pagamento — MESMA função do gerador automático
-    // (fonte única, Onda 2d).
+    // (fonte única, Onda 2d; base por serviço na PR-C).
     const durationNum = parseInt(duration);
-    const {
-      payment_hours: paymentHours,
-      trainer_hourly_rate_cents: trainerRate,
-      payment_amount_cents: paymentAmount,
-    } = sessionPaymentSnapshot(durationNum, selectedTrainer?.hourly_rate_main_cents);
+    const snapshot = sessionPaymentSnapshot(durationNum, pairRate ?? null);
 
     const sessionData = {
       session_type: sessionType,
@@ -101,9 +138,11 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
       capacity: parseInt(capacity),
       trainer_id: trainerId || null,
       student_id: sessionType === "personal" ? (studentId || null) : null,
-      trainer_hourly_rate_cents: trainerRate,
-      payment_hours: paymentHours,
-      payment_amount_cents: paymentAmount,
+      service_type_id: effectiveServiceId,
+      trainer_hourly_rate_cents: snapshot.trainer_hourly_rate_cents,
+      payment_hours: snapshot.payment_hours,
+      payment_amount_cents: snapshot.payment_amount_cents,
+      payment_rate_basis: snapshot.payment_rate_basis,
       notes: notes || null,
     };
 
@@ -190,26 +229,59 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
                 disabled={sessionType === "personal"} />
             </div>
           </div>
+          {/* Serviço: aparece só quando há escolha real (>1 opção) */}
+          {serviceOptions.length > 1 && (
+            <div>
+              <Label>Serviço</Label>
+              <Select value={serviceTypeId} onValueChange={setServiceTypeId}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {serviceOptions.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div>
             <Label>Treinador</Label>
             <Select value={trainerId} onValueChange={setTrainerId}>
               <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
-                {trainers?.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.full_name}
-                    {t.hourly_rate_main_cents > 0 && (
-                      <span className="text-muted-foreground ml-1">
-                        (R${(t.hourly_rate_main_cents / 100).toFixed(0)}/h)
-                      </span>
-                    )}
-                  </SelectItem>
-                ))}
+                {trainers?.map((t) => {
+                  const r = effectiveServiceId
+                    ? serviceRates?.find(
+                        (x) => x.trainer_id === t.id && x.service_type_id === effectiveServiceId,
+                      )
+                    : undefined;
+                  return (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.full_name}
+                      {r && (
+                        <span className="text-muted-foreground ml-1">
+                          (R${(r.rate_cents / 100).toFixed(0)}
+                          {r.rate_basis === "hourly" ? "/h" : "/sessão"})
+                        </span>
+                      )}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
-            {selectedTrainer && parseInt(duration) > 0 && (
+            {selectedTrainer && pairRate && parseInt(duration) > 0 && (
               <p className="text-[10px] text-muted-foreground mt-1">
-                Taxa calculada: R$ {((parseInt(duration) / 60 * selectedTrainer.hourly_rate_main_cents) / 100).toFixed(2)}
+                Pagamento da sessão: R${" "}
+                {(
+                  sessionPaymentSnapshot(parseInt(duration), pairRate)
+                    .payment_amount_cents / 100
+                ).toFixed(2)}
+              </p>
+            )}
+            {selectedTrainer && !pairRate && (
+              <p className="text-[10px] text-destructive mt-1">
+                Sem tarifa cadastrada para {selectedService?.name ?? "o serviço"} —
+                cadastre em Treinadores → Pagamentos à equipe.
               </p>
             )}
           </div>

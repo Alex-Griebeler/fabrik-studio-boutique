@@ -344,11 +344,10 @@ export function RatesTab({ isAdmin }: RatesTabProps) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-        A agenda e a folha ainda usam a tarifa legada do cadastro do treinador.
-        Esta tela prepara as tarifas por serviço — elas passam a valer quando a
-        etapa da agenda (PR-C) entrar no ar.
-      </div>
+      <p className="text-xs text-muted-foreground">
+        Valores que o estúdio <strong>paga ao profissional</strong> por
+        atendimento — não são os preços cobrados dos alunos.
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         {coverage.map(({ service, missing }) => (

@@ -40,6 +40,7 @@ export interface ClassTemplate {
   duration_minutes: number;
   capacity: number;
   instructor_id: string | null;
+  service_type_id: string | null;
   location: string | null;
   is_active: boolean;
   recurrence_start: string;
@@ -69,10 +70,12 @@ export interface Session {
   capacity: number;
 
   // Financial snapshot
+  service_type_id: string | null;
   trainer_hourly_rate_cents: number;
   assistant_hourly_rate_cents: number;
   payment_hours: number;
   payment_amount_cents: number;
+  payment_rate_basis: "hourly" | "per_session" | null;
   assistant_payment_amount_cents: number;
   is_paid: boolean;
   paid_at: string | null;
@@ -157,7 +160,7 @@ export interface Trainer {
 export interface Policy {
   id: string;
   key: string;
-  value: any; // jsonb
+  value: unknown; // jsonb — consumidores fazem parse/narrow no uso
   description: string | null;
 }
 

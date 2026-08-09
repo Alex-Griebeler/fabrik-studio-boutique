@@ -57,19 +57,19 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
             .filter((id): id is string => Boolean(id)),
         ),
       ];
-      const trainerByProfile = new Map<
-        string,
-        { id: string; hourly_rate_main_cents: number }
-      >();
+      const trainerByProfile = new Map<string, { id: string }>();
       const ambiguousProfiles = new Set<string>();
+      // PR-C: a tarifa vem de trainer_service_rates (treinador × serviço
+      // da turma), não mais do campo legado do cadastro.
+      const rateByPair = new Map<string, { rate_cents: number; rate_basis: "hourly" | "per_session" }>();
       if (instructorProfileIds.length > 0) {
-        const { data: trainerRows, error: ratesErr } = await supabase
+        const { data: trainerRows, error: trainersErr } = await supabase
           .from("trainers")
-          .select("id, profile_id, hourly_rate_main_cents")
+          .select("id, profile_id")
           .in("profile_id", instructorProfileIds);
-        if (ratesErr) {
-          console.error("useAutoGenerateSessions: falha ao ler tarifas", ratesErr.message);
-          toast.error("Não foi possível ler as tarifas dos treinadores — geração adiada.");
+        if (trainersErr) {
+          console.error("useAutoGenerateSessions: falha ao ler treinadores", trainersErr.message);
+          toast.error("Não foi possível ler os treinadores — geração adiada.");
           return;
         }
         for (const t of trainerRows ?? []) {
@@ -88,6 +88,24 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
           trainerByProfile.set(t.profile_id, t);
         }
 
+        const trainerIds = [...trainerByProfile.values()].map((t) => t.id);
+        if (trainerIds.length > 0) {
+          const { data: rateRows, error: ratesErr } = await supabase
+            .from("trainer_service_rates")
+            .select("trainer_id, service_type_id, rate_basis, rate_cents")
+            .in("trainer_id", trainerIds);
+          if (ratesErr) {
+            console.error("useAutoGenerateSessions: falha ao ler tarifas por serviço", ratesErr.message);
+            toast.error("Não foi possível ler as tarifas por serviço — geração adiada.");
+            return;
+          }
+          for (const r of rateRows ?? []) {
+            rateByPair.set(`${r.trainer_id}|${r.service_type_id}`, {
+              rate_cents: r.rate_cents,
+              rate_basis: r.rate_basis as "hourly" | "per_session",
+            });
+          }
+        }
       }
       // A validação de vínculo/tarifa acontece adiante, POR TEMPLATE QUE
       // REALMENTE PRODUZ SESSÃO no período (revisão fria: validar todos
@@ -104,12 +122,14 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
         modality: string;
         capacity: number;
         // NÃO-nulos de propósito: depois da revisão fria, só template com
-        // treinador e tarifa íntegros gera sessão — se alguém reabrir um
-        // caminho nulo, o compilador acusa aqui.
+        // treinador, serviço e tarifa íntegros gera sessão — se alguém
+        // reabrir um caminho nulo, o compilador acusa aqui.
         trainer_id: string;
+        service_type_id: string;
         trainer_hourly_rate_cents: number;
         payment_hours: number;
         payment_amount_cents: number;
+        payment_rate_basis: "hourly" | "per_session";
       }> = [];
       const start = new Date(startDate + "T00:00:00");
       const end = new Date(endDate + "T00:00:00");
@@ -157,16 +177,32 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
           console.error(`useAutoGenerateSessions: template ${t.id} com instrutor sem treinador — pulado`);
           continue;
         }
-        if (!trainer.hourly_rate_main_cents || trainer.hourly_rate_main_cents <= 0) {
-          skippedReasons.add("treinador sem tarifa configurada");
-          console.error(`useAutoGenerateSessions: treinador ${trainer.id} sem tarifa — template pulado`);
+        // O serviço da turma vem do template (backfill da PR-A; o banco
+        // preenche "grupo" em template novo). Sem ele não há como saber
+        // qual tarifa usar.
+        if (!t.service_type_id) {
+          skippedReasons.add("turma sem serviço definido");
+          console.error(`useAutoGenerateSessions: template ${t.id} sem service_type_id — pulado`);
+          continue;
+        }
+        const rate = rateByPair.get(`${trainer.id}|${t.service_type_id}`);
+        if (!rate) {
+          skippedReasons.add(
+            "treinador sem tarifa para o serviço da turma (cadastre em Treinadores → Pagamentos à equipe)",
+          );
+          console.error(
+            `useAutoGenerateSessions: treinador ${trainer.id} sem tarifa no serviço ${t.service_type_id} — template pulado`,
+          );
           continue;
         }
 
-        const snapshot = sessionPaymentSnapshot(
-          t.duration_minutes,
-          trainer.hourly_rate_main_cents,
-        );
+        const snapshot = sessionPaymentSnapshot(t.duration_minutes, rate);
+        if (snapshot.payment_rate_basis === null) {
+          // rate_cents<=0 não deveria existir (CHECK no banco) — se
+          // aparecer, é pulo visível, nunca sessão de R$0.
+          skippedReasons.add("tarifa inválida para o serviço da turma");
+          continue;
+        }
         for (const dateStr of dates) {
           const endMinutes =
             parseInt(t.start_time.slice(0, 2)) * 60 +
@@ -184,9 +220,11 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
             modality: t.modality,
             capacity: t.capacity,
             trainer_id: trainer.id,
+            service_type_id: t.service_type_id,
             trainer_hourly_rate_cents: snapshot.trainer_hourly_rate_cents,
             payment_hours: snapshot.payment_hours,
             payment_amount_cents: snapshot.payment_amount_cents,
+            payment_rate_basis: snapshot.payment_rate_basis,
           });
         }
       }
@@ -270,6 +308,7 @@ export function useClassSessions(startDate: string, endDate: string) {
           disputed_by, resolved_at, resolved_by, adjusted_at, adjusted_by,
           adjustment_reason, payment_amount_cents, payment_hours, paid_at,
           original_payment_amount_cents, trainer_hourly_rate_cents,
+          service_type_id, payment_rate_basis,
           assistant_hourly_rate_cents, assistant_payment_amount_cents,
           created_at, updated_at,
           trainer:trainers!sessions_trainer_id_fkey(id, full_name),
