@@ -999,7 +999,7 @@ export type Database = {
           modality: string
           recurrence_end: string | null
           recurrence_start: string
-          service_type_id: string | null
+          service_type_id: string
           start_time: string
           updated_at: string
         }
@@ -1015,7 +1015,7 @@ export type Database = {
           modality: string
           recurrence_end?: string | null
           recurrence_start?: string
-          service_type_id?: string | null
+          service_type_id: string
           start_time: string
           updated_at?: string
         }
@@ -1031,7 +1031,7 @@ export type Database = {
           modality?: string
           recurrence_end?: string | null
           recurrence_start?: string
-          service_type_id?: string | null
+          service_type_id?: string
           start_time?: string
           updated_at?: string
         }
@@ -2758,7 +2758,7 @@ export type Database = {
           payment_rate_basis: string | null
           resolved_at: string | null
           resolved_by: string | null
-          service_type_id: string | null
+          service_type_id: string
           session_date: string
           session_type: Database["public"]["Enums"]["session_type"]
           start_time: string
@@ -2817,7 +2817,7 @@ export type Database = {
           payment_rate_basis?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
-          service_type_id?: string | null
+          service_type_id: string
           session_date: string
           session_type?: Database["public"]["Enums"]["session_type"]
           start_time: string
@@ -2876,7 +2876,7 @@ export type Database = {
           payment_rate_basis?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
-          service_type_id?: string | null
+          service_type_id?: string
           session_date?: string
           session_type?: Database["public"]["Enums"]["session_type"]
           start_time?: string
