@@ -5,7 +5,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(12);
+SELECT plan(13);
 
 SELECT has_view('public'::name, 'payable_sessions'::name, 'view payable_sessions existe');
 SELECT has_column('public'::name, 'payable_sessions'::name, 'service_name'::name, 'projeta service_name');
@@ -16,19 +16,11 @@ SELECT ok(
     WHERE oid = 'public.payable_sessions'::regclass),
   'security_invoker segue ligado (RLS do leitor vale)');
 
--- A sessão completed do fixture aparece com o serviço RESOLVIDO pelo
--- catálogo (backfill da PR-A classificou como grupo):
+-- O predicado de DONO filtra qualquer caller sem papel — inclusive o
+-- postgres (auth.uid() nulo): a view precisa vir VAZIA fora dos papéis.
 SELECT is(
-  (SELECT service_name FROM public.payable_sessions
-    WHERE id = '99999999-9999-9999-9999-999999999999'),
-  'Grupo', 'linha da folha carrega o nome do serviço');
-
--- Linha LEGADA (sem base gravada): payment_rate_basis nulo é projetado
--- como nulo — a UI trata como hourly implícito, a view não inventa.
-SELECT is(
-  (SELECT payment_rate_basis FROM public.payable_sessions
-    WHERE id = '99999999-9999-9999-9999-999999999999'),
-  NULL, 'base legada nula não é inventada pela view');
+  (SELECT count(*) FROM public.payable_sessions),
+  0::bigint, 'sem papel (auth.uid() nulo) a folha vem vazia — dono na view');
 
 -- ---- Caminho REAL por papel: DONO na própria view ----
 -- 01 = instructor VINCULADO ao treinador da sessão (perfil no fixture);
@@ -73,6 +65,16 @@ SET LOCAL request.jwt.claims = '{"sub":"f9000000-0000-0000-0000-000000000004","r
 SELECT is(
   (SELECT count(*) FROM public.payable_sessions),
   1::bigint, 'admin vê a folha inteira');
+SELECT is(
+  (SELECT service_name FROM public.payable_sessions
+    WHERE id = '99999999-9999-9999-9999-999999999999'),
+  'Grupo', 'admin resolve o service_name pelo join do catálogo');
+-- Linha LEGADA (sem base gravada): nulo projetado como nulo — a UI trata
+-- como hourly implícito, a view não inventa.
+SELECT is(
+  (SELECT payment_rate_basis FROM public.payable_sessions
+    WHERE id = '99999999-9999-9999-9999-999999999999'),
+  NULL, 'base legada nula não é inventada pela view');
 RESET ROLE;
 
 SET LOCAL ROLE authenticated;

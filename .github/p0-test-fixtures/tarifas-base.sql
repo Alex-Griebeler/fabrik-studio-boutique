@@ -157,6 +157,14 @@ ALTER TABLE public.class_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
 
+-- réplica da postura de produção: linhas de trainers/students legíveis por
+-- logado (colunas sensíveis de trainers são gated por GRANT em produção;
+-- aqui o fixture só tem operacionais)
+CREATE POLICY trainers_select ON public.trainers FOR SELECT
+  USING (true);
+CREATE POLICY students_select ON public.students FOR SELECT
+  USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role) OR has_role(auth.uid(), 'reception'::app_role));
+
 CREATE POLICY sessions_select ON public.sessions FOR SELECT
   USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role) OR has_role(auth.uid(), 'reception'::app_role));
 CREATE POLICY sessions_insert ON public.sessions FOR INSERT
