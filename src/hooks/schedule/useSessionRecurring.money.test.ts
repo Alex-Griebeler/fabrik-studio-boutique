@@ -320,7 +320,9 @@ describe("useCreateSession — INSERT carrega os campos novos", () => {
     expect(row.payment_amount_cents).toBe(10800);
   });
 
-  it("sem os campos: defaults null (sessão sem treinador)", async () => {
+  it("PR-E: serviço é obrigatório no TIPO do create (sem default null)", async () => {
+    // Contrato de compilação: mutate SEM service_type_id nem compila —
+    // aqui provamos que o payload enviado carrega o serviço verbatim.
     const { result } = renderHook(() => useCreateSession(), { wrapper });
     result.current.mutate({
       session_date: "2026-08-10",
@@ -328,10 +330,11 @@ describe("useCreateSession — INSERT carrega os campos novos", () => {
       duration_minutes: 60,
       modality: "flow",
       capacity: 12,
+      service_type_id: "s-grupo",
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const row = insertCalls[0].data as Record<string, unknown>;
-    expect(row.service_type_id).toBeNull();
-    expect(row.payment_rate_basis).toBeNull();
+    expect(row.service_type_id).toBe("s-grupo");
+    expect(row.payment_rate_basis).toBeNull(); // sessão sem treinador segue zerada
   });
 });

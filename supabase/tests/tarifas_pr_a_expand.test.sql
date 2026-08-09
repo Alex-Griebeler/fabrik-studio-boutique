@@ -1,13 +1,14 @@
--- Testes da PR-A de Tarifas por Serviço (expand).
--- Roda sobre tarifas-base.sql + a migration aplicada DUAS vezes (o CI
--- prova idempotência pela dupla aplicação; aqui provamos o estado final).
+-- Testes do CONTRATO FINAL de Tarifas por Serviço (expand A + contract E).
+-- Roda sobre tarifas-base.sql + migrations A/D/E aplicadas DUAS vezes cada
+-- (o CI prova idempotência); aqui provamos o estado final: serviço
+-- OBRIGATÓRIO (23502 sem ele), coerência definitiva (23514), tarifas.
 
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(47);
+SELECT plan(49);
 
 -- ---------- Estrutura ----------
 SELECT has_table('public'::name, 'service_types'::name, 'service_types existe');
@@ -70,9 +71,9 @@ SELECT is(
     WHERE ct.id = '22222222-2222-2222-2222-222222222222'),
   'grupo', 'template existente classificado como grupo');
 
--- ---------- Trigger transitório (bundle antigo insere sem serviço) ----------
+-- ---------- Contrato final: serviço EXPLÍCITO e obrigatório ----------
 -- Atravessa o caminho REAL de produção: authenticated + policy de INSERT
--- (admin/instructor) + trigger INVOKER lendo o catálogo pela policy.
+-- (admin/instructor) + guarda de coerência definitiva.
 INSERT INTO public.user_roles (user_id, role) VALUES
   ('f8000000-0000-0000-0000-000000000001', 'admin'),
   ('f8000000-0000-0000-0000-000000000002', 'instructor');
@@ -81,34 +82,49 @@ SET LOCAL ROLE authenticated;
 SET LOCAL request.jwt.claim.sub = 'f8000000-0000-0000-0000-000000000001';
 SET LOCAL request.jwt.claims = '{"sub":"f8000000-0000-0000-0000-000000000001","role":"authenticated"}';
 
-INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, end_time, duration_minutes)
-VALUES ('55555555-5555-5555-5555-555555555555', 'group', 'hiit', '2026-08-10', '08:00', '09:00', 60);
+INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, end_time, duration_minutes, service_type_id)
+SELECT '55555555-5555-5555-5555-555555555555', 'group', 'hiit', '2026-08-10', '08:00', '09:00', 60, id
+  FROM public.service_types WHERE slug = 'grupo';
 SELECT is(
   (SELECT st.slug FROM public.sessions s JOIN public.service_types st ON st.id = s.service_type_id
     WHERE s.id = '55555555-5555-5555-5555-555555555555'),
-  'grupo', 'sessão nova de turma sem serviço ganha grupo no INSERT');
+  'grupo', 'sessão de turma nasce com serviço explícito');
 
-INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, end_time, duration_minutes)
-VALUES ('66666666-6666-6666-6666-666666666666', 'personal', 'personal', '2026-08-10', '09:00', '10:00', 60);
+INSERT INTO public.sessions (id, session_type, modality, session_date, start_time, end_time, duration_minutes, service_type_id)
+SELECT '66666666-6666-6666-6666-666666666666', 'personal', 'personal', '2026-08-10', '09:00', '10:00', 60, id
+  FROM public.service_types WHERE slug = 'personal';
 SELECT is(
   (SELECT st.slug FROM public.sessions s JOIN public.service_types st ON st.id = s.service_type_id
     WHERE s.id = '66666666-6666-6666-6666-666666666666'),
-  'personal', 'sessão nova personal sem serviço ganha personal no INSERT');
+  'personal', 'sessão personal nasce com serviço explícito');
 
--- Bundle antigo às vezes nem manda session_type (DEFAULT 'group' cobre):
-INSERT INTO public.sessions (id, modality, session_date, start_time, end_time, duration_minutes)
-VALUES ('88888888-8888-8888-8888-888888888888', 'flow', '2026-08-11', '06:00', '07:00', 60);
+-- session_type continua com DEFAULT group; o serviço é quem manda:
+INSERT INTO public.sessions (id, modality, session_date, start_time, end_time, duration_minutes, service_type_id)
+SELECT '88888888-8888-8888-8888-888888888888', 'flow', '2026-08-11', '06:00', '07:00', 60, id
+  FROM public.service_types WHERE slug = 'grupo';
 SELECT is(
   (SELECT st.slug FROM public.sessions s JOIN public.service_types st ON st.id = s.service_type_id
     WHERE s.id = '88888888-8888-8888-8888-888888888888'),
-  'grupo', 'sessão sem session_type usa o DEFAULT group e ganha grupo');
+  'grupo', 'DEFAULT de session_type convive com serviço explícito');
 
-INSERT INTO public.class_templates (id, modality, day_of_week, start_time, duration_minutes)
-VALUES ('77777777-7777-7777-7777-777777777777', 'btb', 3, '10:00', 60);
+INSERT INTO public.class_templates (id, modality, day_of_week, start_time, duration_minutes, service_type_id)
+SELECT '77777777-7777-7777-7777-777777777777', 'btb', 3, '10:00', 60, id
+  FROM public.service_types WHERE slug = 'grupo';
 SELECT is(
   (SELECT st.slug FROM public.class_templates ct JOIN public.service_types st ON st.id = ct.service_type_id
     WHERE ct.id = '77777777-7777-7777-7777-777777777777'),
-  'grupo', 'template novo sem serviço ganha grupo no INSERT');
+  'grupo', 'template nasce com serviço explícito');
+
+-- PR-E: SEM serviço = ERRO do banco (o preenchimento transitório morreu;
+-- nada adivinha classificação de dinheiro):
+SELECT throws_ok(
+  $$INSERT INTO public.sessions (session_type, modality, session_date, start_time, end_time, duration_minutes)
+    VALUES ('group', 'flow', '2026-08-12', '06:00', '07:00', 60)$$,
+  '23502', NULL, 'sessão sem serviço é rejeitada (NOT NULL, fim do transitório)');
+SELECT throws_ok(
+  $$INSERT INTO public.class_templates (modality, day_of_week, start_time, duration_minutes)
+    VALUES ('flow', 5, '12:00', 60)$$,
+  '23502', NULL, 'template sem serviço é rejeitado (NOT NULL)');
 
 -- Guarda de coerência: serviço tem que bater com o formato.
 SELECT throws_ok(

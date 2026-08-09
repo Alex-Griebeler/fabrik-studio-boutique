@@ -31,6 +31,8 @@ export function useCreateTemplate() {
         duration_minutes: data.duration_minutes,
         capacity: data.capacity,
         instructor_id: data.instructor_id || null,
+        // PR-E: NOT NULL no banco — o caller resolve o serviço.
+        service_type_id: data.service_type_id,
         location: data.location || null,
         is_active: data.is_active,
         recurrence_start: data.recurrence_start,

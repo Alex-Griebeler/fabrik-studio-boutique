@@ -22,7 +22,8 @@ export function useCreateSession() {
       assistant_trainer_id?: string | null;
       student_id?: string | null;
       contract_id?: string | null;
-      service_type_id?: string | null;
+      // PR-E: NOT NULL no banco — serviço é OBRIGATÓRIO na criação.
+      service_type_id: string;
       trainer_hourly_rate_cents?: number;
       payment_hours?: number;
       payment_amount_cents?: number;
@@ -51,7 +52,7 @@ export function useCreateSession() {
         assistant_trainer_id: data.assistant_trainer_id || null,
         student_id: data.student_id || null,
         contract_id: data.contract_id || null,
-        service_type_id: data.service_type_id || null,
+        service_type_id: data.service_type_id,
         trainer_hourly_rate_cents: data.trainer_hourly_rate_cents || 0,
         payment_hours: data.payment_hours || 0,
         payment_amount_cents: data.payment_amount_cents || 0,

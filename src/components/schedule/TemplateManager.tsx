@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useServiceTypes } from "@/hooks/useServiceRates";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Plus, Pencil, Trash2, Clock, CalendarRange } from "lucide-react";
@@ -46,6 +48,7 @@ export function TemplateManager() {
   const { data: templates, isLoading } = useClassTemplates();
   const { data: modalities } = useActiveModalities();
   const { data: instructors } = useInstructors();
+  const { data: services } = useServiceTypes();
   const createTemplate = useCreateTemplate();
   const updateTemplate = useUpdateTemplate();
   const deleteTemplate = useDeleteTemplate();
@@ -56,6 +59,7 @@ export function TemplateManager() {
 
   // Form state
   const [modality, setModality] = useState("");
+  const [serviceTypeId, setServiceTypeId] = useState("");
   const [startTime, setStartTime] = useState("07:00");
   const [duration, setDuration] = useState("60");
   const [capacity, setCapacity] = useState("12");
@@ -73,6 +77,7 @@ export function TemplateManager() {
     setDuration("60");
     setCapacity("12");
     setInstructorId("");
+    setServiceTypeId("");
     setLocation("");
     setSelectedDays([]);
     setRecurrenceStart(new Date().toISOString().slice(0, 10));
@@ -88,6 +93,7 @@ export function TemplateManager() {
     setDuration(String(t.duration_minutes));
     setCapacity(String(t.capacity));
     setInstructorId(t.instructor_id || "");
+    setServiceTypeId(t.service_type_id || "");
     setLocation(t.location || "");
     setSelectedDays([t.day_of_week]);
     setRecurrenceStart(t.recurrence_start);
@@ -102,16 +108,27 @@ export function TemplateManager() {
     );
   };
 
+  // PR-E: turma exige serviço (NOT NULL). Com UM serviço de formato
+  // turma ativo, vai implícito; com vários, o seletor aparece.
+  const groupServices = (services ?? []).filter((sv) => sv.delivery_type === "group" && sv.is_active);
+  const effectiveServiceId =
+    serviceTypeId || (groupServices.length === 1 ? groupServices[0].id : "");
+
   const handleSave = () => {
     if (!modality) return;
+    // Serviço só é exigido na CRIAÇÃO (o update não troca o serviço da
+    // série — editar horário de turma antiga nunca fica refém do catálogo).
+    if (!editingTemplate && !effectiveServiceId) {
+      toast.error("Escolha o serviço da turma (catálogo de Pagamentos à equipe).");
+      return;
+    }
 
     if (editingTemplate) {
       updateTemplate.mutate(
         {
           id: editingTemplate.id,
-          // service_type_id fica FORA do update de propósito: a coluna
-          // não muda (sem seletor na UI — só existe UM serviço de formato
-          // turma; o seletor nasce quando houver um segundo).
+          // update não troca o serviço da série (coerência histórica);
+          // troca de serviço = série nova.
           modality,
           day_of_week: selectedDays[0],
           start_time: startTime,
@@ -128,8 +145,7 @@ export function TemplateManager() {
       if (selectedDays.length === 0) return;
       const promises = selectedDays.map((day) =>
         createTemplate.mutateAsync({
-          // null de propósito: o trigger do banco preenche "grupo".
-          service_type_id: null,
+          service_type_id: effectiveServiceId,
           modality,
           day_of_week: day,
           start_time: startTime,
@@ -277,6 +293,22 @@ export function TemplateManager() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Serviço da turma: aparece só com >1 opção de formato turma
+                (PR-E: serviço é obrigatório; edição não troca a série) */}
+            {groupServices.length > 1 && !editingTemplate && (
+              <div>
+                <Label>Serviço</Label>
+                <Select value={serviceTypeId} onValueChange={setServiceTypeId}>
+                  <SelectTrigger aria-label="Serviço da turma"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>
+                    {groupServices.map((sv) => (
+                      <SelectItem key={sv.id} value={sv.id}>{sv.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div>
               <Label className="mb-1.5 block">Dias da Semana</Label>

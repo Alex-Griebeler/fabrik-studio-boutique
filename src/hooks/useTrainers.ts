@@ -8,11 +8,11 @@ import type { Trainer } from "./schedule/types";
 // CPF, dados bancários, PIX e notes vivem atrás da view `trainers_admin`
 // (gated por has_role ADMIN-only). `select("*")` aqui volta
 // "permission denied".
+// PR-E: os campos legados de tarifa (hourly_rate_*/session_rate/
+// payment_method) foram APOSENTADOS — tarifa vive em trainer_service_rates.
 const TRAINER_OPERATIONAL_COLUMNS =
   "id, full_name, email, phone, bio, certifications, specialties, " +
-  "is_active, hired_at, terminated_at, profile_id, " +
-  "hourly_rate_main_cents, hourly_rate_assistant_cents, " +
-  "session_rate_cents, payment_method, created_at, updated_at";
+  "is_active, hired_at, terminated_at, profile_id, created_at, updated_at";
 
 export function useTrainers(activeOnly = false) {
   return useQuery({

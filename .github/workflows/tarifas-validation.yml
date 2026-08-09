@@ -9,6 +9,7 @@ on:
       - ".github/workflows/tarifas-validation.yml"
       - "supabase/migrations/20260808150000_tarifas_pr_a_expand.sql"
       - "supabase/migrations/20260809150000_tarifas_pr_d_payable_view.sql"
+      - "supabase/migrations/20260810150000_tarifas_pr_e_contract.sql"
       - "supabase/tests/tarifas_pr_a_expand.test.sql"
       - "supabase/tests/tarifas_pr_d_view.test.sql"
 
@@ -43,6 +44,8 @@ jobs:
           cp supabase/migrations/20260808150000_tarifas_pr_a_expand.sql "$TARIFAS_WORKDIR/supabase/migrations/20260808150001_tarifas_idempotency.sql"
           cp supabase/migrations/20260809150000_tarifas_pr_d_payable_view.sql "$TARIFAS_WORKDIR/supabase/migrations/20260809150000_tarifas_pr_d_payable_view.sql"
           cp supabase/migrations/20260809150000_tarifas_pr_d_payable_view.sql "$TARIFAS_WORKDIR/supabase/migrations/20260809150001_tarifas_pr_d_idempotency.sql"
+          cp supabase/migrations/20260810150000_tarifas_pr_e_contract.sql "$TARIFAS_WORKDIR/supabase/migrations/20260810150000_tarifas_pr_e_contract.sql"
+          cp supabase/migrations/20260810150000_tarifas_pr_e_contract.sql "$TARIFAS_WORKDIR/supabase/migrations/20260810150001_tarifas_pr_e_idempotency.sql"
           cp supabase/tests/tarifas_pr_a_expand.test.sql "$TARIFAS_WORKDIR/supabase/tests/"
           cp supabase/tests/tarifas_pr_d_view.test.sql "$TARIFAS_WORKDIR/supabase/tests/"
 

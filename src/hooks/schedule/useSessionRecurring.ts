@@ -185,6 +185,10 @@ export function useUpdateThisAndFollowing() {
       // checagem (sem UNIQUE no banco) — app de admin único, duplicata
       // visível em Turmas e removível; constraint dedicada é backlog.
       const newTpl = {
+        // PR-E: service_type_id é NOT NULL — o template novo HERDA o
+        // serviço da série (esquecê-lo estourava 23502 depois de já ter
+        // apagado as futuras).
+        service_type_id: oldTemplate.service_type_id,
         modality: updates.modality || oldTemplate.modality,
         day_of_week: oldTemplate.day_of_week,
         start_time: updates.start_time || oldTemplate.start_time,
@@ -206,6 +210,7 @@ export function useUpdateThisAndFollowing() {
         .eq("modality", newTpl.modality)
         .eq("duration_minutes", newTpl.duration_minutes)
         .eq("capacity", newTpl.capacity)
+        .eq("service_type_id", newTpl.service_type_id)
         .eq("is_active", true);
       existsQuery =
         newTpl.instructor_id === null
