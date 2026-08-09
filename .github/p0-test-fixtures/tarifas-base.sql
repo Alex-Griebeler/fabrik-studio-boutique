@@ -13,6 +13,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 CREATE TYPE public.app_role AS ENUM ('admin', 'instructor', 'student', 'manager', 'reception');
 CREATE TYPE public.session_type AS ENUM ('personal', 'group');
+CREATE TYPE public.full_session_status AS ENUM (
+  'scheduled', 'cancelled_on_time', 'cancelled_late', 'no_show',
+  'completed', 'disputed', 'adjusted', 'late_arrival'
+);
 
 CREATE TABLE public.user_roles (
   user_id uuid NOT NULL,
@@ -116,7 +120,7 @@ CREATE TABLE public.sessions (
   start_time time NOT NULL,
   end_time time NOT NULL,
   duration_minutes integer NOT NULL,
-  status text NOT NULL DEFAULT 'scheduled',
+  status public.full_session_status NOT NULL DEFAULT 'scheduled',
   -- colunas que a view payable_sessions (PR-D) projeta:
   trainer_id uuid REFERENCES public.trainers(id),
   assistant_trainer_id uuid REFERENCES public.trainers(id),
@@ -177,6 +181,39 @@ INSERT INTO public.sessions (id, session_type, modality, session_date, start_tim
 VALUES
   ('33333333-3333-3333-3333-333333333333', 'group',    'flow', '2026-08-03', '06:00', '07:00', 60),
   ('44444444-4444-4444-4444-444444444444', 'personal', 'personal', '2026-08-04', '07:00', '08:00', 60);
+
+-- A view payable_sessions COMO ESTÁ EM PRODUÇÃO (22 colunas, invoker,
+-- WHERE por enum): a migration da PR-D faz um CREATE OR REPLACE de
+-- verdade por cima — ordem/tipo incompatível quebraria AQUI no CI.
+CREATE VIEW public.payable_sessions
+WITH (security_invoker = on) AS
+SELECT s.id,
+    s.session_date,
+    s.start_time,
+    s.end_time,
+    s.duration_minutes,
+    s.session_type,
+    s.modality,
+    s.status,
+    s.trainer_id,
+    t.full_name AS trainer_name,
+    s.assistant_trainer_id,
+    at.full_name AS assistant_trainer_name,
+    s.trainer_hourly_rate_cents,
+    s.assistant_hourly_rate_cents,
+    s.payment_hours,
+    s.payment_amount_cents,
+    s.assistant_payment_amount_cents,
+    s.is_paid,
+    s.paid_at,
+    s.student_id,
+    st.full_name AS student_name,
+    s.contract_id
+   FROM public.sessions s
+     LEFT JOIN public.trainers t ON t.id = s.trainer_id
+     LEFT JOIN public.trainers at ON at.id = s.assistant_trainer_id
+     LEFT JOIN public.students st ON st.id = s.student_id
+  WHERE s.status = ANY (ARRAY['completed'::public.full_session_status, 'cancelled_late'::public.full_session_status, 'no_show'::public.full_session_status, 'late_arrival'::public.full_session_status]);
 
 -- Sessão COMPLETED com snapshot: é a linha que a view payable_sessions
 -- (PR-D) precisa projetar com service_name resolvido pelo catálogo.
