@@ -200,6 +200,7 @@ export function useTrainerCheckin() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Check-in do treinador registrado!");
     },
+    onError: () => toast.error("Erro no check-in do treinador."),
   });
 }
 
@@ -220,6 +221,7 @@ export function useStudentCheckin() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Check-in do aluno registrado!");
     },
+    onError: () => toast.error("Erro no check-in do aluno."),
   });
 }
 
@@ -240,6 +242,7 @@ export function useCompleteSession() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Sessão concluída!");
     },
+    onError: () => toast.error("Erro ao concluir a sessão."),
   });
 }
 
@@ -250,8 +253,28 @@ export function useDeleteSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      await supabase.from("class_bookings").delete().eq("session_id", id);
-      const { error } = await supabase.from("sessions").delete().eq("id", id);
+      // Sessão PAGA é registro de folha: pré-checagem ANTES de tocar nas
+      // reservas (apagar bookings e falhar a sessão deixaria meio-estado),
+      // e CAS is_paid=false no delete (corrida com pagamento → 0 linhas).
+      const { data: sess, error: checkErr } = await supabase
+        .from("sessions")
+        .select("is_paid")
+        .eq("id", id)
+        .single();
+      if (checkErr) throw checkErr;
+      if (sess?.is_paid) {
+        throw new Error("Sessão paga não pode ser excluída — é registro de folha.");
+      }
+      const { error: bookErr } = await supabase
+        .from("class_bookings")
+        .delete()
+        .eq("session_id", id);
+      if (bookErr) throw bookErr;
+      const { error } = await supabase
+        .from("sessions")
+        .delete()
+        .eq("id", id)
+        .eq("is_paid", false);
       if (error) throw error;
     },
     onSuccess: () => {

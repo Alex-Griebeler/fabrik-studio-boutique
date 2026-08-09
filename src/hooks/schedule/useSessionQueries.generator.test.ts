@@ -79,8 +79,9 @@ vi.mock("@/integrations/supabase/client", () => {
                   : EXISTING;
               return thenable({ data, error: null });
             },
-            insert: (rows: Array<Record<string, unknown>>) => {
-              INSERT_CALLS.push(rows);
+            insert: (rows: Array<Record<string, unknown>> | Record<string, unknown>) => {
+              // lote (array) na 1ª tentativa; retry é POR LINHA (objeto)
+              INSERT_CALLS.push(Array.isArray(rows) ? rows : [rows]);
               const err = INSERT_ERRORS.length > 0 ? INSERT_ERRORS.shift()! : null;
               return {
                 then: (resolve: (v: unknown) => void) => resolve({ error: err }),
@@ -224,19 +225,43 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
   });
 
-  it("conflito PARCIAL (23505): retry reinsere SÓ a linha que faltou", async () => {
+  it("conflito PARCIAL (23505): retry POR LINHA reinsere SÓ a que faltou", async () => {
     INSERT_ERRORS = [{ code: "23505", message: "duplicate key" }, null];
     // Range com DUAS segundas (10 e 17/08). Outra aba criou só a do
     // dia 10 → o lote de 2 conflita inteiro; o retry deve inserir
-    // exatamente a do dia 17, nada mais.
+    // exatamente a do dia 17, linha a linha.
     EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
     renderHook(() => useAutoGenerateSessions("2026-08-10", "2026-08-17"), { wrapper });
     await waitFor(() => expect(INSERT_CALLS.length).toBe(2));
 
     expect(INSERT_CALLS[0]).toHaveLength(2); // lote original: 10 e 17
-    expect(INSERT_CALLS[1]).toHaveLength(1); // retry: só a que faltou
+    expect(INSERT_CALLS[1]).toHaveLength(1); // retry por linha: só a que faltou
     expect(INSERT_CALLS[1][0].session_date).toBe("2026-08-17");
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it("SEGUNDO 23505 no retry (terceira aba): benigno por linha, sem erro e sem linha perdida", async () => {
+    // lote conflita; na releitura falta só 17/08; o retry da linha 17
+    // TAMBÉM conflita (terceira aba criou) → benigno, nada de toast.
+    INSERT_ERRORS = [
+      { code: "23505", message: "duplicate key" },
+      { code: "23505", message: "duplicate key" },
+    ];
+    EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
+    renderHook(() => useAutoGenerateSessions("2026-08-10", "2026-08-17"), { wrapper });
+    await waitFor(() => expect(INSERT_CALLS.length).toBe(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it("erro REAL numa linha do retry vira aviso (antes o lote inteiro sumia mudo)", async () => {
+    INSERT_ERRORS = [
+      { code: "23505", message: "duplicate key" },
+      { code: "42501", message: "permission denied" },
+    ];
+    EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
+    renderHook(() => useAutoGenerateSessions("2026-08-10", "2026-08-17"), { wrapper });
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
   });
 
   it("releitura pós-conflito com ERRO: aborta com aviso (nunca reinsere às cegas)", async () => {

@@ -165,7 +165,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                 )}
               </div>
               <div className="flex items-center gap-0.5">
-                {canEditSessions && isActive && (
+                {canEditSessions && isActive && !session.is_paid && (
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-warning" onClick={handleCancelClick} title="Cancelar sessão">
                     <Ban className="h-3.5 w-3.5" />
                   </Button>
@@ -175,7 +175,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                 )}
-                {canDeleteSessions && (
+                {canDeleteSessions && !session.is_paid && (
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={handleDeleteClick}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
@@ -190,7 +190,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <User className="h-3.5 w-3.5" />
                   <span className="flex-1">{session.trainer.full_name}</span>
-                  {isActive && isPast && !session.trainer_checkin_at ? (
+                  {canEditSessions && isActive && isPast && !session.trainer_checkin_at ? (
                     <CheckInButton
                       type="trainer"
                       checkinAt={null}
@@ -211,7 +211,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <User className="h-3.5 w-3.5" />
                   <span className="flex-1">{session.student.full_name}</span>
-                  {isActive && isPast && !session.student_checkin_at ? (
+                  {canEditSessions && isActive && isPast && !session.student_checkin_at ? (
                     <CheckInButton
                       type="student"
                       checkinAt={null}
@@ -228,7 +228,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
               )}
 
               {/* Complete button */}
-              {isActive && isPast && session.trainer_checkin_at && (
+              {canEditSessions && isActive && isPast && session.trainer_checkin_at && (
                 <Button variant="default" size="sm" className="w-full h-7 text-xs"
                   onClick={() => completeSession.mutate(session.id)} disabled={completeSession.isPending}>
                   <CheckCircle2 className="h-3 w-3 mr-1" /> Concluir Sessão

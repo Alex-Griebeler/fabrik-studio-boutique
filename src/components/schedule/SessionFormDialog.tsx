@@ -193,20 +193,35 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
           (effectiveServiceId || null) !== (editSession!.service_type_id || null) ||
           durationNum !== editSession!.duration_minutes;
 
+        if (isPaid) {
+          // Paga congela TUDO menos observações: mover data/horário
+          // transferiria o registro entre períodos da folha JÁ quitada.
+          const structureChanged =
+            financialsChanged ||
+            date !== editSession!.session_date ||
+            startTime !== editSession!.start_time.slice(0, 5) ||
+            modality !== editSession!.modality ||
+            parseInt(capacity) !== editSession!.capacity ||
+            (studentId || null) !== (editSession!.student_id || null);
+          if (structureChanged) {
+            toast.error(
+              "Sessão já paga: só as observações podem mudar — data, horário, treinador, serviço, duração e vagas ficam congelados (ajuste tem fluxo próprio).",
+            );
+            return;
+          }
+          updateSession.mutate(
+            { id: editSession!.id, notes: notes || null },
+            { onSuccess: () => onOpenChange(false) },
+          );
+          return;
+        }
+
         let payload: Record<string, unknown> = {
           ...baseData,
           end_time: endTime,
           is_exception: !!editSession!.template_id,
         };
-        if (isPaid) {
-          // Dinheiro congelado: nem treinador/duração alteram o pago.
-          if (financialsChanged) {
-            toast.error(
-              "Sessão já paga: horário e observações podem mudar, mas treinador, serviço e duração ficam congelados (ajuste tem fluxo próprio).",
-            );
-            return;
-          }
-        } else if (financialsChanged) {
+        if (financialsChanged) {
           const financials = buildFinancials();
           if (!financials) return;
           payload = { ...payload, ...financials };
@@ -340,14 +355,15 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
                 própria tarifa congelada); edição estrutural mostra o valor
                 CONGELADO; só criação/mudança financeira calcula pela tarifa
                 atual do par. */}
-            {!isSeriesEdit && isEditing && !financialsChangedRender && (
+            {!isSeriesEdit && isEditing && (editSession!.is_paid || !financialsChangedRender) && (
               <p className="text-[10px] text-muted-foreground mt-1">
                 Pagamento congelado da sessão: R${" "}
                 {((editSession!.payment_amount_cents || 0) / 100).toFixed(2)}
+                {editSession!.is_paid ? " · paga" : ""}
               </p>
             )}
             {!isSeriesEdit &&
-              (!isEditing || financialsChangedRender) &&
+              (!isEditing || (!editSession!.is_paid && financialsChangedRender)) &&
               selectedTrainer && pairRate && parseInt(duration) > 0 && (
               <p className="text-[10px] text-muted-foreground mt-1">
                 Pagamento da sessão: R${" "}
@@ -358,7 +374,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
               </p>
             )}
             {!isSeriesEdit &&
-              (!isEditing || financialsChangedRender) &&
+              (!isEditing || (!editSession!.is_paid && financialsChangedRender)) &&
               selectedTrainer && !pairRate && (
               <p className="text-[10px] text-destructive mt-1">
                 Sem tarifa cadastrada para {selectedService?.name ?? "o serviço"} —

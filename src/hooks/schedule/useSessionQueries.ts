@@ -263,9 +263,18 @@ export function useAutoGenerateSessions(startDate: string, endDate: string) {
               (s) => !nowSet.has(`${s.template_id}_${s.session_date}`),
             );
             if (remaining.length > 0) {
-              const { error: retryErr } = await supabase.from("sessions").insert(remaining);
-              if (retryErr && retryErr.code !== "23505") {
-                console.error("useAutoGenerateSessions: retry falhou", retryErr.message);
+              // Retry POR LINHA: num lote, um único 23505 (terceira aba
+              // criou outra data no meio) derruba TUDO e as demais linhas
+              // sumiam da agenda em silêncio. Linha a linha, conflito é
+              // benigno por linha e erro REAL vira aviso.
+              const rowResults = await Promise.all(
+                remaining.map((row) => supabase.from("sessions").insert(row)),
+              );
+              const realFailure = rowResults.find(
+                (r) => r.error && r.error.code !== "23505",
+              );
+              if (realFailure?.error) {
+                console.error("useAutoGenerateSessions: retry falhou", realFailure.error.message);
                 toast.error("Não foi possível gerar a agenda do período. Recarregue e tente de novo.");
                 return;
               }

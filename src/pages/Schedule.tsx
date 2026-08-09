@@ -17,8 +17,10 @@ import { ModalityFilterPopover } from "@/components/schedule/ModalityFilterPopov
 export default function Schedule() {
   // A policy de INSERT em sessions só aceita admin/instructor — recepção e
   // manager veem a agenda, mas não o botão de criar (antes: form que só falha).
-  const { hasAnyRole } = useUserRoles();
+  const { hasAnyRole, hasRole } = useUserRoles();
   const canCreateSessions = hasAnyRole(["admin", "instructor"]);
+  // class_templates/modalidades: INSERT/UPDATE/DELETE são ADMIN-only.
+  const canManageTemplates = hasRole("admin");
   const [view, setView] = useState<"week" | "day">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [modalityFilter, setModalityFilter] = useState<string[] | null>(null);
@@ -106,6 +108,7 @@ export default function Schedule() {
             onChange={setModalityFilter}
           />
 
+          {canManageTemplates && (
           <Sheet>
             <SheetTrigger asChild>
               <Button size="sm" variant="outline">
@@ -124,6 +127,7 @@ export default function Schedule() {
               </div>
             </SheetContent>
           </Sheet>
+          )}
 
           {canCreateSessions && (
             <Button size="sm" onClick={() => setShowNewSession(true)}>

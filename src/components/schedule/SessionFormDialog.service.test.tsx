@@ -231,6 +231,26 @@ describe("SessionFormDialog — edição e dinheiro congelado", () => {
     expect(String(toastError.mock.calls[0][0])).toContain("paga");
   });
 
+  it("sessão PAGA: mudar a DATA também é bloqueado (não muda de período da folha)", () => {
+    renderEdit({ is_paid: true });
+    const dateInput = document.querySelector('input[type="date"]')!;
+    fireEvent.change(dateInput, { target: { value: "2026-09-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(updateMutate).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("sessão PAGA: editar SÓ observações passa, e o payload é SÓ observações", () => {
+    renderEdit({ is_paid: true });
+    fireEvent.change(document.querySelector("textarea")!, { target: { value: "obs paga" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const [payload] = updateMutate.mock.calls[0];
+    expect(payload).toEqual({ id: "sess-1", notes: "obs paga" });
+  });
+
   it("mudar duração em NÃO-paga recalcula pela tarifa do par", () => {
     renderEdit();
     fireEvent.change(screen.getAllByRole("spinbutton")[0], { target: { value: "90" } });

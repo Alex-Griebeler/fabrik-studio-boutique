@@ -7,11 +7,26 @@ export function useCancelSingleOccurrence() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      await supabase.from("class_bookings").delete().eq("session_id", id);
+      // Paga não cancela (status contradiria a folha quitada).
+      const { data: sess, error: checkErr } = await supabase
+        .from("sessions")
+        .select("is_paid")
+        .eq("id", id)
+        .single();
+      if (checkErr) throw checkErr;
+      if (sess?.is_paid) {
+        throw new Error("Sessão paga não pode ser cancelada — é registro de folha.");
+      }
+      const { error: bookErr } = await supabase
+        .from("class_bookings")
+        .delete()
+        .eq("session_id", id);
+      if (bookErr) throw bookErr;
       const { error } = await supabase
         .from("sessions")
         .update({ status: "cancelled_on_time", is_exception: true, cancelled_at: new Date().toISOString() })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("is_paid", false);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -37,16 +52,27 @@ export function useDeleteThisAndFollowing() {
         .update({ recurrence_end: newEnd })
         .eq("id", session.template_id);
 
-      const { data: sessions } = await supabase
+      // Paga fica (registro de folha) — só as não-pagas somem.
+      const { data: sessions, error: selErr } = await supabase
         .from("sessions")
         .select("id")
         .eq("template_id", session.template_id)
-        .gte("session_date", session.session_date);
+        .gte("session_date", session.session_date)
+        .eq("is_paid", false);
+      if (selErr) throw selErr;
 
       if (sessions?.length) {
         const ids = sessions.map((s) => s.id);
-        await supabase.from("class_bookings").delete().in("session_id", ids);
-        await supabase.from("sessions").delete().in("id", ids);
+        const { error: bookErr } = await supabase
+          .from("class_bookings")
+          .delete()
+          .in("session_id", ids);
+        if (bookErr) throw bookErr;
+        const { error: delErr } = await supabase
+          .from("sessions")
+          .delete()
+          .in("id", ids);
+        if (delErr) throw delErr;
       }
     },
     onSuccess: () => {
@@ -62,15 +88,39 @@ export function useDeleteAllOccurrences() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (templateId: string) => {
-      const { data: sessions } = await supabase
+      // Não-pagas somem; PAGAS ficam (registro de folha). Se sobrou paga,
+      // o template não pode ser deletado (FK) — é APOSENTADO (inativo +
+      // série encerrada), o que também impede o gerador de recriar.
+      const { data: sessions, error: selErr } = await supabase
         .from("sessions")
-        .select("id")
+        .select("id, is_paid")
         .eq("template_id", templateId);
+      if (selErr) throw selErr;
 
-      if (sessions?.length) {
-        const ids = sessions.map((s) => s.id);
-        await supabase.from("class_bookings").delete().in("session_id", ids);
-        await supabase.from("sessions").delete().in("id", ids);
+      const unpaidIds = (sessions ?? []).filter((s) => !s.is_paid).map((s) => s.id);
+      const hasPaid = (sessions ?? []).some((s) => s.is_paid);
+
+      if (unpaidIds.length) {
+        const { error: bookErr } = await supabase
+          .from("class_bookings")
+          .delete()
+          .in("session_id", unpaidIds);
+        if (bookErr) throw bookErr;
+        const { error: delErr } = await supabase
+          .from("sessions")
+          .delete()
+          .in("id", unpaidIds);
+        if (delErr) throw delErr;
+      }
+
+      if (hasPaid) {
+        const today = new Date().toISOString().split("T")[0];
+        const { error: retireErr } = await supabase
+          .from("class_templates")
+          .update({ is_active: false, recurrence_end: today })
+          .eq("id", templateId);
+        if (retireErr) throw retireErr;
+        return;
       }
 
       const { error } = await supabase.from("class_templates").delete().eq("id", templateId);
