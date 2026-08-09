@@ -74,7 +74,23 @@ export function useCreateSession() {
 export function useUpdateSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...data }: { id: string; [key: string]: unknown }) => {
+    mutationFn: async ({ id, only_if_unpaid, ...data }: { id: string; only_if_unpaid?: boolean; [key: string]: unknown }) => {
+      // only_if_unpaid: CAS no banco — se a sessão virou PAGA depois que o
+      // form abriu, o update afeta 0 linhas e vira erro visível (nunca
+      // estrutura/dinheiro gravados por cima de folha quitada).
+      if (only_if_unpaid) {
+        const { data: rows, error } = await supabase
+          .from("sessions")
+          .update(data as Record<string, unknown>)
+          .eq("id", id)
+          .eq("is_paid", false)
+          .select("id");
+        if (error) throw error;
+        if (!rows?.length) {
+          throw new Error("Esta sessão foi marcada como paga enquanto você editava — recarregue.");
+        }
+        return;
+      }
       const { error } = await supabase.from("sessions").update(data as Record<string, unknown>).eq("id", id);
       if (error) throw error;
     },
@@ -82,7 +98,10 @@ export function useUpdateSession() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Sessão atualizada!");
     },
-    onError: () => toast.error("Erro ao atualizar sessão."),
+    onError: (e) =>
+      toast.error(
+        e instanceof Error && e.message ? e.message : "Erro ao atualizar sessão.",
+      ),
   });
 }
 
@@ -253,34 +272,29 @@ export function useDeleteSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // Sessão PAGA é registro de folha: pré-checagem ANTES de tocar nas
-      // reservas (apagar bookings e falhar a sessão deixaria meio-estado),
-      // e CAS is_paid=false no delete (corrida com pagamento → 0 linhas).
-      const { data: sess, error: checkErr } = await supabase
-        .from("sessions")
-        .select("is_paid")
-        .eq("id", id)
-        .single();
-      if (checkErr) throw checkErr;
-      if (sess?.is_paid) {
-        throw new Error("Sessão paga não pode ser excluída — é registro de folha.");
-      }
-      const { error: bookErr } = await supabase
-        .from("class_bookings")
-        .delete()
-        .eq("session_id", id);
-      if (bookErr) throw bookErr;
-      const { error } = await supabase
+      // Sessão PAGA é registro de folha. O CAS is_paid=false + verificação
+      // de linhas afetadas fecham a corrida com o pagamento; as reservas
+      // caem por CASCADE (class_bookings.session_id ON DELETE CASCADE —
+      // verificado em produção), então NADA é tocado quando o delete não
+      // acontece.
+      const { data: rows, error } = await supabase
         .from("sessions")
         .delete()
         .eq("id", id)
-        .eq("is_paid", false);
+        .eq("is_paid", false)
+        .select("id");
       if (error) throw error;
+      if (!rows?.length) {
+        throw new Error("Sessão paga (ou já removida) não pode ser excluída — recarregue.");
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Sessão excluída!");
     },
-    onError: () => toast.error("Erro ao excluir sessão."),
+    onError: (e) =>
+      toast.error(
+        e instanceof Error && e.message ? e.message : "Erro ao excluir sessão.",
+      ),
   });
 }

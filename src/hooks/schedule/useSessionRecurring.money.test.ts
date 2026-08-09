@@ -17,6 +17,7 @@ let AFFECTED_SESSIONS: Row[] = [];
 let FUTURE_SESSIONS: Row[] = [];
 let ROW_UPDATE_ERROR_FOR: string | null = null;
 let TEMPLATE_EXISTS = false;
+let CAS_ROWS: Row[] = [{ id: "cas-ok" }];
 const updateCalls: Array<{ table: string; data: Row; filters: Array<[string, string, unknown]> }> = [];
 const deleteCalls: Array<{ table: string; filters: Array<[string, string, unknown]> }> = [];
 const insertCalls: Array<{ table: string; data: Row }> = [];
@@ -35,6 +36,12 @@ vi.mock("@/integrations/supabase/client", () => {
     b.is = record("is");
     b.gte = record("gte");
     b.in = record("in");
+    // .select("id") encadeado após update/delete = CAS verificado
+    b.select = () => {
+      if (op === "update") updateCalls.push({ table, data: data!, filters });
+      if (op === "delete") deleteCalls.push({ table, filters });
+      return Promise.resolve({ data: CAS_ROWS, error: null });
+    };
     b.single = () =>
       Promise.resolve({ data: { id: "tpl-1", modality: "flow", day_of_week: 1, start_time: "07:00", duration_minutes: 60, capacity: 12, instructor_id: null, location: null, recurrence_end: null }, error: null });
     b.then = (resolve: (v: unknown) => void) => {
@@ -79,8 +86,8 @@ vi.mock("@/integrations/supabase/client", () => {
   };
 });
 
-import { useUpdateAllOccurrences, useUpdateThisAndFollowing } from "./useSessionRecurring";
-import { useCreateSession } from "./useSessionMutations";
+import { useUpdateAllOccurrences, useUpdateThisAndFollowing, useCancelSingleOccurrence } from "./useSessionRecurring";
+import { useCreateSession, useDeleteSession, useUpdateSession } from "./useSessionMutations";
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -244,6 +251,42 @@ describe("useUpdateThisAndFollowing — paga é intocável", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(opSequence).not.toContain("insert:class_templates");
     TEMPLATE_EXISTS = false;
+  });
+});
+
+describe("CAS is_paid=false — corrida com pagamento fecha em erro visível", () => {
+  beforeEach(() => {
+    updateCalls.length = 0;
+    deleteCalls.length = 0;
+    CAS_ROWS = [{ id: "cas-ok" }];
+  });
+
+  it("delete individual com 0 linhas (virou paga) → erro, nada 'excluído'", async () => {
+    CAS_ROWS = [];
+    const { result } = renderHook(() => useDeleteSession(), { wrapper });
+    result.current.mutate("sess-1");
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const del = deleteCalls.find((c) => c.table === "sessions");
+    expect(del?.filters).toContainEqual(["eq", "is_paid", false]);
+  });
+
+  it("cancelar com 0 linhas (virou paga) → erro ANTES de tocar reservas", async () => {
+    CAS_ROWS = [];
+    const { result } = renderHook(() => useCancelSingleOccurrence(), { wrapper });
+    result.current.mutate("sess-1");
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(deleteCalls.filter((c) => c.table === "class_bookings")).toHaveLength(0);
+  });
+
+  it("update estrutural com only_if_unpaid e 0 linhas → erro visível", async () => {
+    CAS_ROWS = [];
+    const { result } = renderHook(() => useUpdateSession(), { wrapper });
+    result.current.mutate({ id: "sess-1", only_if_unpaid: true, duration_minutes: 90 });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const upd = updateCalls.find((c) => c.table === "sessions");
+    expect(upd?.filters).toContainEqual(["eq", "is_paid", false]);
+    // a flag NUNCA vaza pro payload:
+    expect(upd?.data).not.toHaveProperty("only_if_unpaid");
   });
 });
 

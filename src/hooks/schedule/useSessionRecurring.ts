@@ -7,33 +7,34 @@ export function useCancelSingleOccurrence() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // Paga não cancela (status contradiria a folha quitada).
-      const { data: sess, error: checkErr } = await supabase
+      // Paga não cancela (status contradiria a folha quitada). CAS no
+      // UPDATE primeiro — 0 linhas = virou paga/já cancelada → erro sem
+      // ter tocado nas reservas; bookings saem depois (retry converge:
+      // o update repetido é idempotente).
+      const { data: rows, error } = await supabase
         .from("sessions")
-        .select("is_paid")
+        .update({ status: "cancelled_on_time", is_exception: true, cancelled_at: new Date().toISOString() })
         .eq("id", id)
-        .single();
-      if (checkErr) throw checkErr;
-      if (sess?.is_paid) {
-        throw new Error("Sessão paga não pode ser cancelada — é registro de folha.");
+        .eq("is_paid", false)
+        .select("id");
+      if (error) throw error;
+      if (!rows?.length) {
+        throw new Error("Sessão paga não pode ser cancelada — recarregue.");
       }
       const { error: bookErr } = await supabase
         .from("class_bookings")
         .delete()
         .eq("session_id", id);
       if (bookErr) throw bookErr;
-      const { error } = await supabase
-        .from("sessions")
-        .update({ status: "cancelled_on_time", is_exception: true, cancelled_at: new Date().toISOString() })
-        .eq("id", id)
-        .eq("is_paid", false);
-      if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Ocorrência cancelada!");
     },
-    onError: () => toast.error("Erro ao cancelar ocorrência."),
+    onError: (e) =>
+      toast.error(
+        e instanceof Error && e.message ? e.message : "Erro ao cancelar ocorrência.",
+      ),
   });
 }
 
@@ -47,33 +48,24 @@ export function useDeleteThisAndFollowing() {
       sessionDate.setDate(sessionDate.getDate() - 1);
       const newEnd = sessionDate.toISOString().split("T")[0];
 
-      await supabase
+      // Truncar o template PRIMEIRO (erro checado): se falhar, nada foi
+      // apagado; se o delete abaixo falhar, o retry converge (série já
+      // encerrada não regenera). Paga fica (registro de folha): o DELETE
+      // carrega o próprio filtro is_paid=false (CAS — pagamento no meio
+      // não perde a sessão); bookings caem por CASCADE.
+      const { error: endErr } = await supabase
         .from("class_templates")
         .update({ recurrence_end: newEnd })
         .eq("id", session.template_id);
+      if (endErr) throw endErr;
 
-      // Paga fica (registro de folha) — só as não-pagas somem.
-      const { data: sessions, error: selErr } = await supabase
+      const { error: delErr } = await supabase
         .from("sessions")
-        .select("id")
+        .delete()
         .eq("template_id", session.template_id)
         .gte("session_date", session.session_date)
         .eq("is_paid", false);
-      if (selErr) throw selErr;
-
-      if (sessions?.length) {
-        const ids = sessions.map((s) => s.id);
-        const { error: bookErr } = await supabase
-          .from("class_bookings")
-          .delete()
-          .in("session_id", ids);
-        if (bookErr) throw bookErr;
-        const { error: delErr } = await supabase
-          .from("sessions")
-          .delete()
-          .in("id", ids);
-        if (delErr) throw delErr;
-      }
+      if (delErr) throw delErr;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions"] });
@@ -97,21 +89,16 @@ export function useDeleteAllOccurrences() {
         .eq("template_id", templateId);
       if (selErr) throw selErr;
 
-      const unpaidIds = (sessions ?? []).filter((s) => !s.is_paid).map((s) => s.id);
       const hasPaid = (sessions ?? []).some((s) => s.is_paid);
 
-      if (unpaidIds.length) {
-        const { error: bookErr } = await supabase
-          .from("class_bookings")
-          .delete()
-          .in("session_id", unpaidIds);
-        if (bookErr) throw bookErr;
-        const { error: delErr } = await supabase
-          .from("sessions")
-          .delete()
-          .in("id", unpaidIds);
-        if (delErr) throw delErr;
-      }
+      // DELETE com o próprio filtro is_paid=false (CAS): pagamento entre o
+      // SELECT e o DELETE não perde a sessão; bookings caem por CASCADE.
+      const { error: delErr } = await supabase
+        .from("sessions")
+        .delete()
+        .eq("template_id", templateId)
+        .eq("is_paid", false);
+      if (delErr) throw delErr;
 
       if (hasPaid) {
         const today = new Date().toISOString().split("T")[0];
@@ -179,15 +166,13 @@ export function useUpdateThisAndFollowing() {
 
       if (futureSessions?.length) {
         const ids = futureSessions.map((s) => s.id);
-        const { error: bookErr } = await supabase
-          .from("class_bookings")
-          .delete()
-          .in("session_id", ids);
-        if (bookErr) throw bookErr;
+        // CAS no próprio DELETE (pagamento entre SELECT e DELETE não perde
+        // a sessão); bookings caem por CASCADE.
         const { error: delErr } = await supabase
           .from("sessions")
           .delete()
-          .in("id", ids);
+          .in("id", ids)
+          .eq("is_paid", false);
         if (delErr) throw delErr;
       }
 

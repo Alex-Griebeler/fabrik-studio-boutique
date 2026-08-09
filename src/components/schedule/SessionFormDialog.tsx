@@ -227,7 +227,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
           payload = { ...payload, ...financials };
         }
         updateSession.mutate(
-          { id: editSession!.id, ...payload },
+          { id: editSession!.id, only_if_unpaid: true, ...payload },
           { onSuccess: () => onOpenChange(false) }
         );
       } else if (action === "this_and_following" && editSession!.template_id) {
