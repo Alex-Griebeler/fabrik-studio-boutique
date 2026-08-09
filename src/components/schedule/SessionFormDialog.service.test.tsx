@@ -58,8 +58,8 @@ vi.mock("@/hooks/useSchedule", () => ({
 vi.mock("@/hooks/useTrainers", () => ({
   useTrainers: () => ({
     data: [
-      { id: "t-alex", full_name: "Alex Griebeler", hourly_rate_main_cents: 0 },
-      { id: "t-ceniz", full_name: "Alexandre Ceniz", hourly_rate_main_cents: 0 },
+      { id: "t-alex", full_name: "Alex Griebeler" },
+      { id: "t-ceniz", full_name: "Alexandre Ceniz" },
     ],
   }),
 }));

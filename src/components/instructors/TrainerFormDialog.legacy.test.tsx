@@ -41,6 +41,17 @@ vi.mock("@/hooks/useTrainers", () => ({
   useTrainerAdmin: () => ({ isSuccess: false, isFetching: false, isError: false, data: null }),
 }));
 
+let MOCK_ROLES: string[] = ["admin"];
+vi.mock("@/hooks/useUserRoles", () => ({
+  useUserRoles: () => ({
+    roles: MOCK_ROLES,
+    loading: false,
+    error: false,
+    hasRole: (r: string) => MOCK_ROLES.includes(r),
+    hasAnyRole: (check: string[]) => check.some((r) => MOCK_ROLES.includes(r)),
+  }),
+}));
+
 vi.mock("@/hooks/useServiceRates", () => ({
   useServiceTypes: () => ({
     data: [{ id: "s-fisio", slug: "fisioterapia", name: "Fisioterapia", delivery_type: "personal", is_active: true, sort_order: 30 }],
@@ -56,6 +67,7 @@ describe("TrainerFormDialog — tarifas aposentadas do cadastro (PR-E)", () => {
   beforeEach(() => {
     createMutate.mockClear();
     updateMutate.mockClear();
+    MOCK_ROLES = ["admin"];
   });
 
   it("criação: payload NÃO carrega nenhum campo legado de tarifa", () => {
@@ -79,6 +91,15 @@ describe("TrainerFormDialog — tarifas aposentadas do cadastro (PR-E)", () => {
     render(<TrainerFormDialog open onOpenChange={() => {}} trainer={null} />);
     expect(screen.getByText(/Pagamentos à equipe/)).toBeInTheDocument();
     expect(screen.queryByText(/Taxa\/hora/)).toBeNull();
+  });
+
+  it("quem NÃO lê tarifas (manager) vê aviso neutro — nunca 'sem tarifas' falso", () => {
+    MOCK_ROLES = ["manager"];
+    render(
+      <TrainerFormDialog open onOpenChange={() => {}} trainer={{ id: "t-x", full_name: "X" } as never} />,
+    );
+    expect(screen.getByText(/visíveis apenas para administradores/)).toBeInTheDocument();
+    expect(screen.queryByText(/Sem tarifas cadastradas/)).toBeNull();
   });
 
   it("edição: resumo somente-leitura mostra as tarifas por serviço do profissional", () => {

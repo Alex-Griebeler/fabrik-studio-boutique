@@ -39,7 +39,7 @@ export interface ClassTemplate {
   duration_minutes: number;
   capacity: number;
   instructor_id: string | null;
-  service_type_id: string | null;
+  service_type_id: string;
   location: string | null;
   is_active: boolean;
   recurrence_start: string;
@@ -68,8 +68,8 @@ export interface Session {
   duration_minutes: number;
   capacity: number;
 
-  // Financial snapshot
-  service_type_id: string | null;
+  // Financial snapshot (PR-E: serviço é NOT NULL no banco)
+  service_type_id: string;
   trainer_hourly_rate_cents: number;
   assistant_hourly_rate_cents: number;
   payment_hours: number;

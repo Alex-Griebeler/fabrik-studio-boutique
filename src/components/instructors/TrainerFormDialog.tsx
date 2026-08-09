@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { X } from "lucide-react";
 import { useCreateTrainer, useTrainerAdmin, useUpdateTrainer } from "@/hooks/useTrainers";
 import { useServiceTypes, useTrainerServiceRates } from "@/hooks/useServiceRates";
+import { useUserRoles } from "@/hooks/useUserRoles";
 import { centsToReal } from "@/lib/money";
 import type { Trainer } from "@/hooks/schedule/types";
 
@@ -108,6 +109,10 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   // equipe"); aqui só o RESUMO somente-leitura do profissional.
   const { data: services } = useServiceTypes();
   const { data: serviceRates } = useTrainerServiceRates();
+  // RLS de tarifas: admin+instructor. Pra quem não lê (manager), o array
+  // vazio NÃO significa "sem tarifas" — mostrar isso seria mentira.
+  const { hasAnyRole } = useUserRoles();
+  const canReadRates = hasAnyRole(["admin", "instructor"]);
   const trainerRates = trainer
     ? (serviceRates ?? [])
         .filter((r) => r.trainer_id === trainer.id)
@@ -261,7 +266,11 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
               da página Treinadores. Dois editores = a redundância que o
               dono vetou. */}
           <TabsContent value="rates" className="space-y-3 mt-3">
-            {!isEdit ? (
+            {!canReadRates ? (
+              <p className="text-sm text-muted-foreground">
+                Tarifas visíveis apenas para administradores.
+              </p>
+            ) : !isEdit ? (
               <p className="text-sm text-muted-foreground">
                 Cadastre o treinador primeiro — depois defina as tarifas por
                 serviço na aba <strong>Pagamentos à equipe</strong>.

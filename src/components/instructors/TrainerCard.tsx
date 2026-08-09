@@ -38,7 +38,11 @@ export function TrainerCard({ trainer, onEdit }: Props) {
     .filter((r) => r.trainer_id === trainer.id)
     .map((r) => {
       const svc = services?.find((sv) => sv.id === r.service_type_id);
-      return `${svc?.name ?? "?"} R$${(r.rate_cents / 100).toFixed(0)}${r.rate_basis === "hourly" ? "/h" : "/sessão"}`;
+      const valor =
+        r.rate_cents % 100 === 0
+          ? String(r.rate_cents / 100)
+          : (r.rate_cents / 100).toFixed(2).replace(".", ",");
+      return `${svc?.name ?? "?"} R$${valor}${r.rate_basis === "hourly" ? "/h" : "/sessão"}`;
     });
 
   return (
