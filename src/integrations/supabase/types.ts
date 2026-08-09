@@ -3433,6 +3433,9 @@ export type Database = {
           paid_at: string | null
           payment_amount_cents: number | null
           payment_hours: number | null
+          payment_rate_basis: string | null
+          service_name: string | null
+          service_type_id: string | null
           session_date: string | null
           session_type: Database["public"]["Enums"]["session_type"] | null
           start_time: string | null
@@ -3463,6 +3466,13 @@ export type Database = {
             columns: ["contract_id"]
             isOneToOne: false
             referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_service_type_id_fkey"
+            columns: ["service_type_id"]
+            isOneToOne: false
+            referencedRelation: "service_types"
             referencedColumns: ["id"]
           },
           {
