@@ -83,6 +83,7 @@ export function useTrainerPayrollStats(sessions: TrainerPayrollSession[] | undef
       paidAmountCents: 0,
       unpaidAmountCents: 0,
       avgRateCents: 0,
+      hasHourly: false,
     };
   }
 
@@ -93,7 +94,23 @@ export function useTrainerPayrollStats(sessions: TrainerPayrollSession[] | undef
     .filter((s) => s.is_paid)
     .reduce((sum, s) => sum + (s.payment_amount_cents ?? 0), 0);
   const unpaidAmountCents = totalAmountCents - paidAmountCents;
-  const avgRateCents = totalHours > 0 ? Math.round(totalAmountCents / totalHours) : 0;
 
-  return { totalSessions, totalHours, totalAmountCents, paidAmountCents, unpaidAmountCents, avgRateCents };
+  // Taxa média/hora SÓ faz sentido nas sessões pagas POR HORA — dividir
+  // valor cravado (per_session) por horas inventa uma taxa que não existe
+  // (fisio de 30min a R$108/sessão viraria "R$216/h"). Base null = era
+  // legada = hourly implícito.
+  const hourlyRows = sessions.filter((s) => s.payment_rate_basis !== "per_session");
+  const hourlyHours = hourlyRows.reduce((sum, s) => sum + (s.payment_hours ?? 0), 0);
+  const hourlyAmountCents = hourlyRows.reduce((sum, s) => sum + (s.payment_amount_cents ?? 0), 0);
+  const avgRateCents = hourlyHours > 0 ? Math.round(hourlyAmountCents / hourlyHours) : 0;
+
+  return {
+    totalSessions,
+    totalHours,
+    totalAmountCents,
+    paidAmountCents,
+    unpaidAmountCents,
+    avgRateCents,
+    hasHourly: hourlyHours > 0,
+  };
 }

@@ -187,7 +187,7 @@ export default function TrainerPayroll() {
         />
         <KPICard title="Sessões Realizadas" value={String(stats.totalSessions)} icon={CalendarDays} />
         <KPICard title="Horas Trabalhadas" value={stats.totalHours.toFixed(1)} icon={Clock} />
-        <KPICard title="Taxa Média/Hora" value={centsToReal(stats.avgRateCents)} icon={TrendingUp} />
+        <KPICard title="Taxa Média/Hora" value={stats.hasHourly ? centsToReal(stats.avgRateCents) : "—"} icon={TrendingUp} />
       </div>
 
       {/* Payment status banner */}

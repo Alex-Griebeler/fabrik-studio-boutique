@@ -90,8 +90,19 @@ $$;
 REVOKE ALL ON FUNCTION public.fn_audit_log() FROM PUBLIC, anon, authenticated;
 
 -- Alvos da migration, com as colunas que ela toca.
+CREATE TABLE public.profiles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  auth_user_id uuid,
+  full_name text NOT NULL
+);
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+-- réplica da postura de produção: cada um lê o próprio perfil
+CREATE POLICY profiles_select_own ON public.profiles FOR SELECT
+  USING (auth_user_id = auth.uid());
+
 CREATE TABLE public.trainers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id uuid REFERENCES public.profiles(id),
   full_name text NOT NULL,
   hourly_rate_main_cents integer NOT NULL DEFAULT 0,
   is_active boolean NOT NULL DEFAULT true
@@ -167,10 +178,15 @@ CREATE POLICY class_templates_delete ON public.class_templates FOR DELETE
 -- Linhas representativas de produção:
 -- o Alex (uuid REAL de produção — a migration semeia as tarifas dele por id),
 -- um treinador sem tarifas, um template de turma e uma sessão de cada formato.
-INSERT INTO public.trainers (id, full_name, hourly_rate_main_cents)
+-- Perfil do "dono" da sessão paga (vinculado ao usuário instructor dos
+-- testes de papel da PR-D):
+INSERT INTO public.profiles (id, auth_user_id, full_name)
+VALUES ('f9110000-0000-0000-0000-000000000011', 'f9000000-0000-0000-0000-000000000001', 'Alex Griebeler');
+
+INSERT INTO public.trainers (id, profile_id, full_name, hourly_rate_main_cents)
 VALUES
-  ('4fd214e3-214c-433d-bde2-5e91957dc95a', 'Alex Griebeler', 10000),
-  ('11111111-1111-1111-1111-111111111111', 'Treinador Sem Tarifa', 0);
+  ('4fd214e3-214c-433d-bde2-5e91957dc95a', 'f9110000-0000-0000-0000-000000000011', 'Alex Griebeler', 10000),
+  ('11111111-1111-1111-1111-111111111111', NULL, 'Treinador Sem Tarifa', 0);
 
 INSERT INTO public.class_templates (id, modality, day_of_week, start_time, duration_minutes)
 VALUES ('22222222-2222-2222-2222-222222222222', 'flow', 1, '06:00', 60);
