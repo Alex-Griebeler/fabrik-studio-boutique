@@ -51,6 +51,12 @@ LANGUAGE plpgsql
 SET search_path TO 'public'
 AS $$
 BEGIN
+  -- NULL não é caso da guarda: deixa o NOT NULL do banco falar (23502)
+  -- com a mensagem certa, em vez de um 23514 enganoso de "incoerência".
+  IF NEW.service_type_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
   IF TG_TABLE_NAME = 'sessions' THEN
     IF NOT EXISTS (
       SELECT 1 FROM public.service_types st

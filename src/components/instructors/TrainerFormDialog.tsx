@@ -108,7 +108,11 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   // PR-E: as tarifas vivem em trainer_service_rates (aba "Pagamentos à
   // equipe"); aqui só o RESUMO somente-leitura do profissional.
   const { data: services } = useServiceTypes();
-  const { data: serviceRates } = useTrainerServiceRates();
+  const {
+    data: serviceRates,
+    isLoading: ratesLoading,
+    isError: ratesError,
+  } = useTrainerServiceRates();
   // RLS de tarifas: admin+instructor. Pra quem não lê (manager), o array
   // vazio NÃO significa "sem tarifas" — mostrar isso seria mentira.
   const { hasAnyRole } = useUserRoles();
@@ -269,6 +273,12 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
             {!canReadRates ? (
               <p className="text-sm text-muted-foreground">
                 Tarifas visíveis apenas para administradores.
+              </p>
+            ) : ratesLoading ? (
+              <p className="text-sm text-muted-foreground">Carregando tarifas...</p>
+            ) : ratesError ? (
+              <p className="text-sm text-destructive">
+                Erro ao carregar as tarifas — recarregue. (Nada foi alterado.)
               </p>
             ) : !isEdit ? (
               <p className="text-sm text-muted-foreground">
