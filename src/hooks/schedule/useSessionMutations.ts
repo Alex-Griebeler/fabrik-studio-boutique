@@ -22,9 +22,11 @@ export function useCreateSession() {
       assistant_trainer_id?: string | null;
       student_id?: string | null;
       contract_id?: string | null;
+      service_type_id?: string | null;
       trainer_hourly_rate_cents?: number;
       payment_hours?: number;
       payment_amount_cents?: number;
+      payment_rate_basis?: "hourly" | "per_session" | null;
       notes?: string | null;
     }) => {
       let endTime = data.end_time;
@@ -49,9 +51,11 @@ export function useCreateSession() {
         assistant_trainer_id: data.assistant_trainer_id || null,
         student_id: data.student_id || null,
         contract_id: data.contract_id || null,
+        service_type_id: data.service_type_id || null,
         trainer_hourly_rate_cents: data.trainer_hourly_rate_cents || 0,
         payment_hours: data.payment_hours || 0,
         payment_amount_cents: data.payment_amount_cents || 0,
+        payment_rate_basis: data.payment_rate_basis || null,
         notes: data.notes || null,
       });
       if (error) throw error;
@@ -70,7 +74,23 @@ export function useCreateSession() {
 export function useUpdateSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...data }: { id: string; [key: string]: unknown }) => {
+    mutationFn: async ({ id, only_if_unpaid, ...data }: { id: string; only_if_unpaid?: boolean; [key: string]: unknown }) => {
+      // only_if_unpaid: CAS no banco — se a sessão virou PAGA depois que o
+      // form abriu, o update afeta 0 linhas e vira erro visível (nunca
+      // estrutura/dinheiro gravados por cima de folha quitada).
+      if (only_if_unpaid) {
+        const { data: rows, error } = await supabase
+          .from("sessions")
+          .update(data as Record<string, unknown>)
+          .eq("id", id)
+          .eq("is_paid", false)
+          .select("id");
+        if (error) throw error;
+        if (!rows?.length) {
+          throw new Error("Esta sessão foi marcada como paga enquanto você editava — recarregue.");
+        }
+        return;
+      }
       const { error } = await supabase.from("sessions").update(data as Record<string, unknown>).eq("id", id);
       if (error) throw error;
     },
@@ -78,7 +98,10 @@ export function useUpdateSession() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Sessão atualizada!");
     },
-    onError: () => toast.error("Erro ao atualizar sessão."),
+    onError: (e) =>
+      toast.error(
+        e instanceof Error && e.message ? e.message : "Erro ao atualizar sessão.",
+      ),
   });
 }
 
@@ -196,6 +219,7 @@ export function useTrainerCheckin() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Check-in do treinador registrado!");
     },
+    onError: () => toast.error("Erro no check-in do treinador."),
   });
 }
 
@@ -216,6 +240,7 @@ export function useStudentCheckin() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Check-in do aluno registrado!");
     },
+    onError: () => toast.error("Erro no check-in do aluno."),
   });
 }
 
@@ -236,6 +261,7 @@ export function useCompleteSession() {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Sessão concluída!");
     },
+    onError: () => toast.error("Erro ao concluir a sessão."),
   });
 }
 
@@ -246,14 +272,29 @@ export function useDeleteSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      await supabase.from("class_bookings").delete().eq("session_id", id);
-      const { error } = await supabase.from("sessions").delete().eq("id", id);
+      // Sessão PAGA é registro de folha. O CAS is_paid=false + verificação
+      // de linhas afetadas fecham a corrida com o pagamento; as reservas
+      // caem por CASCADE (class_bookings.session_id ON DELETE CASCADE —
+      // verificado em produção), então NADA é tocado quando o delete não
+      // acontece.
+      const { data: rows, error } = await supabase
+        .from("sessions")
+        .delete()
+        .eq("id", id)
+        .eq("is_paid", false)
+        .select("id");
       if (error) throw error;
+      if (!rows?.length) {
+        throw new Error("Sessão paga (ou já removida) não pode ser excluída — recarregue.");
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions"] });
       toast.success("Sessão excluída!");
     },
-    onError: () => toast.error("Erro ao excluir sessão."),
+    onError: (e) =>
+      toast.error(
+        e instanceof Error && e.message ? e.message : "Erro ao excluir sessão.",
+      ),
   });
 }

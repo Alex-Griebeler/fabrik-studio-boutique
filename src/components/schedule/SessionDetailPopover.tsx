@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Users, Clock, User, Plus, X, UserCheck, UserX, Trash2, Pencil, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { useUserRoles } from "@/hooks/useUserRoles";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,6 +48,11 @@ interface SessionDetailPopoverProps {
 }
 
 export function SessionDetailPopover({ session, children }: SessionDetailPopoverProps) {
+  // Espelho das policies: UPDATE é admin/instructor; DELETE é SÓ admin.
+  // Recepção vê o detalhe, mas não botões que só falhariam.
+  const { hasAnyRole, hasRole } = useUserRoles();
+  const canEditSessions = hasAnyRole(["admin", "instructor"]);
+  const canDeleteSessions = hasRole("admin");
   const [open, setOpen] = useState(false);
   const [addingStudent, setAddingStudent] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -159,17 +165,21 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                 )}
               </div>
               <div className="flex items-center gap-0.5">
-                {isActive && (
+                {canEditSessions && isActive && !session.is_paid && (
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-warning" onClick={handleCancelClick} title="Cancelar sessão">
                     <Ban className="h-3.5 w-3.5" />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleEditClick}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={handleDeleteClick}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                {canEditSessions && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleEditClick}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {canDeleteSessions && !session.is_paid && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={handleDeleteClick}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -180,7 +190,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <User className="h-3.5 w-3.5" />
                   <span className="flex-1">{session.trainer.full_name}</span>
-                  {isActive && isPast && !session.trainer_checkin_at ? (
+                  {canEditSessions && isActive && isPast && !session.trainer_checkin_at ? (
                     <CheckInButton
                       type="trainer"
                       checkinAt={null}
@@ -201,7 +211,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <User className="h-3.5 w-3.5" />
                   <span className="flex-1">{session.student.full_name}</span>
-                  {isActive && isPast && !session.student_checkin_at ? (
+                  {canEditSessions && isActive && isPast && !session.student_checkin_at ? (
                     <CheckInButton
                       type="student"
                       checkinAt={null}
@@ -218,7 +228,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
               )}
 
               {/* Complete button */}
-              {isActive && isPast && session.trainer_checkin_at && (
+              {canEditSessions && isActive && isPast && session.trainer_checkin_at && (
                 <Button variant="default" size="sm" className="w-full h-7 text-xs"
                   onClick={() => completeSession.mutate(session.id)} disabled={completeSession.isPending}>
                   <CheckCircle2 className="h-3 w-3 mr-1" /> Concluir Sessão
@@ -366,10 +376,10 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
         editSession={session}
         recurringAction={pendingEditAction}
       />
-      <RecurringActionDialog open={showRecurringEdit} onOpenChange={setShowRecurringEdit}
+      <RecurringActionDialog allowSeries={hasRole("admin")} open={showRecurringEdit} onOpenChange={setShowRecurringEdit}
         title="Editar evento recorrente" description="Este evento faz parte de uma série recorrente."
         onSelect={handleRecurringEdit} variant="edit" />
-      <RecurringActionDialog open={showRecurringDelete} onOpenChange={setShowRecurringDelete}
+      <RecurringActionDialog allowSeries={hasRole("admin")} open={showRecurringDelete} onOpenChange={setShowRecurringDelete}
         title="Excluir evento recorrente" description="Este evento faz parte de uma série recorrente."
         onSelect={handleRecurringDelete} variant="delete"
         isPending={cancelSingle.isPending || deleteFollowing.isPending || deleteAll.isPending} />

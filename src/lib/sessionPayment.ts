@@ -1,31 +1,57 @@
-// Snapshot de pagamento de uma sessão (Onda 2d).
+// Snapshot de pagamento de uma sessão (Onda 2d; PR-C: base por serviço).
 //
-// FONTE ÚNICA da matemática duração × tarifa. Antes ela vivia só no
-// SessionFormDialog — o gerador automático de sessões (agenda a partir
-// dos templates) criava tudo SEM treinador e SEM valor, e a folha
-// inteira somava R$ 0,00 (as 18 sessões de produção estavam 18/18 sem
-// trainer_id e sem payment_amount_cents).
+// FONTE ÚNICA da matemática tarifa × sessão. A tarifa agora vem de
+// trainer_service_rates (treinador × serviço) e tem BASE:
+//  - hourly: valor = duração/60 × tarifa
+//  - per_session: valor = tarifa, cravado, independe da duração
+//
+// `trainer_hourly_rate_cents` é o nome LEGADO da coluna de snapshot da
+// tarifa — ela guarda a tarifa em centavos NAS DUAS bases; quem diz como
+// interpretá-la é `payment_rate_basis` (a folha exibe na PR-D).
+
+export type PaymentRateBasis = "hourly" | "per_session";
+
+export interface ServiceRateForPayment {
+  rate_cents: number;
+  rate_basis: PaymentRateBasis;
+}
 
 export interface SessionPaymentSnapshot {
   trainer_hourly_rate_cents: number;
   payment_hours: number;
   payment_amount_cents: number;
+  payment_rate_basis: PaymentRateBasis | null;
 }
 
 export function sessionPaymentSnapshot(
   durationMinutes: number,
-  hourlyRateCents: number | null | undefined,
+  rate: ServiceRateForPayment | null | undefined,
 ): SessionPaymentSnapshot {
-  const rate =
-    Number.isFinite(hourlyRateCents ?? NaN) && (hourlyRateCents as number) > 0
-      ? (hourlyRateCents as number)
-      : 0;
   const minutes =
     Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : 0;
   const hours = minutes / 60;
+
+  const cents =
+    rate && Number.isFinite(rate.rate_cents) && rate.rate_cents > 0
+      ? rate.rate_cents
+      : 0;
+  if (cents === 0) {
+    // Sem tarifa válida = snapshot zerado e SEM base — nunca um valor
+    // inventado. Quem chama decide se isso é permitido (sessão sem
+    // treinador) ou bloqueio visível (treinador sem tarifa no serviço).
+    return {
+      trainer_hourly_rate_cents: 0,
+      payment_hours: hours,
+      payment_amount_cents: 0,
+      payment_rate_basis: null,
+    };
+  }
+
   return {
-    trainer_hourly_rate_cents: rate,
+    trainer_hourly_rate_cents: cents,
     payment_hours: hours,
-    payment_amount_cents: Math.round(hours * rate),
+    payment_amount_cents:
+      rate!.rate_basis === "per_session" ? cents : Math.round(hours * cents),
+    payment_rate_basis: rate!.rate_basis,
   };
 }

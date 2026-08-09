@@ -109,6 +109,9 @@ export function TemplateManager() {
       updateTemplate.mutate(
         {
           id: editingTemplate.id,
+          // service_type_id fica FORA do update de propósito: a coluna
+          // não muda (sem seletor na UI — só existe UM serviço de formato
+          // turma; o seletor nasce quando houver um segundo).
           modality,
           day_of_week: selectedDays[0],
           start_time: startTime,
@@ -125,6 +128,8 @@ export function TemplateManager() {
       if (selectedDays.length === 0) return;
       const promises = selectedDays.map((day) =>
         createTemplate.mutateAsync({
+          // null de propósito: o trigger do banco preenche "grupo".
+          service_type_id: null,
           modality,
           day_of_week: day,
           start_time: startTime,

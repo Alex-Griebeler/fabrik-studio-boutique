@@ -45,7 +45,9 @@ export function usePolicyValue<T = number>(key: string, fallback: T): T {
   const policy = policies?.find((p) => p.key === key);
   if (!policy) return fallback;
   try {
-    return typeof policy.value === "string" ? JSON.parse(policy.value) : policy.value;
+    return (
+      typeof policy.value === "string" ? JSON.parse(policy.value) : policy.value
+    ) as T;
   } catch {
     return policy.value as T;
   }

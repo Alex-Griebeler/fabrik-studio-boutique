@@ -12,7 +12,13 @@ let EXISTING: Array<{ template_id: string; session_date: string }> = [];
 let EXISTING_AFTER_CONFLICT: Array<{ template_id: string; session_date: string }> | null = null;
 let SESSION_SELECT_COUNT = 0;
 let SESSION_SELECT_ERROR_AFTER: { message: string } | null = null;
-let TRAINERS: Array<{ id: string; profile_id: string | null; hourly_rate_main_cents: number }> = [];
+let TRAINERS: Array<{ id: string; profile_id: string | null }> = [];
+let SERVICE_RATES: Array<{
+  trainer_id: string;
+  service_type_id: string;
+  rate_basis: "hourly" | "per_session";
+  rate_cents: number;
+}> = [];
 let INSERT_CALLS: Array<Array<Record<string, unknown>>> = [];
 let INSERT_ERRORS: Array<{ code: string; message: string } | null> = [];
 let ROLES: string[] = ["admin"];
@@ -33,6 +39,7 @@ vi.mock("@/hooks/useUserRoles", () => ({
 const BASE_TEMPLATE = {
   id: "tpl-1",
   instructor_id: "profile-1",
+  service_type_id: "svc-grupo",
   day_of_week: 1, // segunda
   start_time: "07:00",
   duration_minutes: 60,
@@ -72,8 +79,9 @@ vi.mock("@/integrations/supabase/client", () => {
                   : EXISTING;
               return thenable({ data, error: null });
             },
-            insert: (rows: Array<Record<string, unknown>>) => {
-              INSERT_CALLS.push(rows);
+            insert: (rows: Array<Record<string, unknown>> | Record<string, unknown>) => {
+              // lote (array) na 1ª tentativa; retry é POR LINHA (objeto)
+              INSERT_CALLS.push(Array.isArray(rows) ? rows : [rows]);
               const err = INSERT_ERRORS.length > 0 ? INSERT_ERRORS.shift()! : null;
               return {
                 then: (resolve: (v: unknown) => void) => resolve({ error: err }),
@@ -83,6 +91,9 @@ vi.mock("@/integrations/supabase/client", () => {
         }
         if (table === "trainers") {
           return { select: () => thenable({ data: TRAINERS, error: null }) };
+        }
+        if (table === "trainer_service_rates") {
+          return { select: () => thenable({ data: SERVICE_RATES, error: null }) };
         }
         throw new Error(`tabela inesperada no teste: ${table}`);
       },
@@ -105,7 +116,10 @@ const END = "2026-08-10";
 describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
   beforeEach(() => {
     EXISTING = [];
-    TRAINERS = [{ id: "trainer-9", profile_id: "profile-1", hourly_rate_main_cents: 12000 }];
+    TRAINERS = [{ id: "trainer-9", profile_id: "profile-1" }];
+    SERVICE_RATES = [
+      { trainer_id: "trainer-9", service_type_id: "svc-grupo", rate_basis: "hourly", rate_cents: 12000 },
+    ];
     INSERT_CALLS = [];
     INSERT_ERRORS = [];
     EXISTING_AFTER_CONFLICT = null;
@@ -126,6 +140,37 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     expect(row.trainer_hourly_rate_cents).toBe(12000);
     expect(row.payment_hours).toBe(1);
     expect(row.payment_amount_cents).toBe(12000);
+    // PR-C: a sessão nasce classificada e com a base do cálculo gravada.
+    expect(row.service_type_id).toBe("svc-grupo");
+    expect(row.payment_rate_basis).toBe("hourly");
+  });
+
+  it("tarifa per_session: valor CRAVADO independe da duração da turma", async () => {
+    SERVICE_RATES = [
+      { trainer_id: "trainer-9", service_type_id: "svc-grupo", rate_basis: "per_session", rate_cents: 10800 },
+    ];
+    TEMPLATES = [{ ...BASE_TEMPLATE, duration_minutes: 90 }];
+    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
+    await waitFor(() => expect(INSERT_CALLS.length).toBeGreaterThan(0));
+
+    const row = INSERT_CALLS[0][0];
+    expect(row.payment_amount_cents).toBe(10800); // NÃO 1,5 × tarifa
+    expect(row.payment_rate_basis).toBe("per_session");
+    expect(row.payment_hours).toBe(1.5); // informativo, sem afetar o valor
+  });
+
+  it("template SEM serviço definido: turma pulada com aviso", async () => {
+    TEMPLATES = [
+      { ...BASE_TEMPLATE, id: "tpl-sem-servico", service_type_id: null as unknown as string },
+      { ...BASE_TEMPLATE, id: "tpl-ok" },
+    ];
+    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
+    await waitFor(() => expect(INSERT_CALLS.length).toBe(1));
+    expect(INSERT_CALLS[0]).toHaveLength(1);
+    expect(INSERT_CALLS[0][0].template_id).toBe("tpl-ok");
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("sem serviço"),
+    );
   });
 
   it("instrutor SEM cadastro de treinador vinculado: aborta com aviso, nada inserido", async () => {
@@ -135,8 +180,20 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     expect(INSERT_CALLS).toHaveLength(0);
   });
 
-  it("treinador sem tarifa: aborta com aviso, nada inserido (nunca R$0 silencioso)", async () => {
-    TRAINERS = [{ id: "trainer-9", profile_id: "profile-1", hourly_rate_main_cents: 0 }];
+  it("treinador sem tarifa PARA O SERVIÇO da turma: pulado com aviso apontando a tela", async () => {
+    SERVICE_RATES = []; // nenhum par cadastrado
+    renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
+    expect(INSERT_CALLS).toHaveLength(0);
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("Pagamentos à equipe"),
+    );
+  });
+
+  it("tarifa existe pra OUTRO serviço, não o da turma: pulado (par exato manda)", async () => {
+    SERVICE_RATES = [
+      { trainer_id: "trainer-9", service_type_id: "svc-personal", rate_basis: "hourly", rate_cents: 7500 },
+    ];
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
     await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
     expect(INSERT_CALLS).toHaveLength(0);
@@ -168,19 +225,43 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
   });
 
-  it("conflito PARCIAL (23505): retry reinsere SÓ a linha que faltou", async () => {
+  it("conflito PARCIAL (23505): retry POR LINHA reinsere SÓ a que faltou", async () => {
     INSERT_ERRORS = [{ code: "23505", message: "duplicate key" }, null];
     // Range com DUAS segundas (10 e 17/08). Outra aba criou só a do
     // dia 10 → o lote de 2 conflita inteiro; o retry deve inserir
-    // exatamente a do dia 17, nada mais.
+    // exatamente a do dia 17, linha a linha.
     EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
     renderHook(() => useAutoGenerateSessions("2026-08-10", "2026-08-17"), { wrapper });
     await waitFor(() => expect(INSERT_CALLS.length).toBe(2));
 
     expect(INSERT_CALLS[0]).toHaveLength(2); // lote original: 10 e 17
-    expect(INSERT_CALLS[1]).toHaveLength(1); // retry: só a que faltou
+    expect(INSERT_CALLS[1]).toHaveLength(1); // retry por linha: só a que faltou
     expect(INSERT_CALLS[1][0].session_date).toBe("2026-08-17");
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it("SEGUNDO 23505 no retry (terceira aba): benigno por linha, sem erro e sem linha perdida", async () => {
+    // lote conflita; na releitura falta só 17/08; o retry da linha 17
+    // TAMBÉM conflita (terceira aba criou) → benigno, nada de toast.
+    INSERT_ERRORS = [
+      { code: "23505", message: "duplicate key" },
+      { code: "23505", message: "duplicate key" },
+    ];
+    EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
+    renderHook(() => useAutoGenerateSessions("2026-08-10", "2026-08-17"), { wrapper });
+    await waitFor(() => expect(INSERT_CALLS.length).toBe(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it("erro REAL numa linha do retry vira aviso (antes o lote inteiro sumia mudo)", async () => {
+    INSERT_ERRORS = [
+      { code: "23505", message: "duplicate key" },
+      { code: "42501", message: "permission denied" },
+    ];
+    EXISTING_AFTER_CONFLICT = [{ template_id: "tpl-1", session_date: "2026-08-10" }];
+    renderHook(() => useAutoGenerateSessions("2026-08-10", "2026-08-17"), { wrapper });
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
   });
 
   it("releitura pós-conflito com ERRO: aborta com aviso (nunca reinsere às cegas)", async () => {
@@ -221,8 +302,8 @@ describe("useAutoGenerateSessions — mapeamento profile→trainer", () => {
 
   it("dois treinadores no MESMO perfil: turma pulada com aviso (não trava as demais)", async () => {
     TRAINERS = [
-      { id: "trainer-9", profile_id: "profile-1", hourly_rate_main_cents: 12000 },
-      { id: "trainer-10", profile_id: "profile-1", hourly_rate_main_cents: 9000 },
+      { id: "trainer-9", profile_id: "profile-1" },
+      { id: "trainer-10", profile_id: "profile-1" },
     ];
     renderHook(() => useAutoGenerateSessions(START, END), { wrapper });
     await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());

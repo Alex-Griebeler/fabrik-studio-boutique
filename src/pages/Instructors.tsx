@@ -80,7 +80,7 @@ export default function Instructors() {
         <Tabs defaultValue="trainers">
           <TabsList className="mb-4">
             <TabsTrigger value="trainers">Treinadores</TabsTrigger>
-            <TabsTrigger value="rates">Taxas por serviço</TabsTrigger>
+            <TabsTrigger value="rates">Pagamentos à equipe</TabsTrigger>
           </TabsList>
           <TabsContent value="trainers">{trainersGrid}</TabsContent>
           <TabsContent value="rates">
