@@ -104,7 +104,11 @@ CREATE TABLE public.trainers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   profile_id uuid REFERENCES public.profiles(id),
   full_name text NOT NULL,
+  -- legados de tarifa (a PR-E os COMENTA como aposentados — precisam existir)
   hourly_rate_main_cents integer NOT NULL DEFAULT 0,
+  hourly_rate_assistant_cents integer NOT NULL DEFAULT 0,
+  session_rate_cents integer NOT NULL DEFAULT 0,
+  payment_method text NOT NULL DEFAULT 'hourly',
   is_active boolean NOT NULL DEFAULT true
 );
 
