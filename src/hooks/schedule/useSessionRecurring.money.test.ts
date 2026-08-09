@@ -32,6 +32,7 @@ vi.mock("@/integrations/supabase/client", () => {
       return b;
     };
     b.eq = record("eq");
+    b.is = record("is");
     b.gte = record("gte");
     b.in = record("in");
     b.single = () =>
@@ -201,8 +202,22 @@ describe("useUpdateThisAndFollowing — paga é intocável", () => {
     expect(delIdx).toBeGreaterThanOrEqual(0);
     expect(insIdx).toBeGreaterThan(delIdx); // delete vem antes do insert
     expect(truncIdx).toBeGreaterThan(insIdx); // truncar o antigo é o ÚLTIMO
-    // e a checagem de existência protege contra série duplicada no retry:
-    expect(selectCalls.some((c) => c.table === "class_templates")).toBe(true);
+    // e a checagem de existência usa a ASSINATURA COMPLETA (não colide
+    // com outra turma legítima no mesmo dia/horário):
+    const existsCheck = selectCalls.find((c) => c.table === "class_templates");
+    const cols = (existsCheck?.filters ?? []).map(([, col]) => col);
+    for (const required of [
+      "day_of_week",
+      "start_time",
+      "recurrence_start",
+      "modality",
+      "duration_minutes",
+      "capacity",
+      "instructor_id",
+      "is_active",
+    ]) {
+      expect(cols).toContain(required);
+    }
   });
 
   it("template novo JÁ existe (retry pós-falha): não duplica a série", async () => {

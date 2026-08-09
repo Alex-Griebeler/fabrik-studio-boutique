@@ -141,29 +141,46 @@ export function useUpdateThisAndFollowing() {
         if (delErr) throw delErr;
       }
 
-      const newStartTime = updates.start_time || oldTemplate.start_time;
-      const { data: existingNew, error: existsErr } = await supabase
+      // A assinatura da checagem usa TODOS os campos que seriam gravados:
+      // só pula o insert se já existir um template IDÊNTICO (o órfão de um
+      // retry — ou uma duplicata literal, que também não deve nascer).
+      // Outra turma legítima no mesmo dia/horário difere em algo (modalidade,
+      // instrutor, duração...) e NÃO colide. Residual documentado: duas abas
+      // rodando a MESMA edição simultaneamente podem passar juntas na
+      // checagem (sem UNIQUE no banco) — app de admin único, duplicata
+      // visível em Turmas e removível; constraint dedicada é backlog.
+      const newTpl = {
+        modality: updates.modality || oldTemplate.modality,
+        day_of_week: oldTemplate.day_of_week,
+        start_time: updates.start_time || oldTemplate.start_time,
+        duration_minutes: updates.duration_minutes || oldTemplate.duration_minutes,
+        capacity: updates.capacity || oldTemplate.capacity,
+        instructor_id:
+          updates.instructor_id !== undefined ? updates.instructor_id : oldTemplate.instructor_id,
+        location: oldTemplate.location,
+        is_active: true,
+        recurrence_start: session.session_date,
+        recurrence_end: oldTemplate.recurrence_end,
+      };
+      let existsQuery = supabase
         .from("class_templates")
         .select("id")
-        .eq("day_of_week", oldTemplate.day_of_week)
-        .eq("start_time", newStartTime)
-        .eq("recurrence_start", session.session_date)
+        .eq("day_of_week", newTpl.day_of_week)
+        .eq("start_time", newTpl.start_time)
+        .eq("recurrence_start", newTpl.recurrence_start)
+        .eq("modality", newTpl.modality)
+        .eq("duration_minutes", newTpl.duration_minutes)
+        .eq("capacity", newTpl.capacity)
         .eq("is_active", true);
+      existsQuery =
+        newTpl.instructor_id === null
+          ? existsQuery.is("instructor_id", null)
+          : existsQuery.eq("instructor_id", newTpl.instructor_id);
+      const { data: existingNew, error: existsErr } = await existsQuery;
       if (existsErr) throw existsErr;
 
       if (!existingNew?.length) {
-        const { error: newTplErr } = await supabase.from("class_templates").insert({
-          modality: updates.modality || oldTemplate.modality,
-          day_of_week: oldTemplate.day_of_week,
-          start_time: newStartTime,
-          duration_minutes: updates.duration_minutes || oldTemplate.duration_minutes,
-          capacity: updates.capacity || oldTemplate.capacity,
-          instructor_id: updates.instructor_id !== undefined ? updates.instructor_id : oldTemplate.instructor_id,
-          location: oldTemplate.location,
-          is_active: true,
-          recurrence_start: session.session_date,
-          recurrence_end: oldTemplate.recurrence_end,
-        });
+        const { error: newTplErr } = await supabase.from("class_templates").insert(newTpl);
         if (newTplErr) throw newTplErr;
       }
 
