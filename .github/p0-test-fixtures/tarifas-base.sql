@@ -103,6 +103,11 @@ CREATE TABLE public.class_templates (
   is_active boolean NOT NULL DEFAULT true
 );
 
+CREATE TABLE public.students (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  full_name text NOT NULL
+);
+
 CREATE TABLE public.sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   session_type public.session_type NOT NULL DEFAULT 'group',
@@ -111,7 +116,19 @@ CREATE TABLE public.sessions (
   start_time time NOT NULL,
   end_time time NOT NULL,
   duration_minutes integer NOT NULL,
-  status text NOT NULL DEFAULT 'scheduled'
+  status text NOT NULL DEFAULT 'scheduled',
+  -- colunas que a view payable_sessions (PR-D) projeta:
+  trainer_id uuid REFERENCES public.trainers(id),
+  assistant_trainer_id uuid REFERENCES public.trainers(id),
+  student_id uuid REFERENCES public.students(id),
+  contract_id uuid,
+  trainer_hourly_rate_cents integer,
+  assistant_hourly_rate_cents integer,
+  payment_hours numeric,
+  payment_amount_cents integer,
+  assistant_payment_amount_cents integer,
+  is_paid boolean NOT NULL DEFAULT false,
+  paid_at timestamptz
 );
 
 -- Postura de produção nas tabelas legadas: RLS ligada e as policies de
@@ -123,6 +140,7 @@ ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trainers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.class_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY sessions_select ON public.sessions FOR SELECT
   USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'instructor'::app_role) OR has_role(auth.uid(), 'reception'::app_role));
@@ -159,3 +177,15 @@ INSERT INTO public.sessions (id, session_type, modality, session_date, start_tim
 VALUES
   ('33333333-3333-3333-3333-333333333333', 'group',    'flow', '2026-08-03', '06:00', '07:00', 60),
   ('44444444-4444-4444-4444-444444444444', 'personal', 'personal', '2026-08-04', '07:00', '08:00', 60);
+
+-- Sessão COMPLETED com snapshot: é a linha que a view payable_sessions
+-- (PR-D) precisa projetar com service_name resolvido pelo catálogo.
+INSERT INTO public.sessions (
+  id, session_type, modality, session_date, start_time, end_time,
+  duration_minutes, status, trainer_id, trainer_hourly_rate_cents,
+  payment_hours, payment_amount_cents
+) VALUES (
+  '99999999-9999-9999-9999-999999999999', 'group', 'flow', '2026-08-05',
+  '06:00', '07:00', 60, 'completed',
+  '4fd214e3-214c-433d-bde2-5e91957dc95a', 10000, 1, 10000
+);

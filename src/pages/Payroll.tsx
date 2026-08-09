@@ -7,6 +7,7 @@ import { useTrainers } from "@/hooks/useTrainers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ServiceCell } from "@/components/payroll/ServiceCell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -282,7 +283,7 @@ export default function Payroll() {
                               <TableHead>Data</TableHead>
                               <TableHead>Horário</TableHead>
                               <TableHead>Modalidade</TableHead>
-                              <TableHead>Tipo</TableHead>
+                              <TableHead>Serviço</TableHead>
                               <TableHead>Aluno</TableHead>
                               <TableHead>Horas</TableHead>
                               <TableHead className="text-right">Valor</TableHead>
@@ -308,9 +309,11 @@ export default function Payroll() {
                                 </TableCell>
                                 <TableCell className="text-sm">{s.modality}</TableCell>
                                 <TableCell>
-                                  <Badge variant="outline" className="text-xs capitalize">
-                                    {s.session_type}
-                                  </Badge>
+                                  <ServiceCell
+                                    serviceName={s.service_name}
+                                    sessionType={s.session_type}
+                                    paymentRateBasis={s.payment_rate_basis}
+                                  />
                                 </TableCell>
                                 <TableCell className="text-sm">{s.student_name ?? "—"}</TableCell>
                                 <TableCell className="text-sm">{(s.payment_hours ?? 0).toFixed(1)}h</TableCell>

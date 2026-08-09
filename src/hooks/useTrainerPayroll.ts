@@ -16,6 +16,9 @@ export interface TrainerPayrollSession {
   is_paid: boolean | null;
   paid_at: string | null;
   student_name: string | null;
+  service_type_id: string | null;
+  payment_rate_basis: "hourly" | "per_session" | null;
+  service_name: string | null;
 }
 
 export function useCurrentTrainerId() {
@@ -64,7 +67,9 @@ export function useTrainerPayrollSessions(filters: {
         .order("start_time", { ascending: true });
 
       if (error) throw error;
-      return data as TrainerPayrollSession[];
+      // `as unknown`: o types.ts gerado só ganha as colunas novas da view
+      // quando a migration da PR-D aplicar em produção e o agente regenerar.
+      return data as unknown as TrainerPayrollSession[];
     },
   });
 }
