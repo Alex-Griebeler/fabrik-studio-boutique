@@ -1,93 +1,51 @@
+# Colaboradores (Usuários & Papéis) + Menu lateral coerente
 
+## Parte 1 — Tela de Colaboradores
 
-# Auditoria Completa do Módulo Financeiro — Plano de Melhorias
+Nova tela **Sistema → Colaboradores** (`/team`), acesso somente **admin**, para gerenciar quem entra no app e com qual papel — hoje isso só existe direto no banco.
 
-Após analisar todos os arquivos do módulo financeiro (Conciliação, Despesas, Cobranças, Contratos), identifiquei bugs, falhas de UX e oportunidades de melhoria para tornar o sistema profissional e intuitivo.
+O que a tela faz:
+- Lista todos os usuários com conta no app: nome, e-mail, papéis atuais, data de criação e último acesso.
+- Convidar colaborador: informar e-mail, nome e papel (admin, manager, recepção, instrutor, aluno) — o convite é enviado por e-mail e a pessoa define a senha no primeiro acesso.
+- Editar papéis de um colaborador (pode ter mais de um, ex.: manager + instrutor).
+- Remover acesso: revoga todos os papéis (a pessoa cai em "Sem acesso"). Confirmação por `AlertDialog`.
+- Busca por nome/e-mail e filtro por papel (com opção "Todos").
+- Salvaguardas: um admin não pode remover o próprio papel de admin, e o sistema nunca deixa a conta ficar sem nenhum admin.
 
----
+Visual: mesmo padrão premium das outras telas (cards limpos, badges por papel, tooltips contextuais sem ícone "i").
 
-## Bugs e Problemas Encontrados
+## Parte 2 — Ajustes de coerência no menu lateral
 
-### 1. Conciliação Bancaria
-- **Bug: `__all__` não filtra is_balance_entry** — Na visão consolidada, entradas de saldo (saldos iniciais/finais do extrato) são incluídas nos KPIs e na lista, inflando créditos/débitos incorretamente.
-- **Bug: Matching em visão consolidada** — Os botões "Buscar Vínculos" e "Vincular Automaticamente" só aparecem quando `activeImport` existe, mas ficam ocultos na visão consolidada (`__all__`), que é justamente onde seriam mais úteis.
-- **Bug: `useBankTransactions` com `__all__` sem limit adequado** — O limit de 1000 pode não cobrir todos os extratos importados. Não há paginação.
-- **Bug: KPI `kpis` tem lógica confusa** — A condição `!data.length && !transactions?.length` retorna zeros quando filteredTx está vazio mas transactions tem dados, gerando KPIs zerados ao aplicar filtros que excluem tudo.
-- **UX: Sem feedback visual de qual importação está selecionada** após upload bem-sucedido (não auto-seleciona o novo arquivo).
+Incoerências encontradas hoje (`AppSidebar.tsx` x papéis das rotas em `App.tsx`):
 
-### 2. Despesas (Expenses)
-- **Bug: `as any` em `supplier`** — Na linha `(exp as any).supplier?.name` viola o padrão de zero `as any` documentado nas memórias de qualidade.
-- **Bug: Formulário não inclui `competence_date`** — O campo existe na tabela mas nunca é preenchido pelo formulário, ficando sempre `null`.
-- **Bug: Recorrência é salva mas nunca executada** — O campo `recurrence` e `is_recurring` existem mas não há lógica para gerar despesas futuras recorrentes.
-- **UX: Sem filtro por fornecedor** no select de filtros da lista.
-- **UX: Sem opção de excluir despesa** na tabela (o hook `useDeleteExpense` existe mas não é usado na UI).
+| Item | Problema | Ajuste |
+|---|---|---|
+| Marketing IA | visível para admin e recepção, mas não para manager | incluir `manager` (menu e rota) |
+| Minha Folha | aparece para admin junto de "Folha Pagto" | restringir a `instructor` |
+| Trainer App / Student App | apps mobile listados dentro de "Operacional" para admin | mover para um grupo próprio **Apps**, e no caso do instrutor/aluno o app é a home — sem duplicar |
+| Instrutores | está em "Operacional" enquanto Alunos/Leads estão em "Gestão" | mover para **Gestão** (é cadastro de pessoas) |
+| Analytics / Relatórios | misturados com operação diária | novo grupo **Inteligência** com Analytics e Relatórios |
+| Alertas de Faltas / Risco de Evasão | ok, seguem em Operacional junto de Agenda | manter, com os badges atuais |
+| Importar Alunos | em "Sistema", mas é ação de dados de alunos | manter em Sistema junto de Configurações e Colaboradores |
 
-### 3. Cobranças (Invoices)
-- **Bug: Cobranças `overdue` não são detectadas automaticamente** — Não há cron/trigger que mude `pending` para `overdue` quando `due_date < now()`. O status depende de atualização manual.
-- **Bug: `InvoicesTab` não tem filtro por período/mês** — Lista todas as cobranças de todos os tempos sem paginação temporal.
-- **Bug: `InvoiceFormDialog` salva `payment_proof_url` com signed URL temporária** (1h) — Quando o link expira, o comprovante fica inacessível. Deveria salvar o `path` e gerar signed URLs on-demand.
-- **UX: Sem indicador de multa/juros na tabela** — O valor exibido é só `amount_cents`, sem mostrar se há penalidades acumuladas.
+Estrutura final do menu:
 
-### 4. Contratos
-- **Bug: `monthly_value_cents` nunca é preenchido** no formulário — O contrato só preenche `total_value_cents`. O campo `monthly_value_cents` mostrado na tabela fica sempre vazio.
-- **UX: Sem confirmação ao cancelar contrato** — O formulário de edição não oferece opção de cancelamento com motivo.
-
-### 5. Matching (Edge Function)
-- **Bug: `processor_fee_cents` é atualizado na tabela mas a coluna pode não existir** — Não encontrei essa coluna no schema de `bank_transactions`. Isso causaria erros silenciosos.
-- **Bug: Ao auto-aplicar matches, `paid_amount_cents` não é preenchido nas invoices** — Apenas `status` e `payment_date` são atualizados, diferente do fluxo manual que inclui o valor pago.
-
----
-
-## Plano de Implementação
-
-### Fase 1 — Correções Críticas (bugs que afetam dados)
-
-1. **Corrigir `payment_proof_url`**: Salvar apenas o `path` no banco, gerar signed URL no momento da visualização.
-2. **Corrigir auto-match para incluir `paid_amount_cents`** na edge function.
-3. **Remover todos os `as any`** do módulo de despesas.
-4. **Adicionar campo `competence_date`** ao formulário de despesas.
-5. **Corrigir KPI da conciliação** para filtrar `is_balance_entry` corretamente na visão consolidada.
-6. **Auto-selecionar importação** após upload bem-sucedido.
-
-### Fase 2 — Melhorias de UX/UI
-
-7. **Adicionar filtro de período/mês nas Cobranças** (InvoicesTab) — navegação mensal como já existe em Despesas.
-8. **Exibir multa/juros na tabela de cobranças** quando houver.
-9. **Adicionar botão de excluir** na tabela de despesas.
-10. **Habilitar matching na visão consolidada** da conciliação.
-11. **Calcular e exibir `monthly_value_cents`** automaticamente ao criar contrato (total / parcelas).
-12. **Adicionar filtro por fornecedor** na tela de despesas.
-
-### Fase 3 — Funcionalidades Profissionais
-
-13. **Criar trigger/cron para marcar cobranças como `overdue`** automaticamente quando `due_date < now()` e status = `pending`.
-14. **Implementar geração automática de despesas recorrentes** (mensal/semanal/anual) via cron ou trigger.
-15. **Adicionar paginação** nas listagens de transações bancárias (>1000 registros).
-
----
-
-## Detalhes Técnicos
-
-### Migração necessária (Fase 1)
-```sql
--- Verificar/adicionar processor_fee_cents em bank_transactions
-ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS processor_fee_cents integer DEFAULT 0;
+```text
+Principal     Dashboard
+Gestão        Alunos · Leads · Instrutores · Tarefas · Planos
+Financeiro    Financeiro · Despesas · Comissões · Folha Pagto · Minha Folha · Conciliação
+Operacional   Agenda · Alertas de Faltas · Risco de Evasão · Marketing IA
+Inteligência  Analytics · Relatórios
+Apps          Trainer App · Student App
+Sistema       Colaboradores · Importar Alunos · Configurações
 ```
 
-### Arquivos impactados
-- `src/hooks/useInvoices.ts` — paid_amount_cents no update
-- `src/hooks/useExpenses.ts` — remover as any, adicionar competence_date
-- `src/hooks/useBankReconciliation.ts` — filtro is_balance_entry, auto-select
-- `src/pages/BankReconciliation.tsx` — habilitar matching em __all__, auto-select
-- `src/pages/Expenses.tsx` — botão excluir, filtro fornecedor
-- `src/components/finance/InvoicesTab.tsx` — filtro mensal, coluna multa/juros
-- `src/components/finance/InvoiceFormDialog.tsx` — salvar path em vez de signed URL
-- `src/components/finance/ExpenseFormDialog.tsx` — campo competence_date
-- `src/components/finance/ContractFormDialog.tsx` — calcular monthly_value_cents
-- `supabase/functions/match-bank-transactions/index.ts` — paid_amount_cents
+Regra de ouro aplicada: **todo item visível no menu é uma rota que o papel realmente acessa** — os papéis do menu passam a espelhar exatamente os papéis da rota, evitando cliques que caem em "Sem acesso".
 
-### Escopo estimado
-- Fase 1: ~6 arquivos, 1 migração
-- Fase 2: ~5 arquivos
-- Fase 3: 2 migrações (cron overdue + recorrência), 1 edge function
+## Detalhes técnicos
 
+- Backend: tabela `user_roles` (fonte única de papéis, sem role em profiles). Nova edge function `manage-team` (verify_jwt + `requireStaffRole`/checagem `has_role(admin)`) para: listar usuários via Admin API, convidar (`inviteUserByEmail`), atribuir/revogar papéis, com guarda "último admin" no servidor. Nada de manipulação de papéis direto do cliente.
+- Frontend: `src/pages/Team.tsx` + `src/components/team/` (`TeamTable`, `InviteMemberDialog`, `EditRolesDialog`, `RoleBadge`), hook `src/hooks/useTeam.ts` (React Query, invalidação após mutações).
+- Rota `/team` em `App.tsx` com `ProtectedRoute allowedRoles={["admin"]}`.
+- `AppSidebar.tsx` reescrito de forma limpa: os grupos passam a ser uma estrutura declarativa única (`{ label, items }[]`), eliminando os cinco blocos repetidos de JSX; papéis derivados por item conforme a tabela acima.
+- `/marketing-ai` ganha `manager` no `ProtectedRoute`.
