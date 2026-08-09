@@ -5,7 +5,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions, auth;
 
-SELECT plan(11);
+SELECT plan(12);
 
 SELECT has_view('public'::name, 'payable_sessions'::name, 'view payable_sessions existe');
 SELECT has_column('public'::name, 'payable_sessions'::name, 'service_name'::name, 'projeta service_name');
@@ -37,7 +37,15 @@ INSERT INTO public.user_roles (user_id, role) VALUES
   ('f9000000-0000-0000-0000-000000000001', 'instructor'),
   ('f9000000-0000-0000-0000-000000000002', 'manager'),
   ('f9000000-0000-0000-0000-000000000003', 'instructor'),
-  ('f9000000-0000-0000-0000-000000000004', 'admin');
+  ('f9000000-0000-0000-0000-000000000004', 'admin'),
+  ('f9000000-0000-0000-0000-000000000005', 'reception');
+
+-- Recepcionista TAMBÉM vinculada a um perfil de treinador (caso-armadilha:
+-- vínculo sem o PAPEL instructor não abre a folha):
+INSERT INTO public.profiles (id, auth_user_id, full_name)
+VALUES ('f9110000-0000-0000-0000-000000000055', 'f9000000-0000-0000-0000-000000000005', 'Recepção Que Treina');
+UPDATE public.trainers SET profile_id = 'f9110000-0000-0000-0000-000000000055'
+ WHERE id = '11111111-1111-1111-1111-111111111111';
 
 SET LOCAL ROLE authenticated;
 SET LOCAL request.jwt.claim.sub = 'f9000000-0000-0000-0000-000000000001';
@@ -73,6 +81,14 @@ SET LOCAL request.jwt.claims = '{"sub":"f9000000-0000-0000-0000-000000000002","r
 SELECT is(
   (SELECT count(*) FROM public.payable_sessions),
   0::bigint, 'manager NÃO lê sessions (invoker) — por isso a rota da folha é admin-only');
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = 'f9000000-0000-0000-0000-000000000005';
+SET LOCAL request.jwt.claims = '{"sub":"f9000000-0000-0000-0000-000000000005","role":"authenticated"}';
+SELECT is(
+  (SELECT count(*) FROM public.payable_sessions),
+  0::bigint, 'reception com vínculo de treinador mas SEM papel instructor: zero');
 RESET ROLE;
 
 SELECT * FROM finish();

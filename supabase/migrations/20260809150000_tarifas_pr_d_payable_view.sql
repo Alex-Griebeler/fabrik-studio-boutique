@@ -9,10 +9,12 @@
 -- status::text (semanticamente idêntico ao enum e portável pro fixture).
 --
 -- DONO NA PRÓPRIA VIEW (fecha dívida da revisão fria): admin vê a folha
--- inteira; instrutor vê SÓ as sessões em que é o treinador (ou
--- assistente) — antes, qualquer instructor/reception consultava a view
--- direto pela API e lia a remuneração de TODO MUNDO (sessions_select
+-- inteira; INSTRUCTOR (papel exigido) vê SÓ as sessões em que é o
+-- treinador TITULAR — antes, qualquer instructor/reception consultava a
+-- view direto pela API e lia a remuneração de TODO MUNDO (sessions_select
 -- permite; o .eq(trainer_id) da Minha Folha era só filtro client-side).
+-- Assistente fica FORA de propósito: a linha carrega o pagamento do
+-- titular; quando existir folha-de-assistente, ela terá projeção própria.
 -- =====================================================================
 
 CREATE OR REPLACE VIEW public.payable_sessions
@@ -50,10 +52,13 @@ SELECT s.id,
   WHERE s.status::text = ANY (ARRAY['completed', 'cancelled_late', 'no_show', 'late_arrival'])
     AND (
       public.has_role(auth.uid(), 'admin'::public.app_role)
-      OR EXISTS (
-        SELECT 1 FROM public.profiles p
-         WHERE p.auth_user_id = auth.uid()
-           AND (p.id = t.profile_id OR p.id = at.profile_id)
+      OR (
+        public.has_role(auth.uid(), 'instructor'::public.app_role)
+        AND EXISTS (
+          SELECT 1 FROM public.profiles p
+           WHERE p.auth_user_id = auth.uid()
+             AND p.id = t.profile_id
+        )
       )
     );
 
