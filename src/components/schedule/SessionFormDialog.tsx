@@ -51,6 +51,10 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
   const { data: serviceRates } = useTrainerServiceRates();
 
   const isEditing = !!editSession;
+  // Edição EM SÉRIE altera só horário, duração, modalidade e vagas — os
+  // demais campos ficam desabilitados em vez de fingir que salvam.
+  const isSeriesEdit =
+    isEditing && (recurringAction === "this_and_following" || recurringAction === "all");
 
   const selectedTrainer = trainers?.find((t) => t.id === trainerId);
 
@@ -117,6 +121,12 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
     const durationNum = parseInt(duration);
     const action = isEditing ? recurringAction || "this" : null;
 
+    // end_time acompanha horário+duração — sem isso, mover 07:00→09:00
+    // deixava a sessão "09:00–08:00" (o create computava, o update não).
+    const endMinutes =
+      parseInt(startTime.slice(0, 2)) * 60 + parseInt(startTime.slice(3, 5)) + durationNum;
+    const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+
     // Campos estruturais (sem dinheiro) — usados por todos os caminhos.
     const baseData = {
       session_type: sessionType,
@@ -176,6 +186,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
 
         let payload: Record<string, unknown> = {
           ...baseData,
+          end_time: endTime,
           is_exception: !!editSession!.template_id,
         };
         if (isPaid) {
@@ -225,6 +236,14 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
           <DialogTitle>{getTitle()}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isSeriesEdit && (
+            <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
+              Edição em série altera horário, duração, modalidade e vagas das
+              próximas ocorrências. Treinador, aluno e observações são por
+              sessão individual.
+            </p>
+          )}
+
           {/* Type selector */}
           {!isEditing && (
             <div className="flex gap-2">
@@ -272,7 +291,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
           {serviceOptions.length > 1 && (
             <div>
               <Label>Serviço</Label>
-              <Select value={serviceTypeId} onValueChange={setServiceTypeId}>
+              <Select value={serviceTypeId} onValueChange={setServiceTypeId} disabled={isSeriesEdit}>
                 <SelectTrigger aria-label="Serviço"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {serviceOptions.map((s) => (
@@ -285,7 +304,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
 
           <div>
             <Label>Treinador</Label>
-            <Select value={trainerId} onValueChange={setTrainerId}>
+            <Select value={trainerId} onValueChange={setTrainerId} disabled={isSeriesEdit}>
               <SelectTrigger aria-label="Treinador"><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
                 {trainers?.map((t) => {
@@ -329,7 +348,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
           {sessionType === "personal" && (
             <div>
               <Label>Aluno</Label>
-              <Select value={studentId} onValueChange={setStudentId}>
+              <Select value={studentId} onValueChange={setStudentId} disabled={isSeriesEdit}>
                 <SelectTrigger aria-label="Aluno"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {students?.map((s) => (
@@ -342,7 +361,7 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
 
           <div>
             <Label>Observações</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} disabled={isSeriesEdit} />
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>

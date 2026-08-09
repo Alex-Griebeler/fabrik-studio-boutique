@@ -15,9 +15,11 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 type Row = Record<string, unknown>;
 let AFFECTED_SESSIONS: Row[] = [];
 let FUTURE_SESSIONS: Row[] = [];
+let ROW_UPDATE_ERROR_FOR: string | null = null;
 const updateCalls: Array<{ table: string; data: Row; filters: Array<[string, string, unknown]> }> = [];
 const deleteCalls: Array<{ table: string; filters: Array<[string, string, unknown]> }> = [];
 const insertCalls: Array<{ table: string; data: Row }> = [];
+const selectCalls: Array<{ table: string; cols: string; filters: Array<[string, string, unknown]> }> = [];
 
 vi.mock("@/integrations/supabase/client", () => {
   const makeBuilder = (table: string, op: string, data?: Row) => {
@@ -33,9 +35,16 @@ vi.mock("@/integrations/supabase/client", () => {
     b.single = () =>
       Promise.resolve({ data: { id: "tpl-1", modality: "flow", day_of_week: 1, start_time: "07:00", duration_minutes: 60, capacity: 12, instructor_id: null, location: null, recurrence_end: null }, error: null });
     b.then = (resolve: (v: unknown) => void) => {
-      if (op === "update") updateCalls.push({ table, data: data!, filters });
+      if (op === "update") {
+        updateCalls.push({ table, data: data!, filters });
+        const idFilter = filters.find(([m, col]) => m === "eq" && col === "id");
+        if (idFilter && ROW_UPDATE_ERROR_FOR === idFilter[2]) {
+          return resolve({ error: { message: "row update failed" } });
+        }
+      }
       if (op === "delete") deleteCalls.push({ table, filters });
       if (op === "select") {
+        selectCalls.push({ table, cols: String(data?.cols ?? ""), filters });
         // dois selects de sessions: o de recompute (payment) e o de futuras (id)
         const wantsPayment = String(data?.cols ?? "").includes("payment_rate_basis");
         return resolve({ data: wantsPayment ? AFFECTED_SESSIONS : FUTURE_SESSIONS, error: null });
@@ -72,6 +81,8 @@ describe("useUpdateAllOccurrences — duração muda, dinheiro acompanha", () =>
     updateCalls.length = 0;
     deleteCalls.length = 0;
     insertCalls.length = 0;
+    selectCalls.length = 0;
+    ROW_UPDATE_ERROR_FOR = null;
     AFFECTED_SESSIONS = [
       { id: "s-hourly", trainer_hourly_rate_cents: 10000, payment_rate_basis: "hourly" },
       { id: "s-legada", trainer_hourly_rate_cents: 12000, payment_rate_basis: null },
@@ -97,6 +108,30 @@ describe("useUpdateAllOccurrences — duração muda, dinheiro acompanha", () =>
     expect(byId["s-legada"].payment_amount_cents).toBe(18000); // base null = hourly implícito
     expect(byId["s-fisio"]).not.toHaveProperty("payment_amount_cents"); // cravado
     expect(byId["s-fisio"].payment_hours).toBe(1.5);
+  });
+
+  it("estrutural E recompute só tocam NÃO-pagas (is_paid=false nos filtros)", async () => {
+    const { result } = renderHook(() => useUpdateAllOccurrences(), { wrapper });
+    result.current.mutate({ templateId: "tpl-1", updates: { duration_minutes: 90 } });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // update estrutural em lote (por template) exige o filtro de paga:
+    const bulk = updateCalls.find(
+      (c) => c.table === "sessions" && c.filters.some(([, col]) => col === "template_id"),
+    );
+    expect(bulk?.filters).toContainEqual(["eq", "is_paid", false]);
+    // e a seleção do recompute também:
+    const recomputeSelect = selectCalls.find(
+      (c) => c.table === "sessions" && c.cols.includes("payment_rate_basis"),
+    );
+    expect(recomputeSelect?.filters).toContainEqual(["eq", "is_paid", false]);
+  });
+
+  it("falha em UM recompute vira ERRO da mutação (nunca sucesso parcial mudo)", async () => {
+    ROW_UPDATE_ERROR_FOR = "s-legada";
+    const { result } = renderHook(() => useUpdateAllOccurrences(), { wrapper });
+    result.current.mutate({ templateId: "tpl-1", updates: { duration_minutes: 90 } });
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 
   it("sem mudança de duração, nenhum recompute por sessão", async () => {
@@ -129,6 +164,9 @@ describe("useUpdateThisAndFollowing — paga é intocável", () => {
     const sessionDeletes = deleteCalls.filter((c) => c.table === "sessions");
     expect(sessionDeletes).toHaveLength(1);
     expect(sessionDeletes[0].filters.some(([m, col]) => m === "in" && col === "id")).toBe(true);
+    // a SELEÇÃO das futuras exigiu is_paid=false — provado no filtro:
+    const futSelect = selectCalls.find((c) => c.table === "sessions");
+    expect(futSelect?.filters).toContainEqual(["eq", "is_paid", false]);
   });
 });
 

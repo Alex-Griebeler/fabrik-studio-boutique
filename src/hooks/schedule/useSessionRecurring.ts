@@ -111,12 +111,13 @@ export function useUpdateThisAndFollowing() {
         .single();
       if (!oldTemplate) throw new Error("Template não encontrado");
 
-      await supabase
+      const { error: endErr } = await supabase
         .from("class_templates")
         .update({ recurrence_end: oldEnd })
         .eq("id", session.template_id);
+      if (endErr) throw endErr;
 
-      await supabase.from("class_templates").insert({
+      const { error: newTplErr } = await supabase.from("class_templates").insert({
         modality: updates.modality || oldTemplate.modality,
         day_of_week: oldTemplate.day_of_week,
         start_time: updates.start_time || oldTemplate.start_time,
@@ -128,22 +129,32 @@ export function useUpdateThisAndFollowing() {
         recurrence_start: session.session_date,
         recurrence_end: oldTemplate.recurrence_end,
       });
+      if (newTplErr) throw newTplErr;
 
       // Sessão PAGA é registro de folha: nunca some numa edição. Fica no
       // lugar (o dia pode exibir a paga antiga + a nova regenerada — visível
       // e não-destrutivo; redesenho da recorrência é backlog registrado).
-      const { data: futureSessions } = await supabase
+      const { data: futureSessions, error: futErr } = await supabase
         .from("sessions")
         .select("id")
         .eq("template_id", session.template_id)
         .gte("session_date", session.session_date)
         .eq("is_exception", false)
         .eq("is_paid", false);
+      if (futErr) throw futErr;
 
       if (futureSessions?.length) {
         const ids = futureSessions.map((s) => s.id);
-        await supabase.from("class_bookings").delete().in("session_id", ids);
-        await supabase.from("sessions").delete().in("id", ids);
+        const { error: bookErr } = await supabase
+          .from("class_bookings")
+          .delete()
+          .in("session_id", ids);
+        if (bookErr) throw bookErr;
+        const { error: delErr } = await supabase
+          .from("sessions")
+          .delete()
+          .in("id", ids);
+        if (delErr) throw delErr;
       }
     },
     onSuccess: () => {
@@ -168,10 +179,11 @@ export function useUpdateAllOccurrences() {
         instructor_id?: string | null;
       };
     }) => {
-      await supabase
+      const { error: tplErr } = await supabase
         .from("class_templates")
         .update(updates)
         .eq("id", templateId);
+      if (tplErr) throw tplErr;
 
       const sessionUpdates: Record<string, unknown> = { ...updates };
       if (updates.start_time && updates.duration_minutes) {
@@ -182,28 +194,38 @@ export function useUpdateAllOccurrences() {
         sessionUpdates.end_time = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
       }
 
+      // Sessão PAGA fica fora TAMBÉM do update estrutural: pagou, congelou
+      // (horário antigo visível > horário novo com dinheiro dessincronizado).
       const today = new Date().toISOString().split("T")[0];
-      await supabase
+      const { error: bulkErr } = await supabase
         .from("sessions")
         .update(sessionUpdates)
         .eq("template_id", templateId)
         .eq("is_exception", false)
+        .eq("is_paid", false)
         .gte("session_date", today);
+      if (bulkErr) throw bulkErr;
 
       // Duração mudou = dinheiro muda nas NÃO-pagas (base hourly). A
       // tarifa congelada de cada sessão é respeitada — só horas/valor são
       // recalculados; per_session mantém o valor cravado e atualiza as
-      // horas informativas. Paga não se toca (registro de folha).
+      // horas informativas.
+      //
+      // NÃO é transacional (client-side): cada passo é checado e QUALQUER
+      // falha vira erro visível; o recompute é IDEMPOTENTE (deriva da
+      // tarifa congelada × duração nova), então repetir a ação conserta
+      // um estado parcial. RPC transacional no banco = backlog registrado.
       if (updates.duration_minutes) {
         const newHours = updates.duration_minutes / 60;
-        const { data: affected } = await supabase
+        const { data: affected, error: selErr } = await supabase
           .from("sessions")
           .select("id, trainer_hourly_rate_cents, payment_rate_basis")
           .eq("template_id", templateId)
           .eq("is_exception", false)
           .eq("is_paid", false)
           .gte("session_date", today);
-        await Promise.all(
+        if (selErr) throw selErr;
+        const results = await Promise.all(
           (affected ?? []).map((row) => {
             const recompute: Record<string, unknown> = { payment_hours: newHours };
             // Base null = era antiga/hourly implícito: recalcula por hora.
@@ -215,6 +237,8 @@ export function useUpdateAllOccurrences() {
             return supabase.from("sessions").update(recompute).eq("id", row.id);
           }),
         );
+        const failed = results.find((r) => r.error);
+        if (failed?.error) throw failed.error;
       }
     },
     onSuccess: () => {

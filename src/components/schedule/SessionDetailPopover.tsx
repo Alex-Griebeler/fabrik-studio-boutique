@@ -48,10 +48,11 @@ interface SessionDetailPopoverProps {
 }
 
 export function SessionDetailPopover({ session, children }: SessionDetailPopoverProps) {
-  // UPDATE/DELETE em sessions é admin/instructor (policy) — recepção vê o
-  // detalhe, mas não botões que só falhariam.
-  const { hasAnyRole } = useUserRoles();
+  // Espelho das policies: UPDATE é admin/instructor; DELETE é SÓ admin.
+  // Recepção vê o detalhe, mas não botões que só falhariam.
+  const { hasAnyRole, hasRole } = useUserRoles();
   const canEditSessions = hasAnyRole(["admin", "instructor"]);
+  const canDeleteSessions = hasRole("admin");
   const [open, setOpen] = useState(false);
   const [addingStudent, setAddingStudent] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -174,7 +175,7 @@ export function SessionDetailPopover({ session, children }: SessionDetailPopover
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                 )}
-                {canEditSessions && (
+                {canDeleteSessions && (
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={handleDeleteClick}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
