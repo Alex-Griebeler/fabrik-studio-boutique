@@ -15,7 +15,6 @@ export type FullSessionStatus =
 
 export type SessionType = "personal" | "group";
 export type CheckinMethod = "manual" | "qr_code" | "geolocation" | "auto";
-export type TrainerPaymentMethod = "hourly" | "per_session" | "hybrid";
 export type MakeupCreditStatus = "available" | "used" | "expired";
 
 // Legacy (still used by class_bookings / class_templates)
@@ -139,10 +138,6 @@ export interface Trainer {
   specialties: string[];
   certifications: string[];
   bio: string | null;
-  payment_method: TrainerPaymentMethod;
-  hourly_rate_main_cents: number;
-  hourly_rate_assistant_cents: number;
-  session_rate_cents: number;
   bank_name: string | null;
   bank_agency: string | null;
   bank_account: string | null;

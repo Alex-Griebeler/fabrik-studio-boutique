@@ -10,18 +10,13 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useDeleteTrainer, useTrainerSessionStats } from "@/hooks/useTrainers";
+import { useServiceTypes, useTrainerServiceRates } from "@/hooks/useServiceRates";
 import type { Trainer } from "@/hooks/schedule/types";
 
 interface Props {
   trainer: Trainer;
   onEdit: (t: Trainer) => void;
 }
-
-const payMethodLabel: Record<string, string> = {
-  hourly: "Por hora",
-  per_session: "Por sessão",
-  hybrid: "Híbrido",
-};
 
 export function TrainerCard({ trainer, onEdit }: Props) {
   const [showDelete, setShowDelete] = useState(false);
@@ -35,7 +30,16 @@ export function TrainerCard({ trainer, onEdit }: Props) {
     .join("")
     .toUpperCase();
 
-  const mainRate = (trainer.hourly_rate_main_cents / 100).toFixed(0);
+  // PR-E: tarifas por serviço (quem não tem leitura — ex. manager — não
+  // vê linha de remuneração nenhuma; antes o campo legado vazava).
+  const { data: services } = useServiceTypes();
+  const { data: serviceRates } = useTrainerServiceRates();
+  const myRates = (serviceRates ?? [])
+    .filter((r) => r.trainer_id === trainer.id)
+    .map((r) => {
+      const svc = services?.find((sv) => sv.id === r.service_type_id);
+      return `${svc?.name ?? "?"} R$${(r.rate_cents / 100).toFixed(0)}${r.rate_basis === "hourly" ? "/h" : "/sessão"}`;
+    });
 
   return (
     <>
@@ -77,10 +81,12 @@ export function TrainerCard({ trainer, onEdit }: Props) {
               </div>
 
               <div className="flex gap-1.5 mt-2 flex-wrap">
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  <DollarSign className="h-3 w-3 mr-0.5" />
-                  R${mainRate}/h · {payMethodLabel[trainer.payment_method] || trainer.payment_method}
-                </Badge>
+                {myRates.length > 0 && (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                    <DollarSign className="h-3 w-3 mr-0.5" />
+                    {myRates.join(" · ")}
+                  </Badge>
+                )}
                 {stats && (
                   <>
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0">

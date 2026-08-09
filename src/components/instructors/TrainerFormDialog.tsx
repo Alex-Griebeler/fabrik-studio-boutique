@@ -9,9 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { X } from "lucide-react";
-import { toast } from "sonner";
 import { useCreateTrainer, useTrainerAdmin, useUpdateTrainer } from "@/hooks/useTrainers";
-import { centsToReal, realToCents } from "@/lib/money";
+import { useServiceTypes, useTrainerServiceRates } from "@/hooks/useServiceRates";
+import { centsToReal } from "@/lib/money";
 import type { Trainer } from "@/hooks/schedule/types";
 
 interface Props {
@@ -28,10 +28,6 @@ const emptyForm = {
   bio: "",
   notes: "",
   is_active: true,
-  payment_method: "hourly" as "hourly" | "per_session" | "hybrid",
-  hourly_rate_main_cents: 0,
-  hourly_rate_assistant_cents: 0,
-  session_rate_cents: 0,
   specialties: [] as string[],
   certifications: [] as string[],
   hired_at: "",
@@ -42,14 +38,8 @@ const emptyForm = {
   bank_account: "",
 };
 
-const emptyRateTexts = { main: "0,00", assistant: "0,00", session: "0,00" };
-
 export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   const [form, setForm] = useState(emptyForm);
-  // Taxas como TEXTO livre, parseadas no submit (parser estrito de
-  // @/lib/money). O modelo antigo — reparsear a cada tecla e reformatar o
-  // input — gravava centavos errados com milhar ("1.234,56" → R$ 1,23).
-  const [rateTexts, setRateTexts] = useState(emptyRateTexts);
   const [newSpecialty, setNewSpecialty] = useState("");
   const [newCert, setNewCert] = useState("");
 
@@ -76,7 +66,6 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     }
     if (!trainer) {
       setForm(emptyForm);
-      setRateTexts(emptyRateTexts);
       setHydratedForId(null);
       return;
     }
@@ -99,10 +88,6 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
         bio: t.bio || "",
         notes: t.notes || "",
         is_active: t.is_active ?? true,
-        payment_method: t.payment_method || "hourly",
-        hourly_rate_main_cents: t.hourly_rate_main_cents || 0,
-        hourly_rate_assistant_cents: t.hourly_rate_assistant_cents || 0,
-        session_rate_cents: t.session_rate_cents || 0,
         specialties: t.specialties || [],
         certifications: t.certifications || [],
         hired_at: t.hired_at || "",
@@ -112,11 +97,6 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
         bank_agency: t.bank_agency || "",
         bank_account: t.bank_account || "",
       });
-      setRateTexts({
-        main: centsToReal(t.hourly_rate_main_cents || 0),
-        assistant: centsToReal(t.hourly_rate_assistant_cents || 0),
-        session: centsToReal(t.session_rate_cents || 0),
-      });
       setHydratedForId(trainer.id);
     }
   }, [open, trainer, hydratedForId, fullTrainer.isSuccess, fullTrainer.isFetching, fullTrainer.data]);
@@ -124,12 +104,18 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
   const set = <K extends keyof typeof emptyForm>(k: K, v: (typeof emptyForm)[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  // "" e "0" significam "sem taxa" (0); texto não-numérico é ERRO de
-  // digitação e aborta o save — nunca vira silenciosamente outro valor.
-  const parseRateText = (text: string): number => {
-    if (text.trim() === "") return 0;
-    return realToCents(text);
-  };
+  // PR-E: as tarifas vivem em trainer_service_rates (aba "Pagamentos à
+  // equipe"); aqui só o RESUMO somente-leitura do profissional.
+  const { data: services } = useServiceTypes();
+  const { data: serviceRates } = useTrainerServiceRates();
+  const trainerRates = trainer
+    ? (serviceRates ?? [])
+        .filter((r) => r.trainer_id === trainer.id)
+        .map((r) => ({
+          name: services?.find((sv) => sv.id === r.service_type_id)?.name ?? "Serviço",
+          label: `R$ ${centsToReal(r.rate_cents)}${r.rate_basis === "hourly" ? "/h" : "/sessão"}`,
+        }))
+    : [];
 
   const addTag = (field: "specialties" | "certifications", value: string, setter: (v: string) => void) => {
     const trimmed = value.trim();
@@ -148,33 +134,8 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
     // completo DESTE treinador carregado e estável (fetch concluído).
     if (isEdit && !fullLoaded) return;
 
-    // Valida os três campos (inclusive os ocultos pelo método de pagamento —
-    // eles são persistidos do mesmo jeito), NOMEANDO o campo inválido.
-    const rateEntries = [
-      { key: "main", label: "Taxa/hora — Principal", cents: parseRateText(rateTexts.main) },
-      { key: "assistant", label: "Taxa/hora — Assistente", cents: parseRateText(rateTexts.assistant) },
-      { key: "session", label: "Taxa por sessão", cents: parseRateText(rateTexts.session) },
-    ];
-    const invalid = rateEntries.find((r) => !Number.isFinite(r.cents));
-    if (invalid) {
-      toast.error(
-        `${invalid.label} inválida ("${rateTexts[invalid.key as keyof typeof rateTexts]}") — use números como "75", "75,50" ou "1234,56" (sem ponto de milhar). O campo pode estar em outra opção de método de pagamento.`,
-      );
-      return;
-    }
-    const [mainCents, assistantCents, sessionCents] = [
-      rateEntries[0].cents,
-      rateEntries[1].cents,
-      rateEntries[2].cents,
-    ];
-
     const { hired_at, ...rest } = form;
-    const payload: Partial<Trainer> = {
-      ...(hired_at ? { ...rest, hired_at } : rest),
-      hourly_rate_main_cents: mainCents,
-      hourly_rate_assistant_cents: assistantCents,
-      session_rate_cents: sessionCents,
-    };
+    const payload: Partial<Trainer> = hired_at ? { ...rest, hired_at } : rest;
 
     if (isEdit) {
       update.mutate({ id: trainer!.id, ...payload }, { onSuccess: () => onOpenChange(false) });
@@ -295,52 +256,33 @@ export function TrainerFormDialog({ open, onOpenChange, trainer }: Props) {
             </div>
           </TabsContent>
 
-          {/* Tab: Taxas */}
+          {/* Tab: Taxas — resumo somente-leitura (PR-E): tarifa vive em
+              trainer_service_rates; edição é na aba "Pagamentos à equipe"
+              da página Treinadores. Dois editores = a redundância que o
+              dono vetou. */}
           <TabsContent value="rates" className="space-y-3 mt-3">
-            <div>
-              <Label>Método de pagamento</Label>
-              <Select
-                value={form.payment_method}
-                onValueChange={(v) => set("payment_method", v as typeof emptyForm.payment_method)}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="hourly">Por hora</SelectItem>
-                  <SelectItem value="per_session">Por sessão</SelectItem>
-                  <SelectItem value="hybrid">Híbrido</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {(form.payment_method === "hourly" || form.payment_method === "hybrid") && (
-              <>
-                <div>
-                  <Label>Taxa/hora — Principal (R$)</Label>
-                  <Input
-                    inputMode="decimal"
-                    value={rateTexts.main}
-                    onChange={(e) => setRateTexts((r) => ({ ...r, main: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label>Taxa/hora — Assistente (R$)</Label>
-                  <Input
-                    inputMode="decimal"
-                    value={rateTexts.assistant}
-                    onChange={(e) => setRateTexts((r) => ({ ...r, assistant: e.target.value }))}
-                  />
-                </div>
-              </>
-            )}
-
-            {(form.payment_method === "per_session" || form.payment_method === "hybrid") && (
-              <div>
-                <Label>Taxa por sessão (R$)</Label>
-                <Input
-                  inputMode="decimal"
-                  value={rateTexts.session}
-                  onChange={(e) => setRateTexts((r) => ({ ...r, session: e.target.value }))}
-                />
+            {!isEdit ? (
+              <p className="text-sm text-muted-foreground">
+                Cadastre o treinador primeiro — depois defina as tarifas por
+                serviço na aba <strong>Pagamentos à equipe</strong>.
+              </p>
+            ) : trainerRates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Sem tarifas cadastradas. Defina na aba{" "}
+                <strong>Pagamentos à equipe</strong> da página Treinadores.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {trainerRates.map((r) => (
+                  <div key={r.name} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <span>{r.name}</span>
+                    <span className="font-medium">{r.label}</span>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground">
+                  Valores que o estúdio paga ao profissional. Edição na aba{" "}
+                  <strong>Pagamentos à equipe</strong>.
+                </p>
               </div>
             )}
           </TabsContent>
