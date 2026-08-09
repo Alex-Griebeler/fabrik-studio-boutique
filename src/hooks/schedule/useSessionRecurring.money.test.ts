@@ -20,6 +20,7 @@ const updateCalls: Array<{ table: string; data: Row; filters: Array<[string, str
 const deleteCalls: Array<{ table: string; filters: Array<[string, string, unknown]> }> = [];
 const insertCalls: Array<{ table: string; data: Row }> = [];
 const selectCalls: Array<{ table: string; cols: string; filters: Array<[string, string, unknown]> }> = [];
+const opSequence: string[] = [];
 
 vi.mock("@/integrations/supabase/client", () => {
   const makeBuilder = (table: string, op: string, data?: Row) => {
@@ -36,13 +37,17 @@ vi.mock("@/integrations/supabase/client", () => {
       Promise.resolve({ data: { id: "tpl-1", modality: "flow", day_of_week: 1, start_time: "07:00", duration_minutes: 60, capacity: 12, instructor_id: null, location: null, recurrence_end: null }, error: null });
     b.then = (resolve: (v: unknown) => void) => {
       if (op === "update") {
+        opSequence.push(`update:${table}`);
         updateCalls.push({ table, data: data!, filters });
         const idFilter = filters.find(([m, col]) => m === "eq" && col === "id");
         if (idFilter && ROW_UPDATE_ERROR_FOR === idFilter[2]) {
           return resolve({ error: { message: "row update failed" } });
         }
       }
-      if (op === "delete") deleteCalls.push({ table, filters });
+      if (op === "delete") {
+        opSequence.push(`delete:${table}`);
+        deleteCalls.push({ table, filters });
+      }
       if (op === "select") {
         selectCalls.push({ table, cols: String(data?.cols ?? ""), filters });
         // dois selects de sessions: o de recompute (payment) e o de futuras (id)
@@ -60,6 +65,7 @@ vi.mock("@/integrations/supabase/client", () => {
         update: (data: Row) => makeBuilder(table, "update", data),
         delete: () => makeBuilder(table, "delete"),
         insert: (data: Row) => {
+          opSequence.push(`insert:${table}`);
           insertCalls.push({ table, data });
           return { then: (r: (v: unknown) => void) => r({ error: null }) };
         },
@@ -82,6 +88,7 @@ describe("useUpdateAllOccurrences — duração muda, dinheiro acompanha", () =>
     deleteCalls.length = 0;
     insertCalls.length = 0;
     selectCalls.length = 0;
+    opSequence.length = 0;
     ROW_UPDATE_ERROR_FOR = null;
     AFFECTED_SESSIONS = [
       { id: "s-hourly", trainer_hourly_rate_cents: 10000, payment_rate_basis: "hourly" },
@@ -90,37 +97,38 @@ describe("useUpdateAllOccurrences — duração muda, dinheiro acompanha", () =>
     ];
   });
 
-  it("hourly e legada recalculam pela tarifa CONGELADA; per_session mantém o valor", async () => {
+  it("duração nova: UMA escrita por sessão com estrutura+dinheiro juntos e CAS is_paid", async () => {
     const { result } = renderHook(() => useUpdateAllOccurrences(), { wrapper });
     result.current.mutate({ templateId: "tpl-1", updates: { duration_minutes: 90 } });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    const recomputes = updateCalls.filter(
+    const perRow = updateCalls.filter(
       (c) => c.table === "sessions" && c.filters.some(([m, col]) => m === "eq" && col === "id"),
     );
-    expect(recomputes).toHaveLength(3);
+    expect(perRow).toHaveLength(3);
+    // NENHUM lote estrutural separado quando há dinheiro em jogo — a
+    // escrita é única por sessão (estrutura + valor no mesmo UPDATE):
+    const bulk = updateCalls.find(
+      (c) => c.table === "sessions" && c.filters.some(([, col]) => col === "template_id"),
+    );
+    expect(bulk).toBeUndefined();
 
     const byId = Object.fromEntries(
-      recomputes.map((c) => [c.filters.find(([, col]) => col === "id")![2] as string, c.data]),
+      perRow.map((c) => [c.filters.find(([, col]) => col === "id")![2] as string, c.data]),
     );
+    // estrutura viaja junto:
+    expect(byId["s-hourly"].duration_minutes).toBe(90);
     expect(byId["s-hourly"].payment_amount_cents).toBe(15000); // 1,5h × 100/h
     expect(byId["s-hourly"].payment_hours).toBe(1.5);
     expect(byId["s-legada"].payment_amount_cents).toBe(18000); // base null = hourly implícito
     expect(byId["s-fisio"]).not.toHaveProperty("payment_amount_cents"); // cravado
     expect(byId["s-fisio"].payment_hours).toBe(1.5);
-  });
-
-  it("estrutural E recompute só tocam NÃO-pagas (is_paid=false nos filtros)", async () => {
-    const { result } = renderHook(() => useUpdateAllOccurrences(), { wrapper });
-    result.current.mutate({ templateId: "tpl-1", updates: { duration_minutes: 90 } });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    // update estrutural em lote (por template) exige o filtro de paga:
-    const bulk = updateCalls.find(
-      (c) => c.table === "sessions" && c.filters.some(([, col]) => col === "template_id"),
-    );
-    expect(bulk?.filters).toContainEqual(["eq", "is_paid", false]);
-    // e a seleção do recompute também:
+    // CAS por linha: sessão que virou paga entre SELECT e UPDATE fica
+    // intacta por inteiro (0 linhas), nunca meio-a-meio:
+    for (const c of perRow) {
+      expect(c.filters).toContainEqual(["eq", "is_paid", false]);
+    }
+    // e a seleção do recompute também filtra pagas:
     const recomputeSelect = selectCalls.find(
       (c) => c.table === "sessions" && c.cols.includes("payment_rate_basis"),
     );
@@ -134,14 +142,18 @@ describe("useUpdateAllOccurrences — duração muda, dinheiro acompanha", () =>
     await waitFor(() => expect(result.current.isError).toBe(true));
   });
 
-  it("sem mudança de duração, nenhum recompute por sessão", async () => {
+  it("sem mudança de duração: lote estrutural (com is_paid=false), zero por-sessão", async () => {
     const { result } = renderHook(() => useUpdateAllOccurrences(), { wrapper });
     result.current.mutate({ templateId: "tpl-1", updates: { capacity: 15 } });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const recomputes = updateCalls.filter(
+    const perRow = updateCalls.filter(
       (c) => c.table === "sessions" && c.filters.some(([, col]) => col === "id"),
     );
-    expect(recomputes).toHaveLength(0);
+    expect(perRow).toHaveLength(0);
+    const bulk = updateCalls.find(
+      (c) => c.table === "sessions" && c.filters.some(([, col]) => col === "template_id"),
+    );
+    expect(bulk?.filters).toContainEqual(["eq", "is_paid", false]);
   });
 });
 
@@ -150,6 +162,8 @@ describe("useUpdateThisAndFollowing — paga é intocável", () => {
     updateCalls.length = 0;
     deleteCalls.length = 0;
     insertCalls.length = 0;
+    selectCalls.length = 0;
+    opSequence.length = 0;
     FUTURE_SESSIONS = [{ id: "s-futura" }];
   });
 
@@ -167,6 +181,20 @@ describe("useUpdateThisAndFollowing — paga é intocável", () => {
     // a SELEÇÃO das futuras exigiu is_paid=false — provado no filtro:
     const futSelect = selectCalls.find((c) => c.table === "sessions");
     expect(futSelect?.filters).toContainEqual(["eq", "is_paid", false]);
+  });
+
+  it("ORDEM de retry seguro: delete das futuras ANTES do insert do template novo", async () => {
+    const { result } = renderHook(() => useUpdateThisAndFollowing(), { wrapper });
+    result.current.mutate({
+      session: { id: "s-1", template_id: "tpl-1", session_date: "2026-08-10" } as never,
+      updates: { duration_minutes: 90 },
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const delIdx = opSequence.indexOf("delete:sessions");
+    const insIdx = opSequence.indexOf("insert:class_templates");
+    expect(delIdx).toBeGreaterThanOrEqual(0);
+    expect(insIdx).toBeGreaterThan(delIdx); // insert é o ÚLTIMO passo
   });
 });
 

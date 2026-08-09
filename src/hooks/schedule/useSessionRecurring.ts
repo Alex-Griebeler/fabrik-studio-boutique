@@ -111,29 +111,13 @@ export function useUpdateThisAndFollowing() {
         .single();
       if (!oldTemplate) throw new Error("Template não encontrado");
 
-      const { error: endErr } = await supabase
-        .from("class_templates")
-        .update({ recurrence_end: oldEnd })
-        .eq("id", session.template_id);
-      if (endErr) throw endErr;
-
-      const { error: newTplErr } = await supabase.from("class_templates").insert({
-        modality: updates.modality || oldTemplate.modality,
-        day_of_week: oldTemplate.day_of_week,
-        start_time: updates.start_time || oldTemplate.start_time,
-        duration_minutes: updates.duration_minutes || oldTemplate.duration_minutes,
-        capacity: updates.capacity || oldTemplate.capacity,
-        instructor_id: updates.instructor_id !== undefined ? updates.instructor_id : oldTemplate.instructor_id,
-        location: oldTemplate.location,
-        is_active: true,
-        recurrence_start: session.session_date,
-        recurrence_end: oldTemplate.recurrence_end,
-      });
-      if (newTplErr) throw newTplErr;
-
-      // Sessão PAGA é registro de folha: nunca some numa edição. Fica no
-      // lugar (o dia pode exibir a paga antiga + a nova regenerada — visível
-      // e não-destrutivo; redesenho da recorrência é backlog registrado).
+      // ORDEM pensada pra retry seguro (não há transação client-side):
+      // 1º apaga futuras não-pagas, 2º encerra o template antigo, 3º cria
+      // o novo. Falha em qualquer passo → retry re-executa tudo sem
+      // duplicar (delete de 0 linhas e update repetido são no-ops; o
+      // insert é o ÚLTIMO passo). Residual documentado: se o insert
+      // gravar e a RESPOSTA se perder, um retry duplicaria a série —
+      // visível em Turmas, remoção manual.
       const { data: futureSessions, error: futErr } = await supabase
         .from("sessions")
         .select("id")
@@ -156,6 +140,29 @@ export function useUpdateThisAndFollowing() {
           .in("id", ids);
         if (delErr) throw delErr;
       }
+
+      const { error: endErr } = await supabase
+        .from("class_templates")
+        .update({ recurrence_end: oldEnd })
+        .eq("id", session.template_id);
+      if (endErr) throw endErr;
+
+      const { error: newTplErr } = await supabase.from("class_templates").insert({
+        modality: updates.modality || oldTemplate.modality,
+        day_of_week: oldTemplate.day_of_week,
+        start_time: updates.start_time || oldTemplate.start_time,
+        duration_minutes: updates.duration_minutes || oldTemplate.duration_minutes,
+        capacity: updates.capacity || oldTemplate.capacity,
+        instructor_id: updates.instructor_id !== undefined ? updates.instructor_id : oldTemplate.instructor_id,
+        location: oldTemplate.location,
+        is_active: true,
+        recurrence_start: session.session_date,
+        recurrence_end: oldTemplate.recurrence_end,
+      });
+      if (newTplErr) throw newTplErr;
+      // (Sessão PAGA nunca é deletada — o delete lá em cima filtra
+      // is_paid=false; a paga antiga pode coexistir visível com a série
+      // nova. Redesenho da recorrência é backlog registrado.)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions"] });
@@ -194,28 +201,19 @@ export function useUpdateAllOccurrences() {
         sessionUpdates.end_time = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
       }
 
-      // Sessão PAGA fica fora TAMBÉM do update estrutural: pagou, congelou
-      // (horário antigo visível > horário novo com dinheiro dessincronizado).
+      // Sessão PAGA fica fora de TUDO: pagou, congelou (horário antigo
+      // visível > horário novo com dinheiro dessincronizado).
       const today = new Date().toISOString().split("T")[0];
-      const { error: bulkErr } = await supabase
-        .from("sessions")
-        .update(sessionUpdates)
-        .eq("template_id", templateId)
-        .eq("is_exception", false)
-        .eq("is_paid", false)
-        .gte("session_date", today);
-      if (bulkErr) throw bulkErr;
 
-      // Duração mudou = dinheiro muda nas NÃO-pagas (base hourly). A
-      // tarifa congelada de cada sessão é respeitada — só horas/valor são
-      // recalculados; per_session mantém o valor cravado e atualiza as
-      // horas informativas.
-      //
-      // NÃO é transacional (client-side): cada passo é checado e QUALQUER
-      // falha vira erro visível; o recompute é IDEMPOTENTE (deriva da
-      // tarifa congelada × duração nova), então repetir a ação conserta
-      // um estado parcial. RPC transacional no banco = backlog registrado.
       if (updates.duration_minutes) {
+        // Duração mudou = dinheiro muda (base hourly). Estrutura E dinheiro
+        // vão na MESMA escrita por sessão, com is_paid=false como
+        // compare-and-swap por linha: sessão que virou paga entre o SELECT
+        // e o UPDATE fica intacta por inteiro (0 linhas), nunca meio-a-meio.
+        // A tarifa CONGELADA de cada sessão é respeitada; per_session
+        // mantém o valor cravado (só horas informativas mudam). Cada passo
+        // checa erro; o conjunto é idempotente (retry conserta parcial);
+        // RPC transacional = backlog registrado.
         const newHours = updates.duration_minutes / 60;
         const { data: affected, error: selErr } = await supabase
           .from("sessions")
@@ -227,18 +225,35 @@ export function useUpdateAllOccurrences() {
         if (selErr) throw selErr;
         const results = await Promise.all(
           (affected ?? []).map((row) => {
-            const recompute: Record<string, unknown> = { payment_hours: newHours };
+            const rowUpdate: Record<string, unknown> = {
+              ...sessionUpdates,
+              payment_hours: newHours,
+            };
             // Base null = era antiga/hourly implícito: recalcula por hora.
             if (row.payment_rate_basis !== "per_session") {
-              recompute.payment_amount_cents = Math.round(
+              rowUpdate.payment_amount_cents = Math.round(
                 newHours * (row.trainer_hourly_rate_cents || 0),
               );
             }
-            return supabase.from("sessions").update(recompute).eq("id", row.id);
+            return supabase
+              .from("sessions")
+              .update(rowUpdate)
+              .eq("id", row.id)
+              .eq("is_paid", false);
           }),
         );
         const failed = results.find((r) => r.error);
         if (failed?.error) throw failed.error;
+      } else {
+        // Sem mudança de duração não há dinheiro em jogo: lote estrutural.
+        const { error: bulkErr } = await supabase
+          .from("sessions")
+          .update(sessionUpdates)
+          .eq("template_id", templateId)
+          .eq("is_exception", false)
+          .eq("is_paid", false)
+          .gte("session_date", today);
+        if (bulkErr) throw bulkErr;
       }
     },
     onSuccess: () => {

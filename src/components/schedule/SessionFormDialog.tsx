@@ -72,6 +72,15 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
     serviceTypeId || (serviceOptions.length === 1 ? serviceOptions[0].id : "");
   const selectedService = (services ?? []).find((s) => s.id === effectiveServiceId);
 
+  // Mudou algo que mexe em dinheiro? (mesma regra do submit — o preview
+  // usa isto pra NÃO mentir: edição estrutural mostra o valor CONGELADO.)
+  const financialsChangedRender =
+    isEditing &&
+    ((trainerId || null) !== (editSession!.trainer_id || null) ||
+      ((serviceTypeId || (serviceOptions.length === 1 ? serviceOptions[0].id : "")) || null) !==
+        (editSession!.service_type_id || null) ||
+      parseInt(duration || "0") !== editSession!.duration_minutes);
+
   // Tarifa do PAR treinador × serviço (trainer_service_rates).
   const pairRate =
     trainerId && effectiveServiceId
@@ -327,7 +336,19 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
                 })}
               </SelectContent>
             </Select>
-            {selectedTrainer && pairRate && parseInt(duration) > 0 && (
+            {/* Preview honesto: em série não há preview (cada sessão usa a
+                própria tarifa congelada); edição estrutural mostra o valor
+                CONGELADO; só criação/mudança financeira calcula pela tarifa
+                atual do par. */}
+            {!isSeriesEdit && isEditing && !financialsChangedRender && (
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Pagamento congelado da sessão: R${" "}
+                {((editSession!.payment_amount_cents || 0) / 100).toFixed(2)}
+              </p>
+            )}
+            {!isSeriesEdit &&
+              (!isEditing || financialsChangedRender) &&
+              selectedTrainer && pairRate && parseInt(duration) > 0 && (
               <p className="text-[10px] text-muted-foreground mt-1">
                 Pagamento da sessão: R${" "}
                 {(
@@ -336,7 +357,9 @@ export function SessionFormDialog({ open, onOpenChange, defaultDate, editSession
                 ).toFixed(2)}
               </p>
             )}
-            {selectedTrainer && !pairRate && (
+            {!isSeriesEdit &&
+              (!isEditing || financialsChangedRender) &&
+              selectedTrainer && !pairRate && (
               <p className="text-[10px] text-destructive mt-1">
                 Sem tarifa cadastrada para {selectedService?.name ?? "o serviço"} —
                 cadastre em Treinadores → Pagamentos à equipe.
