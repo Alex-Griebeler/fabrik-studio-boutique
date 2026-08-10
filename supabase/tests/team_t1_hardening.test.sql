@@ -3,7 +3,10 @@
 -- IDs do fixture: admin A=...000a, admin B=...000b, instrutor=...000c, aluna=...000d.
 
 BEGIN;
-SELECT plan(32);
+SELECT plan(48);
+
+-- Passagem de tokens entre blocos DO e asserts.
+CREATE TEMP TABLE _t1_tokens (k text PRIMARY KEY, v uuid) ON COMMIT DROP;
 
 -- ── 1. Privilégios ─────────────────────────────────────────────────────────
 
@@ -28,10 +31,10 @@ SELECT ok(NOT has_schema_privilege('authenticated', 'private', 'USAGE'),
 SELECT ok(has_schema_privilege('service_role', 'private', 'USAGE'),
   'service_role com USAGE no schema private');
 SELECT ok(NOT has_function_privilege('authenticated',
-  'public.team_set_roles(uuid, uuid, uuid, uuid, public.app_role[])', 'EXECUTE'),
+  'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE'),
   'authenticated não executa team_set_roles');
 SELECT ok(has_function_privilege('service_role',
-  'public.team_set_roles(uuid, uuid, uuid, uuid, public.app_role[])', 'EXECUTE'),
+  'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE'),
   'service_role executa team_set_roles');
 
 -- ── 2. Guarda de user_roles ────────────────────────────────────────────────
@@ -120,8 +123,6 @@ SELECT throws_ok(
   $$ SELECT public.team_set_roles(
        '99999999-0000-0000-0000-000000000001',
        '99999999-9999-9999-9999-999999999999',
-       '00000000-0000-0000-0000-00000000000a',
-       '00000000-0000-0000-0000-00000000000c',
        ARRAY['instructor']::public.app_role[]) $$,
   'T0002', NULL, 'lease_token errado toma T0002 (fencing)');
 
@@ -135,8 +136,6 @@ BEGIN
   -- dá manager ao instrutor (mantendo instructor)
   PERFORM public.team_set_roles(
     '99999999-0000-0000-0000-000000000001', tok,
-    '00000000-0000-0000-0000-00000000000a',
-    '00000000-0000-0000-0000-00000000000c',
     ARRAY['instructor','manager']::public.app_role[]);
 END $seed$;
 
@@ -162,9 +161,7 @@ BEGIN
   SELECT lease_token INTO tok FROM public.team_operations
   WHERE operation_id = '99999999-0000-0000-0000-000000000004';
   PERFORM public.team_revoke_access(
-    '99999999-0000-0000-0000-000000000004', tok,
-    '00000000-0000-0000-0000-00000000000a',
-    '00000000-0000-0000-0000-00000000000d');
+    '99999999-0000-0000-0000-000000000004', tok);
 END $revoke$;
 SELECT is(
   (SELECT array_agg(role ORDER BY role)::text FROM public.user_roles
@@ -212,6 +209,155 @@ SELECT throws_ok(
   $$ UPDATE public.team_operations SET phase = 'invite_requested'
      WHERE operation_id = '99999999-0000-0000-0000-000000000004' $$,
   'P0001', NULL, 'transição de phase ilegal é bloqueada');
+
+-- ── 6. Rodada 1 do Codex: TRUNCATE, INSERT inválido, grants, binding ───────
+
+SELECT ok(NOT has_table_privilege('service_role', 'public.team_operations', 'TRUNCATE'),
+  'service_role não trunca team_operations');
+
+SELECT throws_ok(
+  $$ INSERT INTO public.team_operations
+       (operation_id, actor_user_id, action, payload_fingerprint, status, phase,
+        lease_token, lease_expires_at)
+     VALUES ('99999999-0000-0000-0000-00000000ffff',
+       '00000000-0000-0000-0000-00000000000a', 'invite', 'fp', 'succeeded',
+       'preflight', gen_random_uuid(), now()) $$,
+  'P0001', NULL, 'INSERT não nasce em estado terminal');
+
+SELECT ok(NOT has_function_privilege('authenticated',
+  'public.team_begin_operation(uuid, uuid, text, text, uuid, text)', 'EXECUTE'),
+  'authenticated não executa team_begin_operation');
+SELECT ok(NOT has_function_privilege('authenticated',
+  'public.team_advance_phase(uuid, uuid, text, uuid, jsonb)', 'EXECUTE'),
+  'authenticated não executa team_advance_phase');
+SELECT ok(NOT has_function_privilege('authenticated',
+  'public.team_finalize_operation(uuid, uuid, text, text, text, jsonb)', 'EXECUTE'),
+  'authenticated não executa team_finalize_operation');
+SELECT ok(NOT has_function_privilege('authenticated',
+  'public.team_assign_role_after_invite(uuid, uuid, public.app_role)', 'EXECUTE'),
+  'authenticated não executa team_assign_role_after_invite');
+SELECT ok(NOT has_function_privilege('authenticated',
+  'public.team_revoke_access(uuid, uuid)', 'EXECUTE'),
+  'authenticated não executa team_revoke_access');
+SELECT ok(has_function_privilege('service_role',
+  'public.team_begin_operation(uuid, uuid, text, text, uuid, text)', 'EXECUTE'),
+  'service_role executa team_begin_operation');
+
+-- op5: set_roles started — o lease dela NÃO serve para outra ação (binding).
+DO $b5$
+DECLARE r jsonb;
+BEGIN
+  r := public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000005',
+    '00000000-0000-0000-0000-00000000000a',
+    'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-5');
+  INSERT INTO _t1_tokens VALUES ('op5', (r ->> 'lease_token')::uuid);
+END $b5$;
+
+SELECT throws_ok(
+  format($$ SELECT public.team_assign_role_after_invite(
+    '99999999-0000-0000-0000-000000000005', %L, 'manager'::public.app_role) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op5')),
+  'T0001', NULL,
+  'lease de set_roles NÃO atribui papel de convite (binding por ação)');
+
+-- detail: campo proibido e campo fora da allowlist
+SELECT throws_ok(
+  format($$ SELECT public.team_advance_phase(
+    '99999999-0000-0000-0000-000000000005', %L, 'preflight', NULL,
+    '{"lease_token":"x"}'::jsonb) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op5')),
+  'P0001', NULL, 'detail com campo PROIBIDO é rejeitado');
+SELECT throws_ok(
+  format($$ SELECT public.team_advance_phase(
+    '99999999-0000-0000-0000-000000000005', %L, 'preflight', NULL,
+    '{"foo":1}'::jsonb) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op5')),
+  'P0001', NULL, 'detail fora da allowlist é rejeitado');
+
+-- target_user_id: transição única (op5 nasceu com alvo — trocar é proibido)
+SELECT throws_ok(
+  format($$ SELECT public.team_advance_phase(
+    '99999999-0000-0000-0000-000000000005', %L, 'preflight',
+    '00000000-0000-0000-0000-00000000000d', NULL) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op5')),
+  'P0001', NULL, 'target_user_id não muda depois de persistido');
+
+-- Fencing pós-takeover: lease vencido → begin assume com token NOVO; o antigo
+-- não escreve mais.
+UPDATE public.team_operations
+SET lease_expires_at = now() - interval '1 second'
+WHERE operation_id = '99999999-0000-0000-0000-000000000005';
+
+DO $tk$
+DECLARE r jsonb;
+BEGIN
+  r := public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000005',
+    '00000000-0000-0000-0000-00000000000a',
+    'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-5');
+  INSERT INTO _t1_tokens VALUES ('op5kind', NULL);
+  UPDATE _t1_tokens SET v = (r ->> 'lease_token')::uuid WHERE k = 'op5kind';
+  INSERT INTO _t1_tokens VALUES ('op5novo', (r ->> 'lease_token')::uuid);
+  IF (r ->> 'kind') <> 'takeover' THEN
+    RAISE EXCEPTION 'esperado takeover, veio %', r ->> 'kind';
+  END IF;
+END $tk$;
+
+SELECT throws_ok(
+  format($$ SELECT public.team_advance_phase(
+    '99999999-0000-0000-0000-000000000005', %L, 'preflight', NULL, NULL) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op5')),
+  'T0002', NULL, 'token ANTIGO pós-takeover não escreve (fencing)');
+
+-- Terminal inutiliza até o token novo.
+DO $f5$
+BEGIN
+  PERFORM public.team_finalize_operation(
+    '99999999-0000-0000-0000-000000000005',
+    (SELECT v FROM _t1_tokens WHERE k = 'op5novo'),
+    'failed', 'rejected', NULL, NULL);
+END $f5$;
+SELECT throws_ok(
+  format($$ SELECT public.team_advance_phase(
+    '99999999-0000-0000-0000-000000000005', %L, 'preflight', NULL, NULL) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op5novo')),
+  'T0002', NULL, 'token não sobrevive ao terminal');
+
+-- Cooldown de send_recovery: terminal recente bloqueia novo begin (T0011).
+DO $rec$
+DECLARE r jsonb;
+BEGIN
+  r := public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000006',
+    '00000000-0000-0000-0000-00000000000a',
+    'send_recovery', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-6');
+  PERFORM public.team_advance_phase(
+    '99999999-0000-0000-0000-000000000006', (r ->> 'lease_token')::uuid,
+    'recovery_requested', NULL, NULL);
+  PERFORM public.team_finalize_operation(
+    '99999999-0000-0000-0000-000000000006', (r ->> 'lease_token')::uuid,
+    'succeeded', 'recovery_requested', NULL, NULL);
+END $rec$;
+SELECT throws_ok(
+  $$ SELECT public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000007',
+    '00000000-0000-0000-0000-00000000000a',
+    'send_recovery', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-7') $$,
+  'T0011', NULL, 'cooldown de recovery bloqueia reenvio (T0011)');
+
+-- Matriz por ação: invite não pula de preflight para role_assigned.
+DO $b8$
+BEGIN
+  PERFORM public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000008',
+    '00000000-0000-0000-0000-00000000000a',
+    'invite', 'nova@fabrik.test', NULL, 'fp-8');
+END $b8$;
+SELECT throws_ok(
+  $$ UPDATE public.team_operations SET phase = 'role_assigned'
+     WHERE operation_id = '99999999-0000-0000-0000-000000000008' $$,
+  'P0001', NULL, 'invite não pula preflight→role_assigned');
 
 SELECT * FROM finish();
 ROLLBACK;

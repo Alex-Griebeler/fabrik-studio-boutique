@@ -87,6 +87,25 @@ export interface ManageTeamDependencies extends RequireStaffRoleDependencies {
   sendRecoveryEmail: (email: string, redirectTo: string) => Promise<{ error: { message: string } | null }>;
   /** APP_URL server-side (allowlist de redirect do Auth). */
   getAppUrl: () => string | undefined;
+  /**
+   * Timeout de TODA chamada externa (Auth Admin API / recovery), em ms.
+   * Deve ficar ABAIXO do lease de 90s da saga com margem (default 30s) — um
+   * worker pendurado não sobrevive ao próprio lease; o fencing pega o resto.
+   */
+  externalTimeoutMs?: number;
+}
+
+/** Corrida de promise contra o relógio: timeout NUNCA resolve a chamada. */
+export async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | "timeout"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const clock = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), ms);
+  });
+  try {
+    return await Promise.race([p, clock]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── Envelope ────────────────────────────────────────────────────────────────
@@ -127,9 +146,10 @@ export async function handleManageTeam(
     }
 
     const authAdmin = deps.getAuthAdmin(auth);
+    const timeoutMs = deps.externalTimeoutMs ?? 30_000;
 
     if (action === "list") {
-      return await handleList(auth, authAdmin);
+      return await handleList(auth, authAdmin, timeoutMs);
     }
 
     // Mutações exigem operation_id (uuid gerado pelo cliente por TENTATIVA).
@@ -138,22 +158,26 @@ export async function handleManageTeam(
       return json({ error_code: "bad_operation_id" }, 400);
     }
 
-    const appUrl = deps.getAppUrl();
-    if (!appUrl) {
-      console.error("manage-team: APP_URL ausente");
-      return json({ error_code: "server_misconfigured" }, 500);
+    // APP_URL só é exigido nas ações que ENVIAM e-mail.
+    let redirectTo = "";
+    if (action === "invite" || action === "send_recovery") {
+      const appUrl = deps.getAppUrl();
+      if (!appUrl) {
+        console.error("manage-team: APP_URL ausente");
+        return json({ error_code: "server_misconfigured" }, 500);
+      }
+      redirectTo = `${appUrl.replace(/\/$/, "")}/reset-password`;
     }
-    const redirectTo = `${appUrl.replace(/\/$/, "")}/reset-password`;
 
     switch (action) {
       case "invite":
-        return await handleInvite(auth, authAdmin, actor, operationId, body, redirectTo);
+        return await handleInvite(auth, authAdmin, actor, operationId, body, redirectTo, timeoutMs);
       case "set_roles":
         return await handleSetRoles(auth, actor, operationId, body);
       case "revoke_access":
         return await handleRevokeAccess(auth, actor, operationId, body);
       case "send_recovery":
-        return await handleSendRecovery(auth, authAdmin, deps, actor, operationId, body, redirectTo);
+        return await handleSendRecovery(auth, authAdmin, deps, actor, operationId, body, redirectTo, timeoutMs);
       default:
         return json({ error_code: "unknown_action" }, 400);
     }
@@ -165,13 +189,19 @@ export async function handleManageTeam(
 
 // ── list ────────────────────────────────────────────────────────────────────
 
-async function handleList(auth: AuthorizedContext, authAdmin: TeamAuthAdminApi): Promise<Response> {
+async function handleList(
+  auth: AuthorizedContext,
+  authAdmin: TeamAuthAdminApi,
+  timeoutMs: number,
+): Promise<Response> {
   // Paginação por COMPRIMENTO (F9): o SDK devolve total 0 quando o header
   // falta, então "total presente" não é testável. Erro em qualquer página
   // invalida a resposta INTEIRA — nunca lista parcial.
   const byId = new Map<string, AuthUserLike>();
   for (let page = 1; page <= LIST_MAX_PAGES; page++) {
-    const { data, error } = await authAdmin.listUsers({ page, perPage: LIST_PER_PAGE });
+    const result = await withTimeout(authAdmin.listUsers({ page, perPage: LIST_PER_PAGE }), timeoutMs);
+    if (result === "timeout") return json({ error_code: "external_timeout" }, 504);
+    const { data, error } = result;
     if (error || !data) {
       console.error("manage-team list: listUsers falhou", error?.message);
       return json({ error_code: "auth_list_failed" }, 502);
@@ -244,9 +274,14 @@ function mapRpcError(error: RpcErrorLike, operationId: string): Response {
   return json({ operation_id: operationId, error_code: "rpc_failed" }, 500);
 }
 
+/** Traduz SQLSTATE em api-code estável para gravar em error_code do registro. */
+function apiCodeFor(sqlstate: string | undefined, fallback: string): string {
+  return (sqlstate && ERRCODE_MAP[sqlstate]?.code) || fallback;
+}
+
 /** Fingerprint canônico e determinístico (R3-10): chaves fixas, UTF-8, sha256. */
 export async function canonicalFingerprint(parts: ReadonlyArray<string>): Promise<string> {
-  const canonical = parts.join(" ");
+  const canonical = parts.join(" ");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -335,6 +370,19 @@ async function finalize(
   return opResponse(data as BeginResult["op"]);
 }
 
+/**
+ * Timeout de chamada externa DENTRO da saga: a operação fica `started` de
+ * propósito (o convite/e-mail pode ter acontecido); o retry com o MESMO
+ * operation_id assume após o lease e RECONCILIA. Nada é finalizado às cegas.
+ */
+function externalTimeoutResponse(operationId: string): Response {
+  return json({
+    operation_id: operationId,
+    error_code: "external_timeout",
+    retry_after_seconds: 90,
+  }, 504);
+}
+
 // ── invite ──────────────────────────────────────────────────────────────────
 
 async function handleInvite(
@@ -344,6 +392,7 @@ async function handleInvite(
   operationId: string,
   body: Record<string, unknown>,
   redirectTo: string,
+  timeoutMs: number,
 ): Promise<Response> {
   const email = normalizeEmail(body.email);
   if (!email) return json({ error_code: "bad_email" }, 400);
@@ -364,13 +413,14 @@ async function handleInvite(
   if (kind === "replay") return opResponse(op);
 
   if (kind === "takeover") {
-    return await reconcileInvite(auth, authAdmin, actor, operationId, lease!, op, email, role);
+    return await reconcileInvite(auth, authAdmin, operationId, lease!, op, email, role, timeoutMs);
   }
 
   // ── caminho novo ──
   // Pre-check: e-mail já existe no Auth? (Admin API não tem busca por e-mail;
   // varredura paginada — base mono-estúdio é minúscula e o teto de F9 vale.)
-  const existing = await findUserByEmail(authAdmin, email);
+  const existing = await findUserByEmail(authAdmin, email, timeoutMs);
+  if (existing === "timeout") return externalTimeoutResponse(operationId);
   if (existing === undefined) {
     return await finalize(auth, operationId, lease!, "failed", "auth_lookup_failed", "auth_list_failed");
   }
@@ -391,14 +441,16 @@ async function handleInvite(
 
   // Passo 3: convite. `data` leva SÓ full_name (user_metadata é forjável e
   // NUNCA é prova — a proveniência vai em app_metadata nos passos 5-6).
-  const invited = await authAdmin.inviteUserByEmail(email, {
-    data: { full_name: fullName },
-    redirectTo,
-  });
+  const invited = await withTimeout(
+    authAdmin.inviteUserByEmail(email, { data: { full_name: fullName }, redirectTo }),
+    timeoutMs,
+  );
+  if (invited === "timeout") return externalTimeoutResponse(operationId);
   if (invited.error || !invited.data?.user) {
     return await finalize(auth, operationId, lease!, "failed", "invite_failed", "invite_failed");
   }
-  const userId = invited.data.user.id;
+  const invitedUser = invited.data.user;
+  const userId = invitedUser.id;
 
   // Passo 4: persistir target (phase inalterada).
   {
@@ -410,7 +462,8 @@ async function handleInvite(
   }
 
   // Passos 5-6: marca de proveniência em app_metadata + releitura de verificação.
-  const marked = await markProvenance(authAdmin, userId, operationId, invited.data.user);
+  const marked = await markProvenance(authAdmin, userId, operationId, invitedUser, timeoutMs);
+  if (marked === "timeout") return externalTimeoutResponse(operationId);
   if (!marked) {
     return await finalize(auth, operationId, lease!, "partial", "invited_without_role",
       "provenance_mark_failed", { recoverable: true });
@@ -426,14 +479,13 @@ async function handleInvite(
   }
   {
     const { error } = await auth.adminClient.rpc("team_assign_role_after_invite", {
-      p_operation_id: operationId, p_lease_token: lease,
-      p_actor: actor, p_target: userId, p_role: role,
+      p_operation_id: operationId, p_lease_token: lease, p_role: role,
     });
     if (error) {
       // Papel falhou (ex.: ator rebaixado no meio) — parcial estruturado e
       // recuperável pela tela; a finalização NÃO exige ator admin (R3-5).
       return await finalize(auth, operationId, lease!, "partial", "invited_without_role",
-        (error as RpcErrorLike).code === "T0004" ? "actor_not_admin" : "role_assign_failed",
+        apiCodeFor((error as RpcErrorLike).code, "role_assign_failed"),
         { recoverable: true });
     }
   }
@@ -441,13 +493,16 @@ async function handleInvite(
   return await finalize(auth, operationId, lease!, "succeeded", "invited_with_role");
 }
 
-/** undefined = falha de consulta; null = não existe; user = existe. */
+/** "timeout" = estourou o relógio; undefined = falha; null = não existe. */
 async function findUserByEmail(
   authAdmin: TeamAuthAdminApi,
   email: string,
-): Promise<AuthUserLike | null | undefined> {
+  timeoutMs: number,
+): Promise<AuthUserLike | null | undefined | "timeout"> {
   for (let page = 1; page <= LIST_MAX_PAGES; page++) {
-    const { data, error } = await authAdmin.listUsers({ page, perPage: LIST_PER_PAGE });
+    const result = await withTimeout(authAdmin.listUsers({ page, perPage: LIST_PER_PAGE }), timeoutMs);
+    if (result === "timeout") return "timeout";
+    const { data, error } = result;
     if (error || !data) return undefined;
     const hit = data.users.find((u) => (u.email ?? "").toLowerCase() === email);
     if (hit) return hit;
@@ -468,12 +523,18 @@ async function markProvenance(
   userId: string,
   operationId: string,
   currentUser: AuthUserLike,
-): Promise<boolean> {
-  const updated = await authAdmin.updateUserById(userId, {
-    app_metadata: { ...(currentUser.app_metadata ?? {}), team_operation_id: operationId },
-  });
+  timeoutMs: number,
+): Promise<boolean | "timeout"> {
+  const updated = await withTimeout(
+    authAdmin.updateUserById(userId, {
+      app_metadata: { ...(currentUser.app_metadata ?? {}), team_operation_id: operationId },
+    }),
+    timeoutMs,
+  );
+  if (updated === "timeout") return "timeout";
   if (updated.error) return false;
-  const reread = await authAdmin.getUserById(userId);
+  const reread = await withTimeout(authAdmin.getUserById(userId), timeoutMs);
+  if (reread === "timeout") return "timeout";
   if (reread.error || !reread.data?.user) return false;
   return reread.data.user.app_metadata?.team_operation_id === operationId;
 }
@@ -481,33 +542,49 @@ async function markProvenance(
 /**
  * Reconciliação de lease vencido (R3-1/R3-2): a EDGE consulta o Auth; papel só
  * é atribuído se o usuário encontrado carrega a marca DESTA operação. NUNCA
- * reenvia e-mail (D8).
+ * reenvia e-mail (D8). Quando a operação já persistiu o alvo, a busca é POR ID
+ * (exata) — e-mail é fallback só para a janela antes do passo 4.
  */
 async function reconcileInvite(
   auth: AuthorizedContext,
   authAdmin: TeamAuthAdminApi,
-  actor: string,
   operationId: string,
   lease: string,
   op: BeginResult["op"],
   email: string,
   role: string,
+  timeoutMs: number,
 ): Promise<Response> {
   if (op.phase === "preflight") {
     // Nenhuma chamada externa aconteceu — encerrar como falha reexecutável
-    // com operation_id NOVO (não reexecutamos convite dentro de takeover de
-    // preflight para manter o caminho único de envio).
+    // com operation_id NOVO (caminho único de envio de convite).
     return await finalize(auth, operationId, lease, "failed", "invite_not_started", null);
   }
 
-  const found = await findUserByEmail(authAdmin, email);
-  if (found === undefined) {
-    return await finalize(auth, operationId, lease, "failed", "auth_lookup_failed", "auth_list_failed");
+  let found: AuthUserLike | null;
+  if (op.target_user_id) {
+    const byId = await withTimeout(authAdmin.getUserById(op.target_user_id), timeoutMs);
+    if (byId === "timeout") return externalTimeoutResponse(operationId);
+    if (byId.error) {
+      return await finalize(auth, operationId, lease, "failed", "auth_lookup_failed", "auth_list_failed");
+    }
+    found = byId.data?.user ?? null;
+  } else {
+    const byEmail = await findUserByEmail(authAdmin, email, timeoutMs);
+    if (byEmail === "timeout") return externalTimeoutResponse(operationId);
+    if (byEmail === undefined) {
+      return await finalize(auth, operationId, lease, "failed", "auth_lookup_failed", "auth_list_failed");
+    }
+    found = byEmail;
   }
 
   if (found === null) {
     // Convite nunca materializou usuário: falha; reenvio SÓ por nova operação.
     return await finalize(auth, operationId, lease, "failed", "invite_failed", null);
+  }
+
+  if (op.target_user_id && found.id !== op.target_user_id) {
+    return await finalize(auth, operationId, lease, "failed", "reconcile_mismatch", null);
   }
 
   if (found.app_metadata?.team_operation_id !== operationId) {
@@ -519,20 +596,24 @@ async function reconcileInvite(
 
   // Nasceu desta operação: completar o que faltar.
   if (op.phase === "invite_requested") {
+    const { error: targetErr } = await auth.adminClient.rpc("team_advance_phase", {
+      p_operation_id: operationId, p_lease_token: lease,
+      p_new_phase: "invite_requested", p_target_user_id: found.id, p_detail_patch: null,
+    });
+    if (targetErr) return mapRpcError(targetErr, operationId);
     const { error } = await auth.adminClient.rpc("team_advance_phase", {
       p_operation_id: operationId, p_lease_token: lease,
-      p_new_phase: "auth_user_observed", p_target_user_id: found.id, p_detail_patch: null,
+      p_new_phase: "auth_user_observed", p_target_user_id: null, p_detail_patch: null,
     });
     if (error) return mapRpcError(error, operationId);
   }
-  {
+  if (op.phase === "invite_requested" || op.phase === "auth_user_observed") {
     const { error } = await auth.adminClient.rpc("team_assign_role_after_invite", {
-      p_operation_id: operationId, p_lease_token: lease,
-      p_actor: actor, p_target: found.id, p_role: role,
+      p_operation_id: operationId, p_lease_token: lease, p_role: role,
     });
     if (error) {
       return await finalize(auth, operationId, lease, "partial", "invited_without_role",
-        (error as RpcErrorLike).code ?? "role_assign_failed", { recoverable: true });
+        apiCodeFor((error as RpcErrorLike).code, "role_assign_failed"), { recoverable: true });
     }
   }
   return await finalize(auth, operationId, lease, "succeeded", "invited_with_role");
@@ -572,16 +653,15 @@ async function handleSetRoles(
   }
 
   const { data, error } = await auth.adminClient.rpc("team_set_roles", {
-    p_operation_id: operationId, p_lease_token: lease,
-    p_actor: actor, p_target: target, p_roles: roles,
+    p_operation_id: operationId, p_lease_token: lease, p_roles: roles,
   });
   if (error) {
     const mapped = mapRpcError(error, operationId);
-    // Erros de NEGÓCIO (não de lease) finalizam a operação como failed para o
-    // registro de domínio não ficar pendurado.
+    // Erros de NEGÓCIO (não de lease/andamento) finalizam a operação como
+    // failed para o registro de domínio não ficar pendurado.
     const code = (error as RpcErrorLike).code;
     if (code && code !== "T0002" && code !== "T0010") {
-      await finalize(auth, operationId, lease!, "failed", "rejected", ERRCODE_MAP[code]?.code ?? code);
+      await finalize(auth, operationId, lease!, "failed", "rejected", apiCodeFor(code, code));
     }
     return mapped;
   }
@@ -615,13 +695,12 @@ async function handleRevokeAccess(
 
   const { data, error } = await auth.adminClient.rpc("team_revoke_access", {
     p_operation_id: operationId, p_lease_token: lease,
-    p_actor: actor, p_target: target,
   });
   if (error) {
     const mapped = mapRpcError(error, operationId);
     const code = (error as RpcErrorLike).code;
     if (code && code !== "T0002" && code !== "T0010") {
-      await finalize(auth, operationId, lease!, "failed", "rejected", ERRCODE_MAP[code]?.code ?? code);
+      await finalize(auth, operationId, lease!, "failed", "rejected", apiCodeFor(code, code));
     }
     return mapped;
   }
@@ -641,6 +720,7 @@ async function handleSendRecovery(
   operationId: string,
   body: Record<string, unknown>,
   redirectTo: string,
+  timeoutMs: number,
 ): Promise<Response> {
   const target = body.user_id;
   if (typeof target !== "string" || !UUID_RE.test(target)) {
@@ -662,14 +742,16 @@ async function handleSendRecovery(
       op.phase === "recovery_requested" ? "succeeded" : "failed", outcome);
   }
 
-  const { data: found, error: lookupErr } = await authAdmin.getUserById(target);
-  if (lookupErr || !found?.user) {
+  const lookup = await withTimeout(authAdmin.getUserById(target), timeoutMs);
+  if (lookup === "timeout") return externalTimeoutResponse(operationId);
+  if (lookup.error || !lookup.data?.user) {
     return await finalize(auth, operationId, lease!, "failed", "user_not_found", null);
   }
-  if (!found.user.email_confirmed_at) {
+  const found = lookup.data.user;
+  if (!found.email_confirmed_at) {
     return await finalize(auth, operationId, lease!, "failed", "user_not_confirmed", null);
   }
-  const email = (found.user.email ?? "").toLowerCase();
+  const email = (found.email ?? "").toLowerCase();
   if (!email) {
     return await finalize(auth, operationId, lease!, "failed", "user_without_email", null);
   }
@@ -682,7 +764,8 @@ async function handleSendRecovery(
     if (error) return mapRpcError(error, operationId);
   }
 
-  const sent = await deps.sendRecoveryEmail(email, redirectTo);
+  const sent = await withTimeout(deps.sendRecoveryEmail(email, redirectTo), timeoutMs);
+  if (sent === "timeout") return externalTimeoutResponse(operationId);
   if (sent.error) {
     return await finalize(auth, operationId, lease!, "failed", "recovery_send_failed", null);
   }

@@ -143,8 +143,10 @@ ALTER TABLE public.team_operations ENABLE ROW LEVEL SECURITY;
 -- Service-only: sem policy nenhuma (RLS ligada sem policy = zero acesso via
 -- API para anon/authenticated mesmo que um grant futuro escorregue).
 REVOKE ALL ON public.team_operations FROM PUBLIC, anon, authenticated;
--- service_role: sem DELETE (registro de domínio não se apaga).
-REVOKE DELETE ON public.team_operations FROM service_role;
+-- service_role: grants POSITIVOS mínimos — sem DELETE e sem TRUNCATE
+-- (TRUNCATE ignora RLS e triggers: apagaria a auditoria de domínio inteira).
+REVOKE ALL ON public.team_operations FROM service_role;
+GRANT SELECT, INSERT, UPDATE ON public.team_operations TO service_role;
 
 CREATE INDEX IF NOT EXISTS idx_team_ops_actor ON public.team_operations (actor_user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_team_ops_target_user ON public.team_operations (target_user_id);
@@ -165,6 +167,18 @@ DECLARE
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'team_operations é append-only';
+  END IF;
+
+  -- INSERT também é validado: nenhuma linha nasce em estado impossível
+  -- (nem via service_role fora das RPCs).
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'started' OR NEW.phase <> 'preflight'
+       OR NEW.finished_at IS NOT NULL OR NEW.outcome IS NOT NULL
+       OR NEW.error_code IS NOT NULL
+       OR NEW.lease_token IS NULL OR NEW.lease_expires_at IS NULL THEN
+      RAISE EXCEPTION 'team_operations: INSERT só nasce started/preflight com lease';
+    END IF;
+    RETURN NEW;
   END IF;
 
   -- Terminal congelado por inteiro.
@@ -241,8 +255,60 @@ REVOKE ALL ON FUNCTION public.fn_team_operations_guard() FROM PUBLIC, anon, auth
 
 DROP TRIGGER IF EXISTS team_operations_guard ON public.team_operations;
 CREATE TRIGGER team_operations_guard
-  BEFORE UPDATE OR DELETE ON public.team_operations
+  BEFORE INSERT OR UPDATE OR DELETE ON public.team_operations
   FOR EACH ROW EXECUTE FUNCTION public.fn_team_operations_guard();
+
+-- Owner explícito das funções DEFINER (F7: nunca presumido do executor).
+ALTER FUNCTION public.fn_user_roles_guard() OWNER TO postgres;
+ALTER FUNCTION public.fn_team_operations_guard() OWNER TO postgres;
+
+-- Allowlist do `detail` (R2-21): payload tipado por ação; campos sensíveis
+-- são rejeitados SEMPRE, mesmo que uma Edge futura tente gravá-los.
+CREATE OR REPLACE FUNCTION private.team_validate_detail(p_action text, p_patch jsonb)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+  k text;
+  allowed text[];
+BEGIN
+  IF p_patch IS NULL THEN RETURN; END IF;
+  IF jsonb_typeof(p_patch) <> 'object' THEN
+    RAISE EXCEPTION 'detail deve ser objeto';
+  END IF;
+  allowed := CASE p_action
+    WHEN 'invite'        THEN ARRAY['existing_user_id','recoverable']
+    WHEN 'set_roles'     THEN ARRAY['roles']
+    WHEN 'revoke_access' THEN ARRAY['roles']
+    WHEN 'send_recovery' THEN ARRAY[]::text[]
+    ELSE ARRAY[]::text[]
+  END;
+  FOR k IN SELECT jsonb_object_keys(p_patch) LOOP
+    IF k = ANY (ARRAY['lease_token','authorization','headers','token',
+                      'access_token','refresh_token','action_link','stack']) THEN
+      RAISE EXCEPTION 'detail: campo % é proibido', k;
+    END IF;
+    IF NOT (k = ANY (allowed)) THEN
+      RAISE EXCEPTION 'detail: campo % fora da allowlist de %', k, p_action;
+    END IF;
+  END LOOP;
+  IF p_patch ? 'existing_user_id'
+     AND (p_patch ->> 'existing_user_id') !~ '^[0-9a-f-]{36}$' THEN
+    RAISE EXCEPTION 'detail.existing_user_id deve ser uuid';
+  END IF;
+  IF p_patch ? 'recoverable'
+     AND jsonb_typeof(p_patch -> 'recoverable') <> 'boolean' THEN
+    RAISE EXCEPTION 'detail.recoverable deve ser boolean';
+  END IF;
+  IF p_patch ? 'roles' AND jsonb_typeof(p_patch -> 'roles') <> 'array' THEN
+    RAISE EXCEPTION 'detail.roles deve ser array';
+  END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.team_validate_detail(text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION private.team_validate_detail(text, jsonb) TO service_role;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 6. RPCs da saga (SECURITY INVOKER, service-only)
@@ -403,7 +469,8 @@ BEGIN
 END;
 $$;
 
--- advance: progresso de phase/target sob fencing (a legalidade é do trigger).
+-- advance: progresso de phase/target sob fencing (a legalidade é do trigger;
+-- o detail passa pela allowlist da ação REGISTRADA — nunca da alegada).
 CREATE OR REPLACE FUNCTION public.team_advance_phase(
   p_operation_id uuid,
   p_lease_token uuid,
@@ -420,6 +487,7 @@ DECLARE
   op public.team_operations;
 BEGIN
   op := private.team_require_lease(p_operation_id, p_lease_token);
+  PERFORM private.team_validate_detail(op.action, p_detail_patch);
   UPDATE public.team_operations
   SET phase = p_new_phase,
       target_user_id = COALESCE(p_target_user_id, target_user_id),
@@ -450,6 +518,7 @@ DECLARE
   op public.team_operations;
 BEGIN
   op := private.team_require_lease(p_operation_id, p_lease_token);
+  PERFORM private.team_validate_detail(op.action, p_detail_patch);
   UPDATE public.team_operations
   SET status = p_status,
       outcome = p_outcome,
@@ -466,14 +535,12 @@ BEGIN
 END;
 $$;
 
--- Atribuição de papel pós-convite (1 papel, alvo recém-criado e verificado
--- pela Edge via app_metadata — a proveniência é checada LÁ; aqui entram as
--- guardas de banco).
+-- Atribuição de papel pós-convite. A LIGAÇÃO é com a operação registrada:
+-- ator e alvo vêm de team_operations (nunca de parâmetro — um lease de
+-- set_roles não serve aqui: action e phase são exigidas).
 CREATE OR REPLACE FUNCTION public.team_assign_role_after_invite(
   p_operation_id uuid,
   p_lease_token uuid,
-  p_actor uuid,
-  p_target uuid,
   p_role public.app_role
 )
 RETURNS void
@@ -486,14 +553,25 @@ DECLARE
 BEGIN
   PERFORM private.team_lock_user_roles();
   op := private.team_require_lease(p_operation_id, p_lease_token);
-  PERFORM private.team_require_admin(p_actor);
+
+  IF op.action <> 'invite' THEN
+    RAISE EXCEPTION 'operação % não é invite', p_operation_id USING ERRCODE = 'T0001';
+  END IF;
+  IF op.phase <> 'auth_user_observed' THEN
+    RAISE EXCEPTION 'invite em phase % não atribui papel', op.phase USING ERRCODE = 'T0001';
+  END IF;
+  IF op.target_user_id IS NULL THEN
+    RAISE EXCEPTION 'invite sem alvo persistido' USING ERRCODE = 'T0001';
+  END IF;
+
+  PERFORM private.team_require_admin(op.actor_user_id);
 
   IF NOT (p_role = ANY (private.team_staff_roles())) THEN
     RAISE EXCEPTION 'papel % não é staff', p_role USING ERRCODE = 'T0008';
   END IF;
 
   INSERT INTO public.user_roles (user_id, role)
-  VALUES (p_target, p_role)
+  VALUES (op.target_user_id, p_role)
   ON CONFLICT (user_id, role) DO NOTHING;
 
   UPDATE public.team_operations
@@ -504,12 +582,11 @@ END;
 $$;
 
 -- set_roles: estado-alvo completo dos papéis STAFF (student intocável).
--- INSERT antes de DELETE; guardas de próprio-admin e último-admin.
+-- INSERT antes de DELETE; guardas de próprio-admin e último-admin. Ator e
+-- alvo vêm da OPERAÇÃO registrada; a ação e a phase são exigidas.
 CREATE OR REPLACE FUNCTION public.team_set_roles(
   p_operation_id uuid,
   p_lease_token uuid,
-  p_actor uuid,
-  p_target uuid,
   p_roles public.app_role[]
 )
 RETURNS jsonb
@@ -519,12 +596,27 @@ SET search_path = ''
 AS $$
 DECLARE
   op public.team_operations;
+  p_actor uuid;
+  p_target uuid;
   wanted public.app_role[];
   r public.app_role;
   final_roles public.app_role[];
 BEGIN
   PERFORM private.team_lock_user_roles();
   op := private.team_require_lease(p_operation_id, p_lease_token);
+
+  IF op.action <> 'set_roles' THEN
+    RAISE EXCEPTION 'operação % não é set_roles', p_operation_id USING ERRCODE = 'T0001';
+  END IF;
+  IF op.phase <> 'preflight' THEN
+    RAISE EXCEPTION 'set_roles em phase % é ilegal', op.phase USING ERRCODE = 'T0001';
+  END IF;
+  IF op.target_user_id IS NULL THEN
+    RAISE EXCEPTION 'set_roles sem alvo persistido' USING ERRCODE = 'T0001';
+  END IF;
+  p_actor := op.actor_user_id;
+  p_target := op.target_user_id;
+
   PERFORM private.team_require_admin(p_actor);
 
   -- Dedup + validação de allowlist.
@@ -569,12 +661,11 @@ BEGIN
 END;
 $$;
 
--- revoke_access: remove TODOS os papéis staff (student fica). Guardas idem.
+-- revoke_access: remove TODOS os papéis staff (student fica). Guardas idem;
+-- ator e alvo vêm da operação registrada.
 CREATE OR REPLACE FUNCTION public.team_revoke_access(
   p_operation_id uuid,
-  p_lease_token uuid,
-  p_actor uuid,
-  p_target uuid
+  p_lease_token uuid
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -583,10 +674,25 @@ SET search_path = ''
 AS $$
 DECLARE
   op public.team_operations;
+  p_actor uuid;
+  p_target uuid;
   final_roles public.app_role[];
 BEGIN
   PERFORM private.team_lock_user_roles();
   op := private.team_require_lease(p_operation_id, p_lease_token);
+
+  IF op.action <> 'revoke_access' THEN
+    RAISE EXCEPTION 'operação % não é revoke_access', p_operation_id USING ERRCODE = 'T0001';
+  END IF;
+  IF op.phase <> 'preflight' THEN
+    RAISE EXCEPTION 'revoke_access em phase % é ilegal', op.phase USING ERRCODE = 'T0001';
+  END IF;
+  IF op.target_user_id IS NULL THEN
+    RAISE EXCEPTION 'revoke_access sem alvo persistido' USING ERRCODE = 'T0001';
+  END IF;
+  p_actor := op.actor_user_id;
+  p_target := op.target_user_id;
+
   PERFORM private.team_require_admin(p_actor);
 
   IF p_actor = p_target THEN
@@ -618,9 +724,9 @@ BEGIN
     'public.team_begin_operation(uuid, uuid, text, text, uuid, text)',
     'public.team_advance_phase(uuid, uuid, text, uuid, jsonb)',
     'public.team_finalize_operation(uuid, uuid, text, text, text, jsonb)',
-    'public.team_assign_role_after_invite(uuid, uuid, uuid, uuid, public.app_role)',
-    'public.team_set_roles(uuid, uuid, uuid, uuid, public.app_role[])',
-    'public.team_revoke_access(uuid, uuid, uuid, uuid)'
+    'public.team_assign_role_after_invite(uuid, uuid, public.app_role)',
+    'public.team_set_roles(uuid, uuid, public.app_role[])',
+    'public.team_revoke_access(uuid, uuid)'
   ] LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn);
@@ -644,8 +750,9 @@ BEGIN
      OR has_table_privilege('anon', 'public.team_operations', 'SELECT') THEN
     RAISE EXCEPTION 'pós-condição: team_operations legível por cliente';
   END IF;
-  IF has_table_privilege('service_role', 'public.team_operations', 'DELETE') THEN
-    RAISE EXCEPTION 'pós-condição: service_role ainda deleta team_operations';
+  IF has_table_privilege('service_role', 'public.team_operations', 'DELETE')
+     OR has_table_privilege('service_role', 'public.team_operations', 'TRUNCATE') THEN
+    RAISE EXCEPTION 'pós-condição: service_role deleta/trunca team_operations';
   END IF;
   -- SELECT de user_roles preservado (RLS continua filtrando)
   IF NOT has_table_privilege('authenticated', 'public.user_roles', 'SELECT') THEN
@@ -663,9 +770,9 @@ BEGIN
   END IF;
   -- RPCs: service_role executa, authenticated não
   IF NOT has_function_privilege('service_role',
-       'public.team_set_roles(uuid, uuid, uuid, uuid, public.app_role[])', 'EXECUTE')
+       'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE')
      OR has_function_privilege('authenticated',
-       'public.team_set_roles(uuid, uuid, uuid, uuid, public.app_role[])', 'EXECUTE') THEN
+       'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE') THEN
     RAISE EXCEPTION 'pós-condição: privilégios das RPCs errados';
   END IF;
   -- triggers presentes

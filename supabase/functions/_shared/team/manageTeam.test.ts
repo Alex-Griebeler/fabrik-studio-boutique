@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalFingerprint,
   handleManageTeam,
+  withTimeout,
   LIST_MAX_PAGES,
   LIST_PER_PAGE,
   normalizeEmail,
@@ -291,6 +292,11 @@ describe("handleManageTeam", () => {
         "team_advance_phase", "team_assign_role_after_invite", "team_finalize_operation",
       ]);
       expect(fake.rpcCalls[5].args).toMatchObject({ p_status: "succeeded", p_outcome: "invited_with_role" });
+
+      // Binding (R1 da rodada 1 do Codex): o assign NÃO recebe ator/alvo —
+      // ambos vêm da operação registrada no banco.
+      const assign = fake.rpcCalls[4];
+      expect(Object.keys(assign.args).sort()).toEqual(["p_lease_token", "p_operation_id", "p_role"]);
     });
 
     it.each([
@@ -624,6 +630,115 @@ describe("handleManageTeam", () => {
       expect(normalizeEmail(" Ana@Fabrik.COM ")).toBe("ana@fabrik.com");
       expect(normalizeEmail("sem-arroba")).toBeNull();
       expect(normalizeEmail(42)).toBeNull();
+    });
+  });
+
+  describe("timeout externo (< lease; ambíguo deixa a saga started)", () => {
+    it("invite que estoura o relógio → 504 external_timeout SEM finalizar", async () => {
+      const fake = makeFake();
+      const never = new Promise(() => {});
+      const admin = makeAuthAdmin();
+      const slowAdmin = { ...admin.api, inviteUserByEmail: () => never as never };
+      const createClientMock = vi.fn().mockReturnValue(fake.client);
+      const deps = {
+        createClient: createClientMock,
+        getAuthAdmin: () => slowAdmin,
+        sendRecoveryEmail: vi.fn(),
+        getAppUrl: () => env.APP_URL,
+        externalTimeoutMs: 10,
+      } as unknown as ManageTeamDependencies;
+
+      const res = await handleManageTeam(
+        request({ action: "invite", operation_id: OP_ID, email: "a@b.com", full_name: "A", role: "instructor" }),
+        deps,
+      );
+
+      expect(res.status).toBe(504);
+      await expect(res.json()).resolves.toMatchObject({ error_code: "external_timeout" });
+      // A operação fica started: o retry com o MESMO id reconcilia depois.
+      expect(fake.rpcCalls.some((c) => c.name === "team_finalize_operation")).toBe(false);
+    });
+
+    it("withTimeout devolve 'timeout' sem resolver a promise", async () => {
+      const never = new Promise(() => {});
+      await expect(withTimeout(never, 5)).resolves.toBe("timeout");
+      await expect(withTimeout(Promise.resolve(42), 1000)).resolves.toBe(42);
+    });
+  });
+
+  describe("reconciliação pelo alvo persistido", () => {
+    function takeoverWithTarget(target: string | null) {
+      return makeFake({
+        rpcScript: (call) => {
+          if (call.name === "team_begin_operation") {
+            return { data: { kind: "takeover", lease_token: "l3", op: { operation_id: OP_ID, status: "started", outcome: null, phase: "invite_requested", target_user_id: target, error_code: null, detail: {} } } };
+          }
+          if (call.name === "team_finalize_operation") {
+            return { data: { operation_id: OP_ID, status: call.args.p_status, outcome: call.args.p_outcome, phase: "done", target_user_id: target, error_code: call.args.p_error_code ?? null, detail: {} } };
+          }
+          return { data: null };
+        },
+      });
+    }
+    const body = { action: "invite", operation_id: OP_ID, email: "nova@fabrik.com", full_name: "Nova", role: "instructor" };
+
+    it("com target persistido busca POR ID (não varre e-mail)", async () => {
+      const fake = takeoverWithTarget(TARGET);
+      const admin = makeAuthAdmin({
+        rereadUser: { id: TARGET, email: "nova@fabrik.com", app_metadata: { team_operation_id: OP_ID } },
+      });
+      const { deps } = makeDeps(fake, admin.api);
+
+      const res = await handleManageTeam(request(body), deps);
+
+      await expect(res.json()).resolves.toMatchObject({ outcome: "invited_with_role" });
+      expect(admin.calls.some((c) => c.method === "getUserById")).toBe(true);
+      expect(admin.calls.some((c) => c.method === "listUsers")).toBe(false);
+    });
+
+    it("id divergente do persistido → reconcile_mismatch", async () => {
+      const fake = takeoverWithTarget(TARGET);
+      const admin = makeAuthAdmin({
+        rereadUser: { id: "outro-id-qualquer", email: "nova@fabrik.com", app_metadata: { team_operation_id: OP_ID } },
+      });
+      const { deps } = makeDeps(fake, admin.api);
+
+      const res = await handleManageTeam(request(body), deps);
+
+      await expect(res.json()).resolves.toMatchObject({ status: "failed", outcome: "reconcile_mismatch" });
+    });
+  });
+
+  describe("APP_URL", () => {
+    it("set_roles funciona SEM APP_URL (só ações de e-mail exigem)", async () => {
+      const fake = makeFake();
+      const createClientMock = vi.fn().mockReturnValue(fake.client);
+      const deps = {
+        createClient: createClientMock,
+        getAuthAdmin: () => makeAuthAdmin().api,
+        sendRecoveryEmail: vi.fn(),
+        getAppUrl: () => undefined,
+      } as unknown as ManageTeamDependencies;
+
+      const res = await handleManageTeam(
+        request({ action: "set_roles", operation_id: OP_ID, user_id: TARGET, roles: ["instructor"] }), deps);
+      expect(res.status).toBe(200);
+    });
+
+    it("invite sem APP_URL → server_misconfigured", async () => {
+      const fake = makeFake();
+      const createClientMock = vi.fn().mockReturnValue(fake.client);
+      const deps = {
+        createClient: createClientMock,
+        getAuthAdmin: () => makeAuthAdmin().api,
+        sendRecoveryEmail: vi.fn(),
+        getAppUrl: () => undefined,
+      } as unknown as ManageTeamDependencies;
+
+      const res = await handleManageTeam(
+        request({ action: "invite", operation_id: OP_ID, email: "a@b.com", full_name: "A", role: "instructor" }), deps);
+      expect(res.status).toBe(500);
+      await expect(res.json()).resolves.toMatchObject({ error_code: "server_misconfigured" });
     });
   });
 });
