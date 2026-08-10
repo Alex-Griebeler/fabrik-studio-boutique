@@ -87,6 +87,10 @@ jobs:
           cp supabase/migrations/20260812150000_team_t1_roles_hardening.sql "$TEAM_WORKDIR/supabase/migrations/20260812150000_team_t1_roles_hardening.sql"
           # a Edge REAL vai ser servida: leva as functions inteiras
           cp -R supabase/functions "$TEAM_WORKDIR/supabase/functions"
+          # o edge-runtime da CLI (Deno 2.1.x) não lê lockfile v5; o serve não
+          # precisa do lock (import pinado por URL) — o check --frozen roda no
+          # job próprio com o Deno certo
+          rm -f "$TEAM_WORKDIR/supabase/functions/deno.lock"
       - name: Start full local stack (Auth + PostgREST reais)
         env:
           TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
