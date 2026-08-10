@@ -1,0 +1,114 @@
+name: Team T1 validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/p0-test-fixtures/team-base.sql"
+      - ".github/scripts/team-concurrency-check.sh"
+      - ".github/workflows/team-validation.yml"
+      - "supabase/migrations/20260812150000_team_t1_roles_hardening.sql"
+      - "supabase/tests/team_t1_hardening.test.sql"
+      - "supabase/functions/_shared/team/**"
+      - "supabase/functions/manage-team/**"
+      - "supabase/config.toml"
+      - "supabase/functions/deno.lock"
+      - "docs/RUNBOOK_TEAM_T1.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: team-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: manage-team unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run supabase/functions/_shared/team
+
+  database:
+    name: Migration + pgTAP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+      - name: Prepare isolated team database project
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p "$TEAM_WORKDIR/supabase/migrations" "$TEAM_WORKDIR/supabase/tests"
+          cp supabase/config.toml "$TEAM_WORKDIR/supabase/config.toml"
+          cp .github/p0-test-fixtures/team-base.sql "$TEAM_WORKDIR/supabase/migrations/20260812140000_team_base.sql"
+          cp supabase/migrations/20260812150000_team_t1_roles_hardening.sql "$TEAM_WORKDIR/supabase/migrations/20260812150000_team_t1_roles_hardening.sql"
+          cp supabase/migrations/20260812150000_team_t1_roles_hardening.sql "$TEAM_WORKDIR/supabase/migrations/20260812150001_team_t1_idempotency.sql"
+          cp supabase/tests/team_t1_hardening.test.sql "$TEAM_WORKDIR/supabase/tests/"
+      - name: Start isolated database and apply migration twice
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase db start --workdir "$TEAM_WORKDIR"
+      - name: Run team database tests
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase test db --workdir "$TEAM_WORKDIR"
+
+  integration:
+    name: Concurrency (2 conexoes) + cascade deleteUser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+      - name: Prepare isolated team database project
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p "$TEAM_WORKDIR/supabase/migrations"
+          cp supabase/config.toml "$TEAM_WORKDIR/supabase/config.toml"
+          cp .github/p0-test-fixtures/team-base.sql "$TEAM_WORKDIR/supabase/migrations/20260812140000_team_base.sql"
+          cp supabase/migrations/20260812150000_team_t1_roles_hardening.sql "$TEAM_WORKDIR/supabase/migrations/20260812150000_team_t1_roles_hardening.sql"
+      - name: Start isolated database
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
+        run: supabase db start --workdir "$TEAM_WORKDIR"
+      - name: Concurrency harness (2 real connections)
+        run: |
+          chmod +x .github/scripts/team-concurrency-check.sh
+          .github/scripts/team-concurrency-check.sh "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+      - name: Cascade of auth user delete honors the guard
+        # O deleteUser da Admin API é, no banco, um DELETE em auth.users — o
+        # cascade da FK dispara o guard (o GoTrue não roda no stack db-only da
+        # CI; o deleteUser REAL pela API é gate de staging no runbook).
+        run: |
+          DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          # instrutor pode sair: cascade limpa papéis
+          psql "$DB" -v ON_ERROR_STOP=1 -c \
+            "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000c'"
+          LEFT=$(psql "$DB" -qtA -c \
+            "SELECT count(*) FROM public.user_roles WHERE user_id = '00000000-0000-0000-0000-00000000000c'")
+          test "$LEFT" = "0" || { echo "cascade não limpou papéis do instrutor"; exit 1; }
+          # remover um dos 2 admins passa; o restante é o último
+          psql "$DB" -v ON_ERROR_STOP=1 -c \
+            "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000b'"
+          # o ÚLTIMO admin não pode sair: o guard aborta o DELETE inteiro
+          if psql "$DB" -v ON_ERROR_STOP=1 -c \
+            "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000a'" 2>/tmp/lastadmin.err; then
+            echo "deleteUser do último admin deveria ter sido bloqueado"; exit 1
+          fi
+          grep -q "último admin" /tmp/lastadmin.err || { cat /tmp/lastadmin.err; exit 1; }
+          STILL=$(psql "$DB" -qtA -c \
+            "SELECT count(*) FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000a'")
+          test "$STILL" = "1" || { echo "último admin sumiu do auth.users"; exit 1; }
+          echo "cascade OK: guard bloqueia deleteUser do último admin"

@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.receive-whatsapp-meta]
 verify_jwt = false
+
+[functions.manage-team]
+verify_jwt = false
