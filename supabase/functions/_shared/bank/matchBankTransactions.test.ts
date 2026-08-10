@@ -30,7 +30,7 @@ function hasEq(query: RecordedQuery, column: string, value: unknown) {
 
 /**
  * Crédito Rede: R$ 100,00 de fatura recebidos como R$ 97,00 líquidos.
- * Diferença de 300 centavos = taxa da maquininha, dentro dos 5% tolerados.
+ * Diferença de 300 centavos = taxa estimada, dentro dos 5% tolerados.
  */
 const REDE_TX = {
   id: "tx-rede",
@@ -54,49 +54,50 @@ const REDE_INVOICE = {
   contract_id: "contract-1",
 };
 
-function setup(options: {
-  role?: string | null;
-  invoiceUpdateError?: string;
-  txUpdateError?: string;
-  /** Simula outra execução tendo reservado a transação antes desta. */
-  reservationLost?: boolean;
-} = {}) {
+const PENDING_EXPENSE = {
+  id: "exp-1",
+  amount_cents: 15000,
+  due_date: TODAY,
+  description: "ALUGUEL SALA",
+  category_id: "cat-1",
+};
+
+const DEBIT_TX = {
+  id: "tx-debit",
+  amount_cents: -15000,
+  posted_date: TODAY,
+  transaction_type: "debit",
+  memo: "PIX ENVIADO ALUGUEL SALA COMERCIAL",
+  parsed_name: null,
+  parsed_type: "pix_sent",
+  processor_fee_cents: null,
+  match_status: "unmatched",
+  is_balance_entry: false,
+};
+
+function setup(options: { role?: string | null } = {}) {
   const fake = createFakeSupabase((query) => {
     if (query.table === "user_roles") {
-      const role = options.role === undefined ? "manager" : options.role;
-      return { data: role ? { role } : null };
+      // Emula o filtro real: requireStaffRole consulta com in("role", allowed)
+      // — um manager de verdade não devolve linha quando a allowlist é só
+      // admin. Sem isto o fake autorizaria qualquer role.
+      const role = options.role === undefined ? "admin" : options.role;
+      if (!role) return { data: null };
+      const inOp = query.ops.find((op) => op.method === "in" && op.args[0] === "role");
+      const allowed = (inOp?.args[1] as string[] | undefined) ?? [];
+      return { data: allowed.includes(role) ? { role } : null };
     }
     if (query.table === "bank_transactions") {
-      if (used(query, "update")) {
-        if (options.txUpdateError) {
-          return { data: null, error: { message: options.txUpdateError } };
-        }
-        // A reserva confirma a linha afetada; a reversão não usa select.
-        if (used(query, "select")) {
-          return { data: options.reservationLost ? [] : [{ id: REDE_TX.id }] };
-        }
-        return { data: null };
-      }
-      return { data: [REDE_TX] };
+      return { data: [REDE_TX, DEBIT_TX] };
     }
     if (query.table === "invoices") {
-      if (used(query, "update")) {
-        return options.invoiceUpdateError
-          ? { data: null, error: { message: options.invoiceUpdateError } }
-          : { data: null };
-      }
       return { data: [REDE_INVOICE] };
     }
     if (query.table === "expenses") {
-      if (used(query, "insert") || used(query, "update")) return { data: [{ id: "exp-fee" }] };
-      return { data: [] };
+      return { data: [PENDING_EXPENSE] };
     }
     if (query.table === "students") {
       return { data: [{ id: "student-1", full_name: "Aluna Teste" }] };
-    }
-    if (query.table === "expense_categories") {
-      if (used(query, "insert")) return { data: [{ id: "cat-taxa" }] };
-      return { data: [{ id: "cat-taxa" }] };
     }
     return { data: null };
   });
@@ -105,7 +106,7 @@ function setup(options: {
   return fake;
 }
 
-function request(body: unknown, token = "jwt-manager") {
+function request(body: unknown, token = "jwt-admin") {
   return new Request("https://example.test/match-bank-transactions", {
     method: "POST",
     headers: {
@@ -146,12 +147,11 @@ describe("handleMatchBankTransactions", () => {
       expect(fake.mutations()).toEqual([]);
     });
 
-    // O buraco que a PR fecha: JWT de aluno é emitido legitimamente pelo app.
     it("responde 403 para usuário sem role de staff, sem tocar em dado bancário", async () => {
       const fake = setup({ role: null });
 
       const res = await handleMatchBankTransactions(
-        request({ import_id: null, auto_apply: true }, "jwt-de-aluno"),
+        request({ import_id: null }, "jwt-de-aluno"),
         dependencies,
       );
 
@@ -161,24 +161,66 @@ describe("handleMatchBankTransactions", () => {
       expect(fake.queries.some((q) => q.table === "invoices")).toBe(false);
     });
 
-    it("autoriza manager", async () => {
-      setup({ role: "manager" });
+    // A7 do plano 2c: manager saiu da superfície bancária (revisão fria vetou
+    // ampliar financeiro a um papel sem uso em produção).
+    it("responde 403 para manager — conciliação é admin-only desde a 2c-1", async () => {
+      const fake = setup({ role: "manager" });
 
       const res = await handleMatchBankTransactions(
-        request({ auto_apply: false }),
+        request({}, "jwt-manager"),
         dependencies,
       );
+
+      expect(res.status).toBe(403);
+      expect(fake.queries.some((q) => q.table === "bank_transactions")).toBe(false);
+    });
+
+    it("autoriza admin", async () => {
+      setup({ role: "admin" });
+
+      const res = await handleMatchBankTransactions(request({}), dependencies);
 
       expect(res.status).toBe(200);
     });
   });
 
-  describe("preview (auto_apply ausente ou false)", () => {
-    it("não executa NENHUMA escrita", async () => {
+  describe("contrato: auto_apply não existe mais", () => {
+    // Cliente antigo pedindo aplicação precisa descobrir que o contrato
+    // mudou — não acreditar que aplicou.
+    it("responde 400 para auto_apply true, sem ler nem escrever nada bancário", async () => {
       const fake = setup();
 
       const res = await handleMatchBankTransactions(
-        request({ import_id: null, auto_apply: false }),
+        request({ auto_apply: true }),
+        dependencies,
+      );
+
+      expect(res.status).toBe(400);
+      const payload = await res.json();
+      expect(payload.error).toContain("auto_apply");
+      expect(fake.mutations()).toEqual([]);
+      expect(fake.queries.some((q) => q.table === "bank_transactions")).toBe(false);
+    });
+
+    it("valores não-literais de auto_apply seguem sendo sugestão normal", async () => {
+      const fake = setup();
+
+      const res = await handleMatchBankTransactions(
+        request({ auto_apply: "true" }),
+        dependencies,
+      );
+
+      expect(res.status).toBe(200);
+      expect(fake.mutations()).toEqual([]);
+    });
+  });
+
+  describe("somente-sugestão", () => {
+    it("não executa NENHUMA escrita em nenhum caminho", async () => {
+      const fake = setup();
+
+      const res = await handleMatchBankTransactions(
+        request({ import_id: null }),
         dependencies,
       );
 
@@ -188,212 +230,64 @@ describe("handleMatchBankTransactions", () => {
       expect(fake.rpcCalls).toEqual([]);
     });
 
-    // Regressão do achado: a taxa Rede era gravada durante a varredura,
-    // então "simular conciliação" escrevia em bank_transactions.
-    it("não grava processor_fee_cents ao apenas sugerir match Rede", async () => {
+    it("sugere o par Rede com a taxa APENAS no texto do motivo", async () => {
       const fake = setup();
 
       const res = await handleMatchBankTransactions(request({}), dependencies);
 
       const payload = await res.json();
-      expect(payload.matches).toHaveLength(1);
-      expect(payload.matches[0].reason).toContain("Rede:");
+      const rede = payload.matches.find((m: { transaction_id: string }) => m.transaction_id === "tx-rede");
+      expect(rede).toBeDefined();
+      expect(rede.matched_type).toBe("invoice");
+      expect(rede.reason).toContain("taxa estimada");
+      // Nada foi gravado: nem processor_fee_cents, nem despesa de taxa.
+      expect(fake.mutations()).toEqual([]);
+      expect(fake.queries.some((q) => q.table === "expense_categories")).toBe(false);
+    });
+
+    it("sugere débito × despesa pendente", async () => {
+      const fake = setup();
+
+      const res = await handleMatchBankTransactions(request({}), dependencies);
+
+      const payload = await res.json();
+      const debit = payload.matches.find((m: { transaction_id: string }) => m.transaction_id === "tx-debit");
+      expect(debit).toBeDefined();
+      expect(debit.matched_type).toBe("expense");
+      expect(debit.matched_id).toBe("exp-1");
       expect(fake.mutations()).toEqual([]);
     });
 
-    it("só o booleano true aplica; a string 'true' continua sendo preview", async () => {
-      const fake = setup();
+    it("a resposta não tem mais estatística de aplicação", async () => {
+      setup();
 
-      await handleMatchBankTransactions(
-        request({ auto_apply: "true" }),
-        dependencies,
-      );
+      const res = await handleMatchBankTransactions(request({}), dependencies);
 
-      expect(fake.mutations()).toEqual([]);
+      const payload = await res.json();
+      expect(payload.stats).not.toHaveProperty("auto_applied");
+      expect(payload.stats).not.toHaveProperty("auto_failed");
+      expect(payload.stats).toMatchObject({ total_transactions: 2, total_matches: 2 });
     });
   });
 
-  describe("import_id inválido", () => {
-    // Normalizar para null viraria varredura global — o oposto do pedido.
-    it("responde 400 e não escreve nada, mesmo com auto_apply true", async () => {
+  describe("import_id", () => {
+    it("inválido responde 400 e não lê dado bancário", async () => {
       const fake = setup();
 
       const res = await handleMatchBankTransactions(
-        request({ import_id: 42, auto_apply: true }),
+        request({ import_id: 42 }),
         dependencies,
       );
 
       expect(res.status).toBe(400);
-      expect(fake.mutations()).toEqual([]);
       expect(fake.queries.some((q) => q.table === "bank_transactions")).toBe(false);
-    });
-  });
-
-  describe("auto_apply", () => {
-    it("aplica o match, grava a taxa e cria UMA despesa de taxa na primeira execução", async () => {
-      const fake = setup();
-
-      const res = await handleMatchBankTransactions(
-        request({ auto_apply: true }),
-        dependencies,
-      );
-
-      expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toMatchObject({
-        stats: { auto_applied: 1 },
-      });
-
-      // Taxa gravada com o valor calculado nesta execução (10000 - 9700).
-      const feeUpdate = fake.queries
-        .filter((q) => q.table === "bank_transactions" && used(q, "update"))
-        .map((q) => q.ops.find((op) => op.method === "update")?.args[0] as Record<string, unknown>)
-        .find((args) => args?.processor_fee_cents !== undefined);
-      expect(feeUpdate).toMatchObject({ processor_fee_cents: 300 });
-
-      // A despesa de taxa nasce já na primeira execução — antes o passo 6 lia
-      // o array carregado antes do update e pulava sempre.
-      const feeExpenses = fake.queries
-        .filter((q) => q.table === "expenses" && used(q, "insert"))
-        .map((q) => q.ops.find((op) => op.method === "insert")?.args[0] as Record<string, unknown>);
-      expect(feeExpenses).toHaveLength(1);
-      expect(feeExpenses[0]).toMatchObject({
-        amount_cents: 300,
-        status: "paid",
-        category_id: "cat-taxa",
-      });
-
-      // E a fatura correspondente foi quitada.
-      const invoiceUpdate = fake.queries
-        .find((q) => q.table === "invoices" && used(q, "update"))
-        ?.ops.find((op) => op.method === "update")?.args[0];
-      expect(invoiceUpdate).toMatchObject({ status: "paid" });
-    });
-
-    it("registra matched_by com o usuário autenticado", async () => {
-      const fake = setup();
-
-      await handleMatchBankTransactions(request({ auto_apply: true }), dependencies);
-
-      const statusUpdate = fake.queries
-        .filter((q) => q.table === "bank_transactions" && used(q, "update"))
-        .map((q) => q.ops.find((op) => op.method === "update")?.args[0] as Record<string, unknown>)
-        .find((args) => args?.match_status !== undefined);
-      expect(statusUpdate).toMatchObject({
-        match_status: "auto_matched",
-        matched_by: "user-for-jwt-manager",
-      });
-    });
-
-    // Antes, o erro de quitação era engolido: a transação virava conciliada,
-    // a despesa de taxa nascia e a resposta dizia sucesso — com a fatura ainda
-    // em aberto e sem retry possível, porque a transação saía do filtro.
-    it("não reporta sucesso quando a quitação da fatura falha", async () => {
-      const fake = setup({ invoiceUpdateError: "permission denied" });
-
-      const res = await handleMatchBankTransactions(
-        request({ auto_apply: true }),
-        dependencies,
-      );
-
-      await expect(res.json()).resolves.toMatchObject({
-        success: false,
-        stats: { auto_applied: 0, auto_failed: 1 },
-      });
-
-      // Nenhuma despesa de taxa nasce de um match que não fechou.
-      expect(fake.queries.some((q) => q.table === "expenses" && used(q, "insert"))).toBe(false);
-    });
-
-    // O cenário que a compensação existe para impedir: sem ela, a transação
-    // ficaria livre com a fatura já quitada e, no retry, poderia quitar uma
-    // SEGUNDA fatura de valor parecido — um pagamento pagando duas contas.
-    it("reverte a reserva da transação quando a quitação falha", async () => {
-      const fake = setup({ invoiceUpdateError: "permission denied" });
-
-      await handleMatchBankTransactions(request({ auto_apply: true }), dependencies);
-
-      const txUpdates = fake.queries
-        .filter((q) => q.table === "bank_transactions" && used(q, "update"))
-        .map((q) => q.ops.find((op) => op.method === "update")?.args[0] as Record<string, unknown>);
-
-      // Uma reserva e uma reversão: o estado final devolve a transação ao pool.
-      expect(txUpdates).toHaveLength(2);
-      expect(txUpdates[0]).toMatchObject({ match_status: "auto_matched" });
-      expect(txUpdates[1]).toMatchObject({
-        match_status: "unmatched",
-        matched_invoice_id: null,
-        matched_by: null,
-        processor_fee_cents: null,
-      });
-    });
-
-    it("grava a taxa no mesmo update do match, não em escrita separada", async () => {
-      const fake = setup();
-
-      await handleMatchBankTransactions(request({ auto_apply: true }), dependencies);
-
-      const txUpdates = fake.queries
-        .filter((q) => q.table === "bank_transactions" && used(q, "update"))
-        .map((q) => q.ops.find((op) => op.method === "update")?.args[0] as Record<string, unknown>);
-
-      expect(txUpdates).toHaveLength(1);
-      expect(txUpdates[0]).toMatchObject({
-        match_status: "auto_matched",
-        processor_fee_cents: 300,
-      });
-    });
-
-    // Sem a reserva condicional, duas abas abertas conciliariam a mesma
-    // entrada bancária contra faturas diferentes.
-    it("desiste da transação já reservada por outra execução, sem quitar nada", async () => {
-      const fake = setup({ reservationLost: true });
-
-      const res = await handleMatchBankTransactions(
-        request({ auto_apply: true }),
-        dependencies,
-      );
-
-      await expect(res.json()).resolves.toMatchObject({
-        success: false,
-        stats: { auto_applied: 0, auto_failed: 1 },
-      });
-
-      // Nenhuma fatura foi quitada e nenhuma despesa de taxa criada.
-      expect(fake.queries.some((q) => q.table === "invoices" && used(q, "update"))).toBe(false);
-      expect(fake.queries.some((q) => q.table === "expenses" && used(q, "insert"))).toBe(false);
-    });
-
-    it("condiciona a reserva ao estado unmatched lido", async () => {
-      const fake = setup();
-
-      await handleMatchBankTransactions(request({ auto_apply: true }), dependencies);
-
-      const reserva = fake.queries.find(
-        (q) => q.table === "bank_transactions" && used(q, "update") && used(q, "select"),
-      );
-      expect(hasEq(reserva!, "match_status", "unmatched")).toBe(true);
-    });
-
-    it("falha ao reservar não quita nada", async () => {
-      const fake = setup({ txUpdateError: "deadlock detected" });
-
-      const res = await handleMatchBankTransactions(
-        request({ auto_apply: true }),
-        dependencies,
-      );
-
-      await expect(res.json()).resolves.toMatchObject({
-        success: false,
-        stats: { auto_applied: 0, auto_failed: 1 },
-      });
-      expect(fake.queries.some((q) => q.table === "invoices" && used(q, "update"))).toBe(false);
     });
 
     it("filtra por import_id quando informado", async () => {
       const fake = setup();
 
       await handleMatchBankTransactions(
-        request({ import_id: "imp-1", auto_apply: false }),
+        request({ import_id: "imp-1" }),
         dependencies,
       );
 

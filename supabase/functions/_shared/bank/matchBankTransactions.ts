@@ -1,10 +1,16 @@
 // Handler do `match-bank-transactions`.
 //
-// A logica de matching (tolerancias, confianca, deteccao Rede) e a mesma de
-// antes. Vive em `_shared/` por dois motivos: o vitest so coleta teste em
+// Onda 2c-1: o matcher é SOMENTE-SUGESTÃO. O bloco de aplicação (reservar a
+// transação, quitar fatura/despesa, criar despesa de taxa) foi removido por
+// inteiro — era o modelo velho em que "conciliar" significava "quitar", e é
+// exatamente o que a Onda 2c aposenta (aprovar = vincular, via RPC
+// transacional que chega na 2c-3). Este handler não executa NENHUMA escrita.
+//
+// A lógica de sugestão (tolerâncias, confiança, detecção Rede) segue a mesma.
+// Vive em `_shared/` por dois motivos: o vitest so coleta teste em
 // `supabase/functions/_shared/**`, e aqui o modulo fica sem import de VALOR do
 // SDK — `createClient` chega por injecao —, o que permite testar o handler
-// inteiro (auth, preview sem escrita, aplicacao) sem rede.
+// inteiro (auth, contrato, ausência de escrita) sem rede.
 
 import {
   isBankRequestError,
@@ -19,16 +25,18 @@ const corsHeaders = {
 };
 
 /**
- * Matching inteligente: cruza transações bancárias não conciliadas
+ * Sugestão de vínculos: cruza transações bancárias não conciliadas
  * com invoices (créditos) e expenses (débitos) pendentes.
  *
- * Critérios de match:
+ * Critérios:
  *  - Valor exato ou aproximado (tolerância ±R$ 0,50 = 50 cents)
  *  - Data próxima (±5 dias entre posted_date e due_date)
  *  - Bonus: nome/documento na descrição
- *  - Detecção especial de transações Rede (maquininha)
+ *  - Detecção especial de repasse Rede (líquido até 5% abaixo, taxa estimada)
  *
- * Confiança: "high" (valor+data exata), "medium" (valor+data próxima), "low" (apenas valor)
+ * Confiança: "high" (valor+data exata), "medium" (valor+data próxima),
+ * "low" (apenas valor). A taxa Rede aparece só no texto do motivo — nada é
+ * gravado em lugar nenhum.
  */
 
 const TOLERANCE_CENTS = 50; // ±R$ 0,50
@@ -48,20 +56,17 @@ export async function handleMatchBankTransactions(
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Fail-closed: exige JWT de staff admin/manager ANTES de qualquer
-    // leitura. Antes bastava estar autenticado — JWT de aluno passava e
-    // conseguia conciliar todo o financeiro.
+    // Fail-closed: exige JWT de staff admin ANTES de qualquer leitura.
     const auth = await requireBankStaff(req, deps);
     if (auth instanceof Response) return auth;
 
     const supabase = auth.adminClient;
-    const matchedBy = auth.userId;
 
     const request = parseMatchRequest(await req.json().catch(() => ({})));
     if (isBankRequestError(request)) {
       return json({ error: request.error }, request.status);
     }
-    const { importId, autoApply } = request;
+    const { importId } = request;
 
     // 1. Fetch unmatched bank transactions
     let txQuery = supabase
@@ -77,7 +82,7 @@ export async function handleMatchBankTransactions(
       return json({ error: "Erro ao buscar transações" }, 500);
     }
     if (!transactions || transactions.length === 0) {
-      return json({ success: true, message: "Nenhuma transação não conciliada", matches: [], stats: { total_transactions: 0, total_matches: 0, high_confidence: 0, medium_confidence: 0, low_confidence: 0, auto_applied: 0, auto_failed: 0 } });
+      return json({ success: true, message: "Nenhuma transação não conciliada", matches: [], stats: { total_transactions: 0, total_matches: 0, high_confidence: 0, medium_confidence: 0, low_confidence: 0 } });
     }
 
     // 2. Fetch pending invoices (for credit matching)
@@ -106,8 +111,6 @@ export async function handleMatchBankTransactions(
     const suggestions: MatchSuggestion[] = [];
     const usedInvoices = new Set<string>();
     const usedExpenses = new Set<string>();
-    /** Taxas de maquininha detectadas; so gravadas quando autoApply. */
-    const pendingFees = new Map<string, number>();
 
     for (const tx of transactions) {
       const absCents = Math.abs(tx.amount_cents);
@@ -117,7 +120,7 @@ export async function handleMatchBankTransactions(
       const isRedeTransaction = memoUpper.includes("REDE") || memoUpper.includes("REDECARD") || tx.parsed_type?.startsWith("card_");
 
       if (tx.transaction_type === "credit" && invoices) {
-        let bestMatch: { id: string; confidence: "high" | "medium" | "low"; reason: string; feeCents: number } | null = null;
+        let bestMatch: { id: string; confidence: "high" | "medium" | "low"; reason: string } | null = null;
 
         for (const inv of invoices) {
           if (usedInvoices.has(inv.id)) continue;
@@ -140,16 +143,17 @@ export async function handleMatchBankTransactions(
 
           let confidence: "high" | "medium" | "low";
           let reason: string;
-          let feeCents = 0;
 
           if (isRedeMatch) {
-            feeCents = inv.amount_cents - absCents;
+            // Taxa estimada aparece SÓ no texto: nada é gravado (o modelo de
+            // settlement com ajustes tipados chega na 2c-3).
+            const feeCents = inv.amount_cents - absCents;
             if (daysDiff <= 5) {
               confidence = "high";
-              reason = `Rede: valor líquido ${fmtCents(absCents)} (taxa ${fmtCents(feeCents)}), data próxima`;
+              reason = `Rede: valor líquido ${fmtCents(absCents)} (taxa estimada ${fmtCents(feeCents)}), data próxima`;
             } else if (daysDiff <= 15) {
               confidence = "medium";
-              reason = `Rede: valor líquido ${fmtCents(absCents)} (taxa ${fmtCents(feeCents)}), ${Math.round(daysDiff)} dias`;
+              reason = `Rede: valor líquido ${fmtCents(absCents)} (taxa estimada ${fmtCents(feeCents)}), ${Math.round(daysDiff)} dias`;
             } else {
               continue;
             }
@@ -184,7 +188,7 @@ export async function handleMatchBankTransactions(
 
           if (!bestMatch || confScore(confidence) > confScore(bestMatch.confidence) ||
               (confScore(confidence) === confScore(bestMatch.confidence) && daysDiff < 5)) {
-            bestMatch = { id: inv.id, confidence, reason, feeCents };
+            bestMatch = { id: inv.id, confidence, reason };
           }
         }
 
@@ -197,13 +201,6 @@ export async function handleMatchBankTransactions(
             reason: bestMatch.reason,
           });
           usedInvoices.add(bestMatch.id);
-
-          // Taxa de maquininha: so anotada em memoria aqui. A gravacao ficou
-          // no bloco de autoApply — sem isso, o "simular conciliacao" da tela
-          // escrevia em bank_transactions, e preview que grava nao e preview.
-          if (bestMatch.feeCents > 0) {
-            pendingFees.set(tx.id, bestMatch.feeCents);
-          }
         }
       } else if (tx.transaction_type === "debit" && expenses) {
         let bestMatch: { id: string; confidence: "high" | "medium" | "low"; reason: string } | null = null;
@@ -271,174 +268,8 @@ export async function handleMatchBankTransactions(
       }
     }
 
-    // 5. If auto_apply, apply high-confidence matches directly
-    let applied = 0;
-    let failed = 0;
-    /** Taxas efetivamente gravadas, por transacao aplicada. Alimenta o passo 6. */
-    const appliedFees = new Map<string, number>();
-    if (autoApply) {
-      const highMatches = suggestions.filter(s => s.confidence === "high");
-      for (const m of highMatches) {
-        const matchedTx = transactions.find(t => t.id === m.transaction_id);
-
-        // Ordem: reserva a transacao PRIMEIRO, depois quita a obrigacao.
-        //
-        // O inverso parece mais seguro e nao e: se a fatura fosse quitada antes
-        // e a marcacao da transacao falhasse, a fatura sairia de
-        // `pending`/`overdue` enquanto a transacao continuaria `unmatched` —
-        // e na proxima execucao essa MESMA entrada bancaria poderia quitar uma
-        // SEGUNDA fatura de valor parecido. Um pagamento pagando duas contas.
-        const updateData: Record<string, unknown> = {
-          match_status: "auto_matched",
-          match_confidence: m.confidence,
-          matched_at: new Date().toISOString(),
-          matched_by: matchedBy,
-        };
-        if (m.matched_type === "invoice") {
-          updateData.matched_invoice_id = m.matched_id;
-        } else {
-          updateData.matched_expense_id = m.matched_id;
-        }
-
-        // Taxa de maquininha vai no mesmo update do match, e nao numa segunda
-        // escrita que poderia falhar sozinha. Antes o preview gravava a taxa de
-        // qualquer sugestao e a despesa so nascia numa execucao seguinte;
-        // como a transacao aplicada sai do filtro `unmatched`, essa segunda
-        // passada deixou de existir e o valor calculado aqui e a unica fonte.
-        const feeCents = pendingFees.get(m.transaction_id);
-        if (feeCents && feeCents > 0) updateData.processor_fee_cents = feeCents;
-
-        // A reserva e condicional ao estado lido (`match_status = 'unmatched'`)
-        // e confirma a linha afetada. Sem isso, duas execucoes simultaneas —
-        // duas abas, dois usuarios — reservariam a mesma transacao, e cada uma
-        // quitaria uma obrigacao diferente com a mesma entrada bancaria.
-        const { data: reserved, error } = await supabase
-          .from("bank_transactions")
-          .update(updateData)
-          .eq("id", m.transaction_id)
-          .eq("match_status", "unmatched")
-          .select("id");
-
-        if (error) {
-          // Nada foi alterado: a obrigacao segue em aberto e a transacao segue
-          // `unmatched`. O retry reencontra exatamente o mesmo par.
-          failed++;
-          console.error(
-            "match-bank-transactions: falha ao reservar a transação",
-            error.message,
-          );
-          continue;
-        }
-
-        if (!reserved || reserved.length === 0) {
-          // Outra execucao reservou esta transacao entre a leitura e agora.
-          // Nada a fazer: ela ja esta sendo conciliada la.
-          failed++;
-          console.warn(
-            "match-bank-transactions: transação já reservada por outra execução",
-            m.transaction_id,
-          );
-          continue;
-        }
-
-        const { error: linkError } = m.matched_type === "invoice"
-          ? await supabase.from("invoices").update({
-            status: "paid",
-            payment_date: matchedTx?.posted_date,
-            paid_amount_cents: matchedTx ? Math.abs(matchedTx.amount_cents) : null,
-          }).eq("id", m.matched_id)
-          : await supabase.from("expenses").update({
-            status: "paid",
-            payment_date: matchedTx?.posted_date,
-          }).eq("id", m.matched_id);
-
-        if (linkError) {
-          // Compensacao: devolve a transacao ao estado anterior. A obrigacao
-          // continua em aberto, entao o retry reencontra o mesmo par — em vez
-          // de deixar a transacao conciliada apontando para uma fatura que
-          // nunca foi quitada.
-          failed++;
-          console.error(
-            `match-bank-transactions: falha ao quitar ${m.matched_type}; revertendo a reserva`,
-            linkError.message,
-          );
-
-          const { error: revertError } = await supabase
-            .from("bank_transactions")
-            .update({
-              match_status: "unmatched",
-              match_confidence: null,
-              matched_at: null,
-              matched_by: null,
-              matched_invoice_id: null,
-              matched_expense_id: null,
-              processor_fee_cents: null,
-            })
-            .eq("id", m.transaction_id);
-
-          if (revertError) {
-            // Unico caminho que deixa estado parcial, e ele fica gritando no
-            // log: transacao reservada sem obrigacao quitada. Exige conferencia
-            // manual; nao ha reaplicacao automatica porque ela saiu do filtro.
-            console.error(
-              "match-bank-transactions: reversão falhou; transação",
-              m.transaction_id,
-              "ficou reservada sem quitação",
-              revertError.message,
-            );
-          }
-          continue;
-        }
-
-        applied++;
-        if (feeCents && feeCents > 0) appliedFees.set(m.transaction_id, feeCents);
-      }
-    }
-
-    // 6. Auto-create fee expenses for Rede transactions with processor_fee_cents > 0
-    //
-    // Itera sobre as taxas gravadas no passo 5, e nao mais sobre o array
-    // `transactions` — aquele foi carregado ANTES do update e traz
-    // `processor_fee_cents` nulo para transacao nova, o que fazia o laco
-    // pular sempre e a despesa nunca ser criada.
-    if (autoApply) {
-      for (const [transactionId, feeCents] of appliedFees) {
-        const tx = transactions.find(t => t.id === transactionId);
-        if (!tx) continue;
-
-        // Find or create "Taxas Maquininha" category
-        let { data: taxaCat } = await supabase
-          .from("expense_categories")
-          .select("id")
-          .eq("slug", "taxas-maquininha")
-          .limit(1);
-
-        if (!taxaCat || taxaCat.length === 0) {
-          const { data: newCat } = await supabase
-            .from("expense_categories")
-            .insert({ name: "Taxas Maquininha", slug: "taxas-maquininha", color: "orange", sort_order: 99 })
-            .select("id");
-          taxaCat = newCat;
-        }
-
-        if (taxaCat && taxaCat.length > 0) {
-          await supabase.from("expenses").insert({
-            category_id: taxaCat[0].id,
-            description: `Taxa Rede - ${tx.memo}`,
-            amount_cents: feeCents,
-            due_date: tx.posted_date,
-            payment_date: tx.posted_date,
-            status: "paid",
-            notes: `Taxa da maquininha Rede detectada automaticamente na conciliação`,
-          });
-        }
-      }
-    }
-
     return json({
-      // Deixa de afirmar sucesso quando algum match de alta confianca nao pode
-      // ser aplicado: os numeros abaixo mostram o que ficou de fora.
-      success: failed === 0,
+      success: true,
       matches: suggestions,
       stats: {
         total_transactions: transactions.length,
@@ -446,11 +277,6 @@ export async function handleMatchBankTransactions(
         high_confidence: suggestions.filter(s => s.confidence === "high").length,
         medium_confidence: suggestions.filter(s => s.confidence === "medium").length,
         low_confidence: suggestions.filter(s => s.confidence === "low").length,
-        auto_applied: applied,
-        // Match de alta confianca que nao pode ser aplicado. Antes esses erros
-        // eram engolidos e a resposta dizia sucesso mesmo com a fatura em
-        // aberto; agora aparecem para quem chamou.
-        auto_failed: failed,
       },
     });
   } catch (error) {

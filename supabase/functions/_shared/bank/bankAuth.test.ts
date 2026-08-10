@@ -63,8 +63,10 @@ describe("requireBankStaff", () => {
     vi.restoreAllMocks();
   });
 
-  it("aceita exatamente admin e manager", () => {
-    expect([...ALLOWED_BANK_ROLES]).toEqual(["admin", "manager"]);
+  // A7 do plano 2c: manager saiu na 2c-1 (revisão fria vetou ampliar a
+  // superfície financeira a um papel sem uso em produção).
+  it("aceita exatamente admin", () => {
+    expect([...ALLOWED_BANK_ROLES]).toEqual(["admin"]);
   });
 
   it("nega com 401 quando não há credencial alguma", async () => {
@@ -95,21 +97,24 @@ describe("requireBankStaff", () => {
     expect(result).toMatchObject({ authorized: true, userId: "user-123" });
   });
 
-  it("autoriza manager", async () => {
-    setup({ role: "manager" });
+  // O filtro de role é a PRÓPRIA query (in("role", allowed)): um manager real
+  // não devolve linha nenhuma quando a allowlist é só admin — o fake retorna
+  // null exatamente como o banco retornaria.
+  it("nega manager com 403 — conciliação é admin-only desde a 2c-1", async () => {
+    setup(null);
 
     const result = await requireBankStaff(request("jwt-manager"), dependencies);
 
-    expect(result).not.toBeInstanceOf(Response);
-    expect(result).toMatchObject({ authorized: true });
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(403);
   });
 
   it("consulta user_roles restringindo às roles bancárias", async () => {
-    const { query } = setup({ role: "manager" });
+    const { query } = setup({ role: "admin" });
 
-    await requireBankStaff(request("jwt-manager"), dependencies);
+    await requireBankStaff(request("jwt-admin"), dependencies);
 
-    expect(query.in).toHaveBeenCalledWith("role", ["admin", "manager"]);
+    expect(query.in).toHaveBeenCalledWith("role", ["admin"]);
   });
 
   // Não há cron nem edge function chamando estas duas; sem caso de uso
@@ -237,35 +242,47 @@ describe("requestTooLarge", () => {
 });
 
 describe("parseMatchRequest", () => {
-  it("usa os valores enviados pelo frontend", () => {
-    expect(parseMatchRequest({ import_id: "imp-1", auto_apply: true }))
-      .toEqual({ importId: "imp-1", autoApply: true });
+  it("usa o import_id enviado pelo frontend", () => {
+    expect(parseMatchRequest({ import_id: "imp-1" }))
+      .toEqual({ importId: "imp-1" });
   });
 
   it.each([
     ["ausente", {}],
     ["explicitamente nulo", { import_id: null }],
   ])("trata import_id %s como varredura completa", (_label, body) => {
-    expect(parseMatchRequest({ ...body, auto_apply: false }))
-      .toEqual({ importId: null, autoApply: false });
+    expect(parseMatchRequest(body)).toEqual({ importId: null });
   });
 
-  // auto_apply grava e não tem desfazer: só o booleano literal liga.
+  // Onda 2c-1: auto_apply deixou de existir. O único valor que um dia
+  // aplicou (o booleano literal true) vira ERRO explícito — cliente antigo
+  // pedindo aplicação precisa descobrir que o contrato mudou.
+  it("rejeita auto_apply true com 400", () => {
+    const result = parseMatchRequest({ auto_apply: true });
+
+    expect(isBankRequestError(result)).toBe(true);
+    expect((result as { status: number }).status).toBe(400);
+    expect((result as { error: string }).error).toContain("auto_apply");
+  });
+
+  // Os demais valores nunca aplicaram nada — seguem sendo sugestão normal,
+  // sem quebrar cliente que mandava auto_apply: false.
   it.each([
     ["string 'true'", "true"],
     ["string 'false'", "false"],
+    ["false literal", false],
     ["número 1", 1],
     ["objeto", {}],
     ["ausente", undefined],
-  ])("só o booleano true liga autoApply (%s não liga)", (_label, value) => {
+  ])("auto_apply %s segue como sugestão normal", (_label, value) => {
     const result = parseMatchRequest({ auto_apply: value });
 
     expect(isBankRequestError(result)).toBe(false);
-    expect((result as { autoApply: boolean }).autoApply).toBe(false);
+    expect(result).toEqual({ importId: null });
   });
 
-  // Normalizar id inválido para null era PIOR que o comportamento antigo:
-  // sem filtro, `auto_apply` varreria todas as importações de uma vez.
+  // Normalizar id inválido para null seria varredura global — o oposto do
+  // que quem enviou o filtro pediu.
   it.each([
     ["import_id vazio", ""],
     ["import_id numérico", 42],
@@ -273,13 +290,13 @@ describe("parseMatchRequest", () => {
     ["import_id array", ["imp-1"]],
     ["import_id booleano", true],
   ])("rejeita %s com 400 em vez de virar varredura global", (_label, value) => {
-    const result = parseMatchRequest({ import_id: value, auto_apply: true });
+    const result = parseMatchRequest({ import_id: value });
 
     expect(isBankRequestError(result)).toBe(true);
     expect((result as { status: number }).status).toBe(400);
   });
 
   it("aceita corpo inválido sem quebrar, no modo mais restrito", () => {
-    expect(parseMatchRequest("nada")).toEqual({ importId: null, autoApply: false });
+    expect(parseMatchRequest("nada")).toEqual({ importId: null });
   });
 });

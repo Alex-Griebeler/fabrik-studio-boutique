@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from "react";
-import { Upload, Loader2, Wand2, Zap, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Upload, Loader2, Wand2, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useBankImports, useBankTransactions, useUploadBankStatement,
-  useRunMatching, useApproveMatch, useRejectMatch, useIgnoreTransaction, useBatchApproveMatches,
+  useRunMatching, useIgnoreTransaction,
   useDeleteBankImport, useRestoreTransaction,
   type MatchSuggestion,
 } from "@/hooks/useBankReconciliation";
@@ -19,10 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ManualMatchDialog } from "@/components/finance/ManualMatchDialog";
-import type { BankTransaction } from "@/hooks/useBankReconciliation";
 import { BankKPIs } from "@/components/bank/BankKPIs";
-import { BankSuggestionsBanner } from "@/components/bank/BankSuggestionsBanner";
 import { BankTransactionRow } from "@/components/bank/BankTransactionRow";
 import { useBankAccounts } from "@/hooks/useBankAccounts";
 import {
@@ -39,13 +36,17 @@ function formatDate(d: string | null) {
   return format(new Date(d + "T00:00:00"), "dd/MM/yyyy", { locale: ptBR });
 }
 
+/**
+ * Onda 2c-1: a tela degradou DE PROPÓSITO para importar / ver / ignorar.
+ * O fluxo antigo de aprovação (que quitava fatura/despesa direto do
+ * navegador, sem transação) morreu; as sugestões continuam visíveis como
+ * informação. Vincular/conciliar volta na 2c-3/2c-5 via RPC transacional.
+ */
 export default function BankReconciliation() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedImport, setSelectedImport] = useState<string | null>(null);
   const [filters, setFilters] = useState<TransactionFilters>(INITIAL_FILTERS);
   const [matchSuggestions, setMatchSuggestions] = useState<MatchSuggestion[]>([]);
-  const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
-  const [manualMatchTx, setManualMatchTx] = useState<BankTransaction | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 50;
   const [duplicateDialog, setDuplicateDialog] = useState<{ open: boolean; details: string; pendingUpload: { fileContent: string; fileName: string; fileType: string } | null }>({ open: false, details: "", pendingUpload: null });
@@ -63,14 +64,10 @@ export default function BankReconciliation() {
   const activeImport = activeImportId && activeImportId !== "__all__" ? visibleImports?.find((i) => i.id === activeImportId) : null;
   const isConsolidatedView = activeImportId === "__all__";
 
-  // Reset selected import when account filter changes and current selection is filtered out
   const { data: transactions, isLoading: loadingTx } = useBankTransactions(activeImportId);
   const uploadMutation = useUploadBankStatement();
   const matchMutation = useRunMatching();
-  const approveMutation = useApproveMatch();
-  const rejectMutation = useRejectMatch();
   const ignoreMutation = useIgnoreTransaction();
-  const batchApproveMutation = useBatchApproveMatches();
   const deleteMutation = useDeleteBankImport();
   const restoreMutation = useRestoreTransaction();
 
@@ -121,19 +118,15 @@ export default function BankReconciliation() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handleRunMatching = (autoApply: boolean) => {
+  const handleRunMatching = () => {
     if (!activeImportId) return;
     // Send undefined for consolidated view so edge function fetches ALL unmatched transactions
     const importIdParam = isConsolidatedView ? undefined : activeImportId;
     matchMutation.mutate(
-      { importId: importIdParam, autoApply },
+      { importId: importIdParam },
       {
         onSuccess: (data) => {
-          if (!autoApply) {
-            setMatchSuggestions(data.matches);
-          } else {
-            setMatchSuggestions([]);
-          }
+          setMatchSuggestions(data.matches);
         },
       }
     );
@@ -177,54 +170,9 @@ export default function BankReconciliation() {
     return { credits, debits, unmatched, matched, total: data.length };
   }, [filteredTx]);
 
-  const handleApprove = useCallback((suggestion: MatchSuggestion) => {
-    approveMutation.mutate(
-      { transactionId: suggestion.transaction_id, matchedType: suggestion.matched_type, matchedId: suggestion.matched_id },
-      { onSuccess: () => {
-        setMatchSuggestions((prev) => prev.filter((s) => s.transaction_id !== suggestion.transaction_id));
-        setSelectedTxIds((prev) => { const next = new Set(prev); next.delete(suggestion.transaction_id); return next; });
-      }}
-    );
-  }, [approveMutation]);
-
-  const handleReject = useCallback((transactionId: string) => {
+  const handleDismissSuggestion = useCallback((transactionId: string) => {
     setMatchSuggestions((prev) => prev.filter((s) => s.transaction_id !== transactionId));
-    setSelectedTxIds((prev) => { const next = new Set(prev); next.delete(transactionId); return next; });
   }, []);
-
-  const toggleSelect = useCallback((txId: string) => {
-    setSelectedTxIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(txId)) next.delete(txId); else next.add(txId);
-      return next;
-    });
-  }, []);
-
-  const selectableSuggestions = useMemo(() => {
-    return matchSuggestions.filter((s) => {
-      const tx = transactions?.find((t) => t.id === s.transaction_id);
-      return tx && tx.match_status === "unmatched";
-    });
-  }, [matchSuggestions, transactions]);
-
-  const allSelected = selectableSuggestions.length > 0 && selectableSuggestions.every((s) => selectedTxIds.has(s.transaction_id));
-
-  const toggleSelectAll = useCallback(() => {
-    const allIds = selectableSuggestions.map((s) => s.transaction_id);
-    const currentlyAllSelected = allIds.every((id) => selectedTxIds.has(id));
-    setSelectedTxIds(currentlyAllSelected ? new Set() : new Set(allIds));
-  }, [selectableSuggestions, selectedTxIds]);
-
-  const handleBatchApprove = useCallback(() => {
-    const toApprove = selectableSuggestions.filter((s) => selectedTxIds.has(s.transaction_id));
-    if (!toApprove.length) return;
-    batchApproveMutation.mutate(toApprove, {
-      onSuccess: () => {
-        setMatchSuggestions((prev) => prev.filter((s) => !selectedTxIds.has(s.transaction_id)));
-        setSelectedTxIds(new Set());
-      },
-    });
-  }, [selectableSuggestions, selectedTxIds, batchApproveMutation]);
 
   const handleIgnore = useCallback((txId: string) => {
     ignoreMutation.mutate(txId);
@@ -232,7 +180,7 @@ export default function BankReconciliation() {
 
   return (
     <div>
-      <PageHeader title="Conciliação Bancária" description="Importe extratos do banco e vincule cada movimentação à sua respectiva fatura ou despesa" />
+      <PageHeader title="Conciliação Bancária" description="Importe extratos do banco e acompanhe as movimentações. A vinculação com despesas e repasses chega na próxima fase." />
 
       {/* Upload + Import selector */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -287,7 +235,6 @@ export default function BankReconciliation() {
                         onSuccess: () => {
                           setSelectedImport(null);
                           setMatchSuggestions([]);
-                          setSelectedTxIds(new Set());
                         },
                       });
                     }}
@@ -305,43 +252,19 @@ export default function BankReconciliation() {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" onClick={() => handleRunMatching(false)} disabled={matchMutation.isPending}>
+                  <Button variant="outline" onClick={handleRunMatching} disabled={matchMutation.isPending}>
                     {matchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
-                    Buscar Vínculos
+                    Buscar Sugestões
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-center">
-                  O sistema compara as movimentações do extrato com suas faturas e despesas pendentes e sugere vínculos para você revisar antes de confirmar.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button onClick={() => handleRunMatching(true)} disabled={matchMutation.isPending}>
-                    {matchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
-                    Vincular Automaticamente
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs text-center">
-                  Vincula automaticamente as movimentações do extrato que têm correspondência exata (mesmo valor e data) com faturas ou despesas pendentes — sem necessidade de revisão.
+                  Compara as movimentações do extrato com despesas pendentes e mostra possíveis correspondências. Só informação: nada é vinculado nem quitado por aqui.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
         )}
       </div>
-
-      <BankSuggestionsBanner
-        suggestions={matchSuggestions}
-        selectedCount={selectedTxIds.size}
-        selectableSuggestions={selectableSuggestions}
-        allSelected={allSelected}
-        onToggleSelectAll={toggleSelectAll}
-        onBatchApprove={handleBatchApprove}
-        isBatchPending={batchApproveMutation.isPending}
-      />
 
       {(activeImport || isConsolidatedView) && <BankKPIs kpis={kpis} />}
 
@@ -361,24 +284,23 @@ export default function BankReconciliation() {
           <Table>
             <TableHeader>
               <TableRow>
-                {matchSuggestions.length > 0 && <TableHead className="w-[40px]" />}
                 <TableHead>Data</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-[140px]">Ações</TableHead>
+                <TableHead className="w-[100px]">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loadingTx ? (
                 Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}><TableCell colSpan={matchSuggestions.length > 0 ? 8 : 7}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
+                  <TableRow key={i}><TableCell colSpan={7}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
                 ))
               ) : !filteredTx.length ? (
                 <TableRow>
-                  <TableCell colSpan={matchSuggestions.length > 0 ? 8 : 7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     Nenhuma transação encontrada
                   </TableCell>
                 </TableRow>
@@ -388,15 +310,9 @@ export default function BankReconciliation() {
                     key={tx.id}
                     tx={tx}
                     suggestion={suggestionMap.get(tx.id)}
-                    showCheckbox={matchSuggestions.length > 0}
-                    isSelected={selectedTxIds.has(tx.id)}
-                    onToggleSelect={toggleSelect}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
-                    onManualMatch={setManualMatchTx}
+                    onDismissSuggestion={handleDismissSuggestion}
                     onIgnore={handleIgnore}
                     onRestore={handleRestore}
-                    isApprovePending={approveMutation.isPending}
                     isIgnorePending={ignoreMutation.isPending}
                     isRestorePending={restoreMutation.isPending}
                   />
@@ -445,20 +361,6 @@ export default function BankReconciliation() {
           <p className="text-sm">Importe um extrato OFX ou CSV do seu banco para começar a conciliação.</p>
         </div>
       )}
-
-      <ManualMatchDialog
-        open={!!manualMatchTx}
-        onOpenChange={(open) => { if (!open) setManualMatchTx(null); }}
-        transaction={manualMatchTx}
-        onConfirm={(matchedType, matchedId) => {
-          if (!manualMatchTx) return;
-          approveMutation.mutate(
-            { transactionId: manualMatchTx.id, matchedType, matchedId },
-            { onSuccess: () => setManualMatchTx(null) }
-          );
-        }}
-        isPending={approveMutation.isPending}
-      />
 
       {/* Duplicate file confirmation dialog */}
       <AlertDialog open={duplicateDialog.open} onOpenChange={(open) => { if (!open) setDuplicateDialog(prev => ({ ...prev, open: false })); }}>

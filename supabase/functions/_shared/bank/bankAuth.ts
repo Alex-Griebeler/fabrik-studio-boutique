@@ -22,8 +22,14 @@ import {
   type StaffRole,
 } from "../requireStaffRole.ts";
 
-/** Espelha as policies de bank_* e a rota /bank-reconciliation. */
-export const ALLOWED_BANK_ROLES: ReadonlyArray<StaffRole> = ["admin", "manager"];
+/**
+ * Espelha a rota /bank-reconciliation. `manager` saiu na Onda 2c-1 (ressalva
+ * A7 do plano): o papel não tem uso em produção e a revisão fria vetou ampliar
+ * a superfície financeira — conciliação é admin-only até o papel existir de
+ * verdade. As policies de bank_* ainda citam manager; a migration da 2c-3
+ * (REVOKE de DML direto) as substitui.
+ */
+export const ALLOWED_BANK_ROLES: ReadonlyArray<StaffRole> = ["admin"];
 
 export type BankDependencies = RequireStaffRoleDependencies;
 
@@ -141,36 +147,42 @@ export function parseBankStatementRequest(
 
 export interface MatchRequest {
   importId: string | null;
-  autoApply: boolean;
 }
 
 /**
  * Valida o corpo de `match-bank-transactions`.
  *
- * `autoApply` exige o booleano literal `true`: antes, qualquer valor truthy
- * (a string "false" inclusive) disparava a aplicacao real dos matches, que
- * marca faturas e despesas como pagas e nao tem desfazer.
+ * `auto_apply` DEIXOU DE EXISTIR na Onda 2c-1: o matcher é somente-sugestão e
+ * nunca mais escreve (a aplicação de vínculo virá por RPC transacional na
+ * 2c-3). Receber `auto_apply: true` — o único valor que um dia aplicou — é
+ * ERRO explícito, não preview silencioso: um cliente antigo pedindo aplicação
+ * precisa descobrir que o contrato mudou, não acreditar que aplicou.
  *
  * `import_id` presente porem invalido e ERRO, nao `null`. Normalizar para
  * `null` seria pior do que o comportamento antigo: `null` remove o filtro por
  * importacao, entao um id de tipo errado viraria varredura global — o oposto
- * do que quem enviou o campo pediu, e sem desfazer quando `auto_apply` estiver
- * ligado. Ausente ou explicitamente nulo continua significando "todas".
+ * do que quem enviou o campo pediu. Ausente ou nulo continua sendo "todas".
  */
 export function parseMatchRequest(raw: unknown): MatchRequest | BankRequestError {
   const body = isRecord(raw) ? raw : {};
-  const importId = body.import_id;
-  const autoApply = body.auto_apply === true;
 
+  if (body.auto_apply === true) {
+    return {
+      error: "auto_apply foi descontinuado: o matcher só sugere; vínculos são aplicados manualmente (Onda 2c)",
+      status: 400,
+    };
+  }
+
+  const importId = body.import_id;
   if (importId === undefined || importId === null) {
-    return { importId: null, autoApply };
+    return { importId: null };
   }
 
   if (typeof importId !== "string" || importId.trim().length === 0) {
     return { error: "import_id inválido", status: 400 };
   }
 
-  return { importId: importId.trim(), autoApply };
+  return { importId: importId.trim() };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
