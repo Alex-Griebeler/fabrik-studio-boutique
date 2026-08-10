@@ -100,20 +100,40 @@ $$;
 -- ── Usuários de teste (espelho de produção: 2 admins) + instrutor + aluna ──
 -- instance_id/aud/role são OBRIGATÓRIOS para o GoTrue enxergar as linhas
 -- (a Admin API filtra por instance_id — sem isso, deleteUser/updateUser = 404).
+-- Os campos-string de token PRECISAM ser '' (não NULL): o scan do GoTrue
+-- quebra em NULL ("Database error loading user"). E cada usuário precisa da
+-- sua auth.identities (o load carrega as identities junto).
 INSERT INTO auth.users
   (instance_id, id, aud, role, email, encrypted_password,
    email_confirmed_at, created_at, updated_at,
-   raw_app_meta_data, raw_user_meta_data)
+   raw_app_meta_data, raw_user_meta_data,
+   confirmation_token, recovery_token, email_change_token_new, email_change,
+   email_change_token_current, phone_change, phone_change_token,
+   reauthentication_token)
 SELECT
   '00000000-0000-0000-0000-000000000000', v.id, 'authenticated', 'authenticated',
   v.email, '', now(), now(), now(),
-  '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
+  '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+  '', '', '', '', '', '', '', ''
 FROM (VALUES
   ('00000000-0000-0000-0000-00000000000a'::uuid, 'admin1@fabrik.test'),
   ('00000000-0000-0000-0000-00000000000b'::uuid, 'admin2@fabrik.test'),
   ('00000000-0000-0000-0000-00000000000c'::uuid, 'instrutor@fabrik.test'),
   ('00000000-0000-0000-0000-00000000000d'::uuid, 'aluna@fabrik.test')
 ) AS v(id, email);
+
+INSERT INTO auth.identities
+  (id, user_id, provider_id, provider, identity_data, last_sign_in_at,
+   created_at, updated_at)
+SELECT gen_random_uuid(), u.id, u.id::text, 'email',
+  jsonb_build_object('sub', u.id::text, 'email', u.email,
+                     'email_verified', true, 'phone_verified', false),
+  now(), now(), now()
+FROM auth.users u
+WHERE u.id IN ('00000000-0000-0000-0000-00000000000a',
+               '00000000-0000-0000-0000-00000000000b',
+               '00000000-0000-0000-0000-00000000000c',
+               '00000000-0000-0000-0000-00000000000d');
 
 INSERT INTO public.user_roles (user_id, role)
 VALUES
