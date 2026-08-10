@@ -12,8 +12,15 @@ DB_URL="${1:?uso: team-sql-mutants.sh <db-url> <migration>}"
 MIGRATION="${2:?uso: team-sql-mutants.sh <db-url> <migration>}"
 PSQL=(psql "$DB_URL" -v ON_ERROR_STOP=0 -qtA)
 ADMIN_A='00000000-0000-0000-0000-00000000000a'
+ADMIN_B='00000000-0000-0000-0000-00000000000b'
 INSTRUTOR='00000000-0000-0000-0000-00000000000c'
 ALUNA='00000000-0000-0000-0000-00000000000d'
+
+# As sondas dependem dos 4 usuários do fixture — valida antes de mutar.
+for v in "$ADMIN_A" "$ADMIN_B" "$INSTRUTOR" "$ALUNA"; do
+  N=$(psql "$DB_URL" -qtA -c "SELECT count(*) FROM auth.users WHERE id = '$v'")
+  [ "$N" = "1" ] || fail "fixture incompleto: usuário $v ausente"
+done
 
 fail() { echo "FALHA: $1" >&2; exit 1; }
 
