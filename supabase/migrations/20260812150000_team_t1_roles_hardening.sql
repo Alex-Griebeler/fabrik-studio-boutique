@@ -68,9 +68,19 @@ GRANT USAGE ON SCHEMA private TO team_ops;
 GRANT USAGE ON SCHEMA public TO team_ops;
 GRANT CREATE ON SCHEMA private TO team_ops;
 GRANT CREATE ON SCHEMA public TO team_ops;
--- as RPCs DEFINER (rodando como team_ops) derivam o ator de auth.uid()
-GRANT USAGE ON SCHEMA auth TO team_ops;
-GRANT EXECUTE ON FUNCTION auth.uid() TO team_ops;
+-- O ator vem do GUC request.jwt.claims (o que auth.uid() lê por dentro) —
+-- sem dependência de grant no schema auth, que tem dono diferente por
+-- ambiente (supabase_admin/supabase_auth_admin).
+CREATE OR REPLACE FUNCTION private.team_actor()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SET search_path = ''
+AS $$
+  SELECT (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid
+$$;
+REVOKE ALL ON FUNCTION private.team_actor() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION private.team_actor() TO team_ops;
 
 REVOKE ALL ON FUNCTION private.team_lock_user_roles() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION private.team_lock_user_roles() TO service_role, team_ops;
@@ -477,8 +487,8 @@ BEGIN
   END IF;
   -- Fencing de IDENTIDADE além do token: só o ator efetivo da operação
   -- (original ou quem assumiu) escreve nela — token vazado não basta.
-  IF auth.uid() IS NULL
-     OR auth.uid() <> COALESCE(op.taken_over_by, op.actor_user_id) THEN
+  IF private.team_actor() IS NULL
+     OR private.team_actor() <> COALESCE(op.taken_over_by, op.actor_user_id) THEN
     RAISE EXCEPTION 'requisição não pertence ao ator da operação'
       USING ERRCODE = 'T0012';
   END IF;
@@ -508,8 +518,8 @@ DECLARE
   new_token uuid;
 BEGIN
   -- O ATOR NUNCA é parâmetro (fria T1 r2): deriva do JWT da requisição.
-  -- service_role/anon não têm EXECUTE; auth.uid() nulo é rejeitado.
-  p_actor := auth.uid();
+  -- service_role/anon não têm EXECUTE; claims sem sub são rejeitados.
+  p_actor := private.team_actor();
   IF p_actor IS NULL THEN
     RAISE EXCEPTION 'ator ausente no contexto' USING ERRCODE = 'T0004';
   END IF;
