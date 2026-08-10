@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/p0-test-fixtures/team-base.sql"
       - ".github/scripts/team-concurrency-check.sh"
+      - ".github/scripts/team-mutants.sh"
       - ".github/workflows/team-validation.yml"
       - "supabase/migrations/20260812150000_team_t1_roles_hardening.sql"
       - "supabase/tests/team_t1_hardening.test.sql"
@@ -35,6 +36,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx vitest run supabase/functions/_shared/team
+      - name: Normative mutants must die
+        run: |
+          chmod +x .github/scripts/team-mutants.sh
+          .github/scripts/team-mutants.sh
 
   database:
     name: Migration + pgTAP
@@ -79,36 +84,53 @@ jobs:
           cp supabase/config.toml "$TEAM_WORKDIR/supabase/config.toml"
           cp .github/p0-test-fixtures/team-base.sql "$TEAM_WORKDIR/supabase/migrations/20260812140000_team_base.sql"
           cp supabase/migrations/20260812150000_team_t1_roles_hardening.sql "$TEAM_WORKDIR/supabase/migrations/20260812150000_team_t1_roles_hardening.sql"
-      - name: Start isolated database
+      - name: Start full local stack (Auth + PostgREST reais)
         env:
           TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
-        run: supabase db start --workdir "$TEAM_WORKDIR"
+        run: supabase start --workdir "$TEAM_WORKDIR" -x studio,imgproxy,inbucket,edge-runtime,logflare,vector
       - name: Concurrency harness (2 real connections)
         run: |
           chmod +x .github/scripts/team-concurrency-check.sh
           .github/scripts/team-concurrency-check.sh "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-      - name: Cascade of auth user delete honors the guard
-        # O deleteUser da Admin API é, no banco, um DELETE em auth.users — o
-        # cascade da FK dispara o guard (o GoTrue não roda no stack db-only da
-        # CI; o deleteUser REAL pela API é gate de staging no runbook).
+      - name: Real Admin API deleteUser honors the guard
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
+          eval "$(supabase status --workdir "$TEAM_WORKDIR" -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY)=')"
           DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-          # instrutor pode sair: cascade limpa papéis
-          psql "$DB" -v ON_ERROR_STOP=1 -c \
-            "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000c'"
+          del() { curl -s -o /tmp/del.out -w "%{http_code}" -X DELETE \
+            "$API_URL/auth/v1/admin/users/$1" \
+            -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY"; }
+          # instrutor sai pela API real: cascade limpa papéis
+          CODE=$(del "00000000-0000-0000-0000-00000000000c")
+          [ "$CODE" -lt 300 ] || { echo "deleteUser do instrutor falhou ($CODE)"; cat /tmp/del.out; exit 1; }
           LEFT=$(psql "$DB" -qtA -c \
             "SELECT count(*) FROM public.user_roles WHERE user_id = '00000000-0000-0000-0000-00000000000c'")
           test "$LEFT" = "0" || { echo "cascade não limpou papéis do instrutor"; exit 1; }
-          # remover um dos 2 admins passa; o restante é o último
-          psql "$DB" -v ON_ERROR_STOP=1 -c \
-            "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000b'"
-          # o ÚLTIMO admin não pode sair: o guard aborta o DELETE inteiro
-          if psql "$DB" -v ON_ERROR_STOP=1 -c \
-            "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000a'" 2>/tmp/lastadmin.err; then
-            echo "deleteUser do último admin deveria ter sido bloqueado"; exit 1
-          fi
-          grep -q "último admin" /tmp/lastadmin.err || { cat /tmp/lastadmin.err; exit 1; }
+          # um dos 2 admins sai; o restante é o último
+          CODE=$(del "00000000-0000-0000-0000-00000000000b")
+          [ "$CODE" -lt 300 ] || { echo "deleteUser do admin B falhou ($CODE)"; exit 1; }
+          # o ÚLTIMO admin não sai: o guard aborta o delete da API inteira
+          CODE=$(del "00000000-0000-0000-0000-00000000000a")
+          [ "$CODE" -ge 400 ] || { echo "deleteUser do último admin deveria falhar, veio $CODE"; exit 1; }
           STILL=$(psql "$DB" -qtA -c \
             "SELECT count(*) FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000a'")
           test "$STILL" = "1" || { echo "último admin sumiu do auth.users"; exit 1; }
-          echo "cascade OK: guard bloqueia deleteUser do último admin"
+          echo "Admin API OK: guard bloqueia deleteUser do último admin ($CODE)"
+      - name: PostgREST maps SQLSTATE by code (T0002)
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          eval "$(supabase status --workdir "$TEAM_WORKDIR" -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=')"
+          # service_role com lease inválido → o corpo do PostgREST traz code T0002
+          BODY=$(curl -s -X POST "$API_URL/rest/v1/rpc/team_set_roles" \
+            -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
+          echo "$BODY" | grep -q '"code":"T0002"' || { echo "esperado code T0002 no corpo: $BODY"; exit 1; }
+          # authenticated/anon não executam a RPC (privilégio negado)
+          CODE=$(curl -s -o /tmp/anon.out -w "%{http_code}" -X POST "$API_URL/rest/v1/rpc/team_set_roles" \
+            -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" \
+            -H "Content-Type: application/json" -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
+          [ "$CODE" -ge 400 ] || { echo "anon deveria ser barrado, veio $CODE"; cat /tmp/anon.out; exit 1; }
+          echo "PostgREST OK: T0002 chega por code; anon barrado ($CODE)"

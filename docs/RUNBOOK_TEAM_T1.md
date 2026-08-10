@@ -34,7 +34,8 @@ prosseguir se TODAS as condições passarem, na ordem:
    -- exige: invited_at NOT NULL, email_confirmed_at NULL, last_sign_in_at NULL
    ```
 2. **Inventário VIVO de referências** (gerado de pg_constraint — nunca lista
-   manual, que envelhece quando nascem tabelas novas):
+   manual, que envelhece quando nascem tabelas novas). Cada SQL gerado é
+   AUTOCONTIDO (IDs literais; a coluna certa por tabela referenciada):
    ```sql
    WITH alvo AS (
      SELECT u.id AS auth_id, p.id AS profile_id
@@ -42,17 +43,24 @@ prosseguir se TODAS as condições passarem, na ordem:
      WHERE lower(u.email) = lower('<email>')
    ), fks AS (
      SELECT c.conrelid::regclass AS tabela, a.attname AS coluna,
-            c.confrelid::regclass AS referenciada
+            c.confrelid::regclass AS referenciada,
+            cardinality(c.conkey) AS n_colunas
      FROM pg_constraint c
      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
      WHERE c.contype = 'f'
        AND c.confrelid IN ('auth.users'::regclass, 'public.profiles'::regclass)
        AND c.conrelid::regclass::text NOT IN ('public.user_roles','public.profiles')
    )
-   SELECT format(
-     'SELECT %L AS tabela, count(*) FROM %s WHERE %I IN (SELECT auth_id FROM alvo UNION SELECT profile_id FROM alvo);',
-     tabela, tabela, coluna) FROM fks;
-   -- executar cada SELECT gerado; QUALQUER contagem > 0 ⇒ ABORTAR
+   SELECT CASE
+     WHEN n_colunas > 1 THEN format('-- FK COMPOSTA em %s(%s): revisar MANUALMENTE e ABORTAR até entender', tabela, coluna)
+     ELSE format('SELECT %L AS tabela, count(*) FROM %s WHERE %I = %L;',
+       tabela, tabela, coluna,
+       CASE WHEN referenciada = 'auth.users'::regclass
+            THEN (SELECT auth_id FROM alvo)
+            ELSE (SELECT profile_id FROM alvo) END)
+   END
+   FROM fks;
+   -- executar cada SELECT gerado; QUALQUER contagem > 0 (ou FK composta) ⇒ ABORTAR
    ```
 3. Registrar ANTES: e-mail normalizado, id antigo, operador, timestamp, motivo.
 4. `auth.admin.deleteUser(<id antigo>)` → novo convite pela tela → registrar o
