@@ -12,6 +12,8 @@ set -euo pipefail
 
 DB_URL="${1:?uso: team-concurrency-check.sh <db-url>}"
 PSQL=(psql "$DB_URL" -v ON_ERROR_STOP=0 -qtA)
+# O ator das RPCs é auth.uid(): toda sessão do harness "é" o admin A.
+CLAIMS="SELECT set_config('request.jwt.claims', '{\"sub\":\"00000000-0000-0000-0000-00000000000a\",\"role\":\"authenticated\"}', false);"
 
 ADMIN_A='00000000-0000-0000-0000-00000000000a'
 ADMIN_B='00000000-0000-0000-0000-00000000000b'
@@ -73,8 +75,9 @@ rm -f /tmp/team-conc-2a.out /tmp/team-conc-2b.out
 
 "${PSQL[@]}" <<SQL > /tmp/team-conc-2a.out 2>&1 &
 BEGIN;
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', true);
 SELECT public.team_begin_operation(
-  '$OP2A', '$ADMIN_A', 'set_roles',
+  '$OP2A', 'set_roles',
   NULL, '$TARGET', 'fp-conc');
 SELECT pg_sleep(2);
 COMMIT;
@@ -85,8 +88,9 @@ sleep 0.5
 
 "${PSQL[@]}" <<SQL > /tmp/team-conc-2b.out 2>&1 &
 BEGIN;
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', true);
 SELECT public.team_begin_operation(
-  '$OP2B', '$ADMIN_A', 'set_roles',
+  '$OP2B', 'set_roles',
   NULL, '$TARGET', 'fp-conc');
 COMMIT;
 SQL
@@ -114,14 +118,15 @@ rm -f /tmp/team-conc-3a.out /tmp/team-conc-3b.out
 
 TARGET_B='00000000-0000-0000-0000-00000000000d'   # aluna (student intocável)
 
-TOK_A=$("${PSQL[@]}" -c "SELECT (public.team_begin_operation(
-  '$OP3A', '$ADMIN_A', 'set_roles',
-  NULL, '$TARGET', 'fp-c3a')) ->> 'lease_token'")
-TOK_B=$("${PSQL[@]}" -c "SELECT (public.team_begin_operation(
-  '$OP3B', '$ADMIN_A', 'set_roles',
-  NULL, '$TARGET_B', 'fp-c3b')) ->> 'lease_token'")
+TOK_A=$("${PSQL[@]}" -c "$CLAIMS SELECT (public.team_begin_operation(
+  '$OP3A', 'set_roles',
+  NULL, '$TARGET', 'fp-c3a')) ->> 'lease_token'" | tail -1)
+TOK_B=$("${PSQL[@]}" -c "$CLAIMS SELECT (public.team_begin_operation(
+  '$OP3B', 'set_roles',
+  NULL, '$TARGET_B', 'fp-c3b')) ->> 'lease_token'" | tail -1)
 
 "${PSQL[@]}" <<SQL > /tmp/team-conc-3a.out 2>&1 &
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
 SELECT public.team_set_roles('$OP3A',
   '$TOK_A', ARRAY['instructor','manager']::public.app_role[]);
 SQL

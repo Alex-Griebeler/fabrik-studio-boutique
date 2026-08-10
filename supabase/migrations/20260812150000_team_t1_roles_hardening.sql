@@ -15,8 +15,11 @@
 --   4. Auditoria física de user_roles (fn_audit_log, como as tabelas financeiras).
 --   5. team_operations: registro de domínio + idempotência da saga (operation_id,
 --      fingerprint, lease com fencing token, phase por ação, terminais imutáveis).
---   6. RPCs transacionais service-only (SECURITY INVOKER) — a Edge manage-team é
---      só orquestradora; nenhuma função SQL consulta auth.users.
+--   6. RPCs transacionais SECURITY DEFINER com owner de capacidade team_ops.
+--      O ATOR NUNCA é parâmetro: deriva de auth.uid() — a Edge chama as RPCs
+--      com o JWT DO USUÁRIO (EXECUTE é de authenticated; service_role não
+--      executa nem escreve nada: um bearer comprometido não escala nem
+--      falsifica autoria). Nenhuma função SQL consulta auth.users.
 --   7. Pós-condições executáveis (privilégios, RLS, triggers) — a migration
 --      ABORTA se qualquer promessa não se materializar.
 --
@@ -53,11 +56,18 @@ AS $$ SELECT pg_advisory_xact_lock(20260810, 1); $$;
 DO $role$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'team_ops') THEN
-    CREATE ROLE team_ops NOLOGIN;
+    CREATE ROLE team_ops NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB
+      NOCREATEROLE NOREPLICATION;
   END IF;
+  -- ALTER ... OWNER TO team_ops exige que o executor seja MEMBRO da role e
+  -- que ela tenha CREATE no schema — vale para o postgres NÃO-superuser do
+  -- ambiente hospedado (a CI local com superuser mascararia isso).
+  EXECUTE format('GRANT team_ops TO %I', current_user);
 END $role$;
 GRANT USAGE ON SCHEMA private TO team_ops;
 GRANT USAGE ON SCHEMA public TO team_ops;
+GRANT CREATE ON SCHEMA private TO team_ops;
+GRANT CREATE ON SCHEMA public TO team_ops;
 
 REVOKE ALL ON FUNCTION private.team_lock_user_roles() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION private.team_lock_user_roles() TO service_role, team_ops;
@@ -197,14 +207,12 @@ REVOKE ALL ON public.team_operations FROM PUBLIC, anon, authenticated;
 -- service_role NÃO escreve aqui (fria T1: DML direto = bypass da saga e do
 -- fencing). Só a role de capacidade das RPCs.
 REVOKE ALL ON public.team_operations FROM service_role;
-GRANT SELECT ON public.team_operations TO service_role;   -- leitura p/ a Edge (list/replay é via RPC; SELECT p/ depuração via service)
+-- (nem SELECT: lease_token mora aqui — replay/estado vêm SÓ pelas RPCs)
 GRANT SELECT, INSERT, UPDATE ON public.team_operations TO team_ops;
 DROP POLICY IF EXISTS "team_operations_teamops_all" ON public.team_operations;
 CREATE POLICY "team_operations_teamops_all" ON public.team_operations
   FOR ALL TO team_ops USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS "team_operations_service_select" ON public.team_operations;
-CREATE POLICY "team_operations_service_select" ON public.team_operations
-  FOR SELECT TO service_role USING (true);
 
 CREATE OR REPLACE FUNCTION public.fn_team_operations_no_truncate()
 RETURNS trigger
@@ -464,6 +472,13 @@ BEGIN
      OR op.lease_expires_at < now() THEN
     RAISE EXCEPTION 'lease inválido/vencido para %', p_operation_id USING ERRCODE = 'T0002';
   END IF;
+  -- Fencing de IDENTIDADE além do token: só o ator efetivo da operação
+  -- (original ou quem assumiu) escreve nela — token vazado não basta.
+  IF auth.uid() IS NULL
+     OR auth.uid() <> COALESCE(op.taken_over_by, op.actor_user_id) THEN
+    RAISE EXCEPTION 'requisição não pertence ao ator da operação'
+      USING ERRCODE = 'T0012';
+  END IF;
   RETURN op;
 END;
 $$;
@@ -474,7 +489,6 @@ GRANT EXECUTE ON FUNCTION private.team_require_lease(uuid, uuid) TO service_role
 -- Retorna jsonb: {kind: 'new'|'replay'|'takeover', lease_token?, op}
 CREATE OR REPLACE FUNCTION public.team_begin_operation(
   p_operation_id uuid,
-  p_actor uuid,
   p_action text,
   p_target_email text,
   p_target_user_id uuid,
@@ -487,8 +501,15 @@ SET search_path = ''
 AS $$
 DECLARE
   op public.team_operations;
+  p_actor uuid;
   new_token uuid;
 BEGIN
+  -- O ATOR NUNCA é parâmetro (fria T1 r2): deriva do JWT da requisição.
+  -- service_role/anon não têm EXECUTE; auth.uid() nulo é rejeitado.
+  p_actor := auth.uid();
+  IF p_actor IS NULL THEN
+    RAISE EXCEPTION 'ator ausente no contexto' USING ERRCODE = 'T0004';
+  END IF;
   PERFORM private.team_lock_user_roles();
   PERFORM private.team_require_admin(p_actor);
 
@@ -823,17 +844,19 @@ DECLARE
   fn text;
 BEGIN
   FOREACH fn IN ARRAY ARRAY[
-    'public.team_begin_operation(uuid, uuid, text, text, uuid, text)',
+    'public.team_begin_operation(uuid, text, text, uuid, text)',
     'public.team_advance_phase(uuid, uuid, text, uuid, jsonb)',
     'public.team_finalize_operation(uuid, uuid, text, text, text, jsonb)',
     'public.team_assign_role_after_invite(uuid, uuid, public.app_role)',
     'public.team_set_roles(uuid, uuid, public.app_role[])',
     'public.team_revoke_access(uuid, uuid)'
   ] LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn);
-    -- DEFINER com owner de CAPACIDADE (fria T1): quem executa é service_role,
-    -- quem ESCREVE é team_ops — service_role sem DML direto não tem bypass.
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', fn);
+    -- Quem executa é o USUÁRIO autenticado (o gate de admin é auth.uid() +
+    -- team_require_admin DENTRO da função); quem escreve é team_ops (owner
+    -- DEFINER). service_role não executa nem escreve — sem bypass, sem
+    -- impersonação, sem autoria falsa.
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', fn);
     EXECUTE format('ALTER FUNCTION %s OWNER TO team_ops', fn);
   END LOOP;
 END;
@@ -895,7 +918,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_proc p
     WHERE p.oid IN (
-      'public.team_begin_operation(uuid, uuid, text, text, uuid, text)'::regprocedure,
+      'public.team_begin_operation(uuid, text, text, uuid, text)'::regprocedure,
       'public.team_advance_phase(uuid, uuid, text, uuid, jsonb)'::regprocedure,
       'public.team_finalize_operation(uuid, uuid, text, text, text, jsonb)'::regprocedure,
       'public.team_assign_role_after_invite(uuid, uuid, public.app_role)'::regprocedure,
@@ -925,11 +948,16 @@ BEGIN
     RAISE EXCEPTION 'pós-condição: privilégios do schema private errados';
   END IF;
   -- RPCs: service_role executa, authenticated não
-  IF NOT has_function_privilege('service_role',
+  IF has_function_privilege('service_role',
        'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE')
-     OR has_function_privilege('authenticated',
+     OR NOT has_function_privilege('authenticated',
+       'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE')
+     OR has_function_privilege('anon',
        'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE') THEN
     RAISE EXCEPTION 'pós-condição: privilégios das RPCs errados';
+  END IF;
+  IF has_table_privilege('service_role', 'public.team_operations', 'SELECT') THEN
+    RAISE EXCEPTION 'pós-condição: service_role ainda lê team_operations (lease_token!)';
   END IF;
   -- triggers presentes
   IF NOT EXISTS (SELECT 1 FROM pg_trigger

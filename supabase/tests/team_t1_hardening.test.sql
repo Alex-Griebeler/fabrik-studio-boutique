@@ -3,10 +3,14 @@
 -- IDs do fixture: admin A=...000a, admin B=...000b, instrutor=...000c, aluna=...000d.
 
 BEGIN;
-SELECT plan(72);
+SELECT plan(74);
 
 -- Passagem de tokens entre blocos DO e asserts.
 CREATE TEMP TABLE _t1_tokens (k text PRIMARY KEY, v uuid) ON COMMIT DROP;
+
+-- O ATOR das RPCs é auth.uid() (v5.1): a sessão de teste "vira" o admin A.
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
 
 -- ── 1. Privilégios ─────────────────────────────────────────────────────────
 
@@ -30,12 +34,15 @@ SELECT ok(NOT has_schema_privilege('authenticated', 'private', 'USAGE'),
   'authenticated sem USAGE no schema private');
 SELECT ok(has_schema_privilege('service_role', 'private', 'USAGE'),
   'service_role com USAGE no schema private');
-SELECT ok(NOT has_function_privilege('authenticated',
+SELECT ok(has_function_privilege('authenticated',
   'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE'),
-  'authenticated não executa team_set_roles');
-SELECT ok(has_function_privilege('service_role',
+  'authenticated executa team_set_roles (gate de admin é interno, por auth.uid)');
+SELECT ok(NOT has_function_privilege('service_role',
   'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE'),
-  'service_role executa team_set_roles');
+  'service_role NÃO executa team_set_roles (sem impersonação)');
+SELECT ok(NOT has_function_privilege('anon',
+  'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE'),
+  'anon não executa team_set_roles');
 
 -- ── 2. Guarda de user_roles ────────────────────────────────────────────────
 
@@ -81,24 +88,25 @@ SELECT ok(EXISTS (
 SELECT is(
   (public.team_begin_operation(
      '99999999-0000-0000-0000-000000000001',
-     '00000000-0000-0000-0000-00000000000a',
      'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-1'
    ) ->> 'kind'),
   'new', 'begin de operação nova devolve kind=new');
 
--- ator não-admin → T0004
+-- ator não-admin → T0004 (o ator é o auth.uid() da sessão)
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', false);
 SELECT throws_ok(
   $$ SELECT public.team_begin_operation(
        '99999999-0000-0000-0000-000000000002',
-       '00000000-0000-0000-0000-00000000000c',
        'set_roles', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-x') $$,
   'T0004', NULL, 'ator sem admin toma T0004');
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
 
 -- retry da mesma op com lease vivo → T0010
 SELECT throws_ok(
   $$ SELECT public.team_begin_operation(
        '99999999-0000-0000-0000-000000000001',
-       '00000000-0000-0000-0000-00000000000a',
        'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-1') $$,
   'T0010', NULL, 'retry com lease vivo toma T0010');
 
@@ -106,7 +114,6 @@ SELECT throws_ok(
 SELECT throws_ok(
   $$ SELECT public.team_begin_operation(
        '99999999-0000-0000-0000-000000000001',
-       '00000000-0000-0000-0000-00000000000a',
        'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-DIFERENTE') $$,
   'T0001', NULL, 'assinatura divergente toma T0001');
 
@@ -114,7 +121,6 @@ SELECT throws_ok(
 SELECT throws_ok(
   $$ SELECT public.team_begin_operation(
        '99999999-0000-0000-0000-000000000003',
-       '00000000-0000-0000-0000-00000000000a',
        'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-2') $$,
   'T0005', NULL, 'segundo begin no mesmo alvo toma T0005');
 
@@ -151,7 +157,6 @@ VALUES ('00000000-0000-0000-0000-00000000000d', 'reception');
 SELECT is(
   (public.team_begin_operation(
      '99999999-0000-0000-0000-000000000004',
-     '00000000-0000-0000-0000-00000000000a',
      'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-3'
    ) ->> 'kind'),
   'new', 'begin da revogação da conta híbrida');
@@ -199,7 +204,6 @@ SELECT throws_ok(
 SELECT is(
   (public.team_begin_operation(
      '99999999-0000-0000-0000-000000000001',
-     '00000000-0000-0000-0000-00000000000a',
      'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-1'
    ) ->> 'kind'),
   'replay', 'retry pós-terminal devolve kind=replay');
@@ -224,24 +228,24 @@ SELECT throws_ok(
        'preflight', gen_random_uuid(), now()) $$,
   'P0001', NULL, 'INSERT não nasce em estado terminal');
 
-SELECT ok(NOT has_function_privilege('authenticated',
-  'public.team_begin_operation(uuid, uuid, text, text, uuid, text)', 'EXECUTE'),
-  'authenticated não executa team_begin_operation');
-SELECT ok(NOT has_function_privilege('authenticated',
+SELECT ok(NOT has_function_privilege('service_role',
+  'public.team_begin_operation(uuid, text, text, uuid, text)', 'EXECUTE'),
+  'service_role não executa team_begin_operation');
+SELECT ok(NOT has_function_privilege('service_role',
   'public.team_advance_phase(uuid, uuid, text, uuid, jsonb)', 'EXECUTE'),
-  'authenticated não executa team_advance_phase');
-SELECT ok(NOT has_function_privilege('authenticated',
+  'service_role não executa team_advance_phase');
+SELECT ok(NOT has_function_privilege('service_role',
   'public.team_finalize_operation(uuid, uuid, text, text, text, jsonb)', 'EXECUTE'),
-  'authenticated não executa team_finalize_operation');
-SELECT ok(NOT has_function_privilege('authenticated',
+  'service_role não executa team_finalize_operation');
+SELECT ok(NOT has_function_privilege('service_role',
   'public.team_assign_role_after_invite(uuid, uuid, public.app_role)', 'EXECUTE'),
-  'authenticated não executa team_assign_role_after_invite');
-SELECT ok(NOT has_function_privilege('authenticated',
+  'service_role não executa team_assign_role_after_invite');
+SELECT ok(NOT has_function_privilege('service_role',
   'public.team_revoke_access(uuid, uuid)', 'EXECUTE'),
-  'authenticated não executa team_revoke_access');
-SELECT ok(has_function_privilege('service_role',
-  'public.team_begin_operation(uuid, uuid, text, text, uuid, text)', 'EXECUTE'),
-  'service_role executa team_begin_operation');
+  'service_role não executa team_revoke_access');
+SELECT ok(has_function_privilege('authenticated',
+  'public.team_begin_operation(uuid, text, text, uuid, text)', 'EXECUTE'),
+  'authenticated executa team_begin_operation');
 
 -- op5: set_roles started — o lease dela NÃO serve para outra ação (binding).
 DO $b5$
@@ -249,7 +253,6 @@ DECLARE r jsonb;
 BEGIN
   r := public.team_begin_operation(
     '99999999-0000-0000-0000-000000000005',
-    '00000000-0000-0000-0000-00000000000a',
     'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-5');
   INSERT INTO _t1_tokens VALUES ('op5', (r ->> 'lease_token')::uuid);
 END $b5$;
@@ -294,7 +297,6 @@ DECLARE r jsonb;
 BEGIN
   r := public.team_begin_operation(
     '99999999-0000-0000-0000-000000000005',
-    '00000000-0000-0000-0000-00000000000a',
     'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-5');
   INSERT INTO _t1_tokens VALUES ('op5kind', NULL);
   UPDATE _t1_tokens SET v = (r ->> 'lease_token')::uuid WHERE k = 'op5kind';
@@ -330,7 +332,6 @@ DECLARE r jsonb;
 BEGIN
   r := public.team_begin_operation(
     '99999999-0000-0000-0000-000000000006',
-    '00000000-0000-0000-0000-00000000000a',
     'send_recovery', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-6');
   PERFORM public.team_advance_phase(
     '99999999-0000-0000-0000-000000000006', (r ->> 'lease_token')::uuid,
@@ -342,7 +343,6 @@ END $rec$;
 SELECT throws_ok(
   $$ SELECT public.team_begin_operation(
     '99999999-0000-0000-0000-000000000007',
-    '00000000-0000-0000-0000-00000000000a',
     'send_recovery', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-7') $$,
   'T0011', NULL, 'cooldown de recovery bloqueia reenvio (T0011)');
 
@@ -351,7 +351,6 @@ DO $b8$
 BEGIN
   PERFORM public.team_begin_operation(
     '99999999-0000-0000-0000-000000000008',
-    '00000000-0000-0000-0000-00000000000a',
     'invite', 'nova@fabrik.test', NULL, 'fp-8');
 END $b8$;
 SELECT throws_ok(
@@ -366,22 +365,21 @@ SELECT throws_ok(
 SELECT ok(
   NOT ((public.team_begin_operation(
      '99999999-0000-0000-0000-000000000001',
-     '00000000-0000-0000-0000-00000000000a',
      'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-1')) ? 'lease_token'),
   'replay não vaza lease_token');
 
-SELECT ok(has_function_privilege('service_role',
+SELECT ok(has_function_privilege('authenticated',
   'public.team_advance_phase(uuid, uuid, text, uuid, jsonb)', 'EXECUTE'),
-  'service_role executa team_advance_phase');
-SELECT ok(has_function_privilege('service_role',
+  'authenticated executa team_advance_phase');
+SELECT ok(has_function_privilege('authenticated',
   'public.team_finalize_operation(uuid, uuid, text, text, text, jsonb)', 'EXECUTE'),
-  'service_role executa team_finalize_operation');
-SELECT ok(has_function_privilege('service_role',
+  'authenticated executa team_finalize_operation');
+SELECT ok(has_function_privilege('authenticated',
   'public.team_assign_role_after_invite(uuid, uuid, public.app_role)', 'EXECUTE'),
-  'service_role executa team_assign_role_after_invite');
-SELECT ok(has_function_privilege('service_role',
+  'authenticated executa team_assign_role_after_invite');
+SELECT ok(has_function_privilege('authenticated',
   'public.team_revoke_access(uuid, uuid)', 'EXECUTE'),
-  'service_role executa team_revoke_access');
+  'authenticated executa team_revoke_access');
 
 -- fencing também em assign e finalize (op5 está terminal; token morto)
 SELECT throws_ok(
@@ -397,12 +395,13 @@ SELECT throws_ok(
 
 -- Ator REBAIXADO DE VERDADE pós-begin: mutação de privilégio recusa (T0004),
 -- mas a FINALIZAÇÃO com o lease vigente funciona (R3-5 — nada fica preso).
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}', false);
 DO $b9$
 DECLARE r jsonb;
 BEGIN
   r := public.team_begin_operation(
     '99999999-0000-0000-0000-000000000009',
-    '00000000-0000-0000-0000-00000000000b',
     'revoke_access', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-9');
   INSERT INTO _t1_tokens VALUES ('op9', (r ->> 'lease_token')::uuid);
 END $b9$;
@@ -421,6 +420,9 @@ SELECT lives_ok(
     (SELECT v FROM _t1_tokens WHERE k = 'op9')),
   'finalização não exige ator admin — operação nunca fica presa');
 
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
+
 -- detail por escrita DIRETA também é validado
 SELECT throws_ok(
   $$ INSERT INTO public.team_operations
@@ -436,7 +438,6 @@ DO $b10$
 BEGIN
   PERFORM public.team_begin_operation(
     '99999999-0000-0000-0000-000000000010',
-    '00000000-0000-0000-0000-00000000000a',
     'send_recovery', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-10');
 END $b10$;
 SELECT throws_ok(
@@ -489,19 +490,21 @@ UPDATE public.team_operations
 SET lease_expires_at = now() - interval '1 second'
 WHERE status = 'started';
 
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}', false);
 SELECT is(
   (public.team_begin_operation(
      '99999999-0000-0000-0000-000000000011',
-     '00000000-0000-0000-0000-00000000000b',
      'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-11'
    ) ->> 'kind'),
   'new', 'op11 nasce com o admin B');
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
 
 -- com lease VIVO, outro admin não assume (T0001)
 SELECT throws_ok(
   $$ SELECT public.team_begin_operation(
        '99999999-0000-0000-0000-000000000011',
-       '00000000-0000-0000-0000-00000000000a',
        'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-11') $$,
   'T0001', NULL, 'outro admin não assume operação com lease vivo');
 
@@ -517,7 +520,6 @@ DECLARE r jsonb;
 BEGIN
   r := public.team_begin_operation(
     '99999999-0000-0000-0000-000000000011',
-    '00000000-0000-0000-0000-00000000000a',
     'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-11');
   IF (r ->> 'kind') <> 'takeover' THEN
     RAISE EXCEPTION 'esperado takeover, veio %', r ->> 'kind';
@@ -541,6 +543,18 @@ SELECT is(
    WHERE user_id = '00000000-0000-0000-0000-00000000000d'),
   '{student}',
   'takeover administrativo também preserva o student');
+
+-- Fencing de IDENTIDADE (T0012): token VÁLIDO nas mãos de outro usuário
+-- não escreve na operação.
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', false);
+SELECT throws_ok(
+  format($$ SELECT public.team_advance_phase(
+    '99999999-0000-0000-0000-000000000011', %L, 'role_assigned', NULL, NULL) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op11')),
+  'T0012', NULL, 'token válido com auth.uid() de terceiro toma T0012');
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
 
 SELECT * FROM finish();
 ROLLBACK;

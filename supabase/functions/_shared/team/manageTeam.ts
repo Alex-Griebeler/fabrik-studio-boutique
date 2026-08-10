@@ -43,6 +43,7 @@ const ERRCODE_MAP: Record<string, { http: number; code: string }> = {
   T0008: { http: 400, code: "student_role_untouchable" },
   T0010: { http: 202, code: "operation_in_progress" },
   T0011: { http: 429, code: "cooldown_active" },
+  T0012: { http: 403, code: "actor_operation_mismatch" },
 };
 
 interface AuthUserLike {
@@ -77,9 +78,22 @@ export interface TeamAuthAdminApi {
   }>;
 }
 
+/** Client mínimo p/ RPCs no CONTEXTO DO USUÁRIO (auth.uid() = ator). */
+export interface TeamRpcClient {
+  rpc(name: string, args: Record<string, unknown>): Promise<{
+    data: unknown; error: { code?: string; message?: string } | null;
+  }>;
+}
+
 export interface ManageTeamDependencies extends RequireStaffRoleDependencies {
   /** `client.auth.admin` do client service-role — injetado pelo wrapper. */
   getAuthAdmin: (auth: AuthorizedContext) => TeamAuthAdminApi;
+  /**
+   * Client de RPC com o JWT DO USUÁRIO (anon key + Authorization da própria
+   * requisição): o ator das RPCs é auth.uid() — service_role nem executa
+   * as funções da saga (fria T1 r2: sem impersonação, sem autoria falsa).
+   */
+  getRpcClient: (req: Request) => TeamRpcClient;
   /**
    * `resetPasswordForEmail` de um client DEDICADO com anon key, sem persistência
    * de sessão (F5 da fria: /recover é endpoint público; service key não o toca).
@@ -146,6 +160,7 @@ export async function handleManageTeam(
     }
 
     const authAdmin = deps.getAuthAdmin(auth);
+    const rpc = deps.getRpcClient(req);
     const timeoutMs = deps.externalTimeoutMs ?? 30_000;
 
     if (action === "list") {
@@ -171,13 +186,13 @@ export async function handleManageTeam(
 
     switch (action) {
       case "invite":
-        return await handleInvite(auth, authAdmin, actor, operationId, body, redirectTo, timeoutMs);
+        return await handleInvite(auth, rpc, authAdmin, actor, operationId, body, redirectTo, timeoutMs);
       case "set_roles":
-        return await handleSetRoles(auth, actor, operationId, body);
+        return await handleSetRoles(rpc, actor, operationId, body);
       case "revoke_access":
-        return await handleRevokeAccess(auth, actor, operationId, body);
+        return await handleRevokeAccess(rpc, actor, operationId, body);
       case "send_recovery":
-        return await handleSendRecovery(auth, authAdmin, deps, actor, operationId, body, redirectTo, timeoutMs);
+        return await handleSendRecovery(rpc, authAdmin, deps, actor, operationId, body, redirectTo, timeoutMs);
       default:
         return json({ error_code: "unknown_action" }, 400);
     }
@@ -315,19 +330,18 @@ interface BeginResult {
 }
 
 async function beginOperation(
-  auth: AuthorizedContext,
+  rpc: TeamRpcClient,
   args: {
     operationId: string;
-    actor: string;
     action: string;
     targetEmail: string | null;
     targetUserId: string | null;
     fingerprint: string;
   },
 ): Promise<{ result?: BeginResult; errorResponse?: Response }> {
-  const { data, error } = await auth.adminClient.rpc("team_begin_operation", {
+  // Sem p_actor: o ator é auth.uid() DENTRO da RPC (JWT do usuário).
+  const { data, error } = await rpc.rpc("team_begin_operation", {
     p_operation_id: args.operationId,
-    p_actor: args.actor,
     p_action: args.action,
     p_target_email: args.targetEmail,
     p_target_user_id: args.targetUserId,
@@ -350,7 +364,7 @@ function opResponse(op: BeginResult["op"], http = 200): Response {
 }
 
 async function finalize(
-  auth: AuthorizedContext,
+  rpc: TeamRpcClient,
   operationId: string,
   leaseToken: string,
   status: "succeeded" | "partial" | "failed",
@@ -358,7 +372,7 @@ async function finalize(
   errorCode: string | null = null,
   detailPatch: Record<string, unknown> | null = null,
 ): Promise<Response> {
-  const { data, error } = await auth.adminClient.rpc("team_finalize_operation", {
+  const { data, error } = await rpc.rpc("team_finalize_operation", {
     p_operation_id: operationId,
     p_lease_token: leaseToken,
     p_status: status,
@@ -387,6 +401,7 @@ function externalTimeoutResponse(operationId: string): Response {
 
 async function handleInvite(
   auth: AuthorizedContext,
+  rpc: TeamRpcClient,
   authAdmin: TeamAuthAdminApi,
   actor: string,
   operationId: string,
@@ -404,8 +419,8 @@ async function handleInvite(
   }
 
   const fingerprint = await canonicalFingerprint(["invite", email, fullName, role]);
-  const begin = await beginOperation(auth, {
-    operationId, actor, action: "invite", targetEmail: email, targetUserId: null, fingerprint,
+  const begin = await beginOperation(rpc, {
+    operationId, action: "invite", targetEmail: email, targetUserId: null, fingerprint,
   });
   if (begin.errorResponse) return begin.errorResponse;
   const { kind, lease_token: lease, op } = begin.result!;
@@ -413,7 +428,7 @@ async function handleInvite(
   if (kind === "replay") return opResponse(op);
 
   if (kind === "takeover") {
-    return await reconcileInvite(auth, authAdmin, operationId, lease!, op, email, role, timeoutMs);
+    return await reconcileInvite(rpc, authAdmin, operationId, lease!, op, email, role, timeoutMs);
   }
 
   // ── caminho novo ──
@@ -422,17 +437,17 @@ async function handleInvite(
   const existing = await findUserByEmail(authAdmin, email, timeoutMs);
   if (existing === "timeout") return externalTimeoutResponse(operationId);
   if (existing === undefined) {
-    return await finalize(auth, operationId, lease!, "failed", "auth_lookup_failed", "auth_list_failed");
+    return await finalize(rpc, operationId, lease!, "failed", "auth_lookup_failed", "auth_list_failed");
   }
   if (existing !== null) {
-    return await finalize(auth, operationId, lease!, "succeeded", classifyExisting(existing), null, {
+    return await finalize(rpc, operationId, lease!, "succeeded", classifyExisting(existing), null, {
       existing_user_id: existing.id,
     });
   }
 
   // Passo 2: phase → invite_requested ANTES da chamada externa.
   {
-    const { error } = await auth.adminClient.rpc("team_advance_phase", {
+    const { error } = await rpc.rpc("team_advance_phase", {
       p_operation_id: operationId, p_lease_token: lease,
       p_new_phase: "invite_requested", p_target_user_id: null, p_detail_patch: null,
     });
@@ -447,14 +462,14 @@ async function handleInvite(
   );
   if (invited === "timeout") return externalTimeoutResponse(operationId);
   if (invited.error || !invited.data?.user) {
-    return await finalize(auth, operationId, lease!, "failed", "invite_failed", "invite_failed");
+    return await finalize(rpc, operationId, lease!, "failed", "invite_failed", "invite_failed");
   }
   const invitedUser = invited.data.user;
   const userId = invitedUser.id;
 
   // Passo 4: persistir target (phase inalterada).
   {
-    const { error } = await auth.adminClient.rpc("team_advance_phase", {
+    const { error } = await rpc.rpc("team_advance_phase", {
       p_operation_id: operationId, p_lease_token: lease,
       p_new_phase: "invite_requested", p_target_user_id: userId, p_detail_patch: null,
     });
@@ -465,32 +480,32 @@ async function handleInvite(
   const marked = await markProvenance(authAdmin, userId, operationId, invitedUser, timeoutMs);
   if (marked === "timeout") return externalTimeoutResponse(operationId);
   if (!marked) {
-    return await finalize(auth, operationId, lease!, "partial", "invited_without_role",
+    return await finalize(rpc, operationId, lease!, "partial", "invited_without_role",
       "provenance_mark_failed", { recoverable: true });
   }
 
   // Passo 7: phase → auth_user_observed e papel.
   {
-    const { error } = await auth.adminClient.rpc("team_advance_phase", {
+    const { error } = await rpc.rpc("team_advance_phase", {
       p_operation_id: operationId, p_lease_token: lease,
       p_new_phase: "auth_user_observed", p_target_user_id: null, p_detail_patch: null,
     });
     if (error) return mapRpcError(error, operationId);
   }
   {
-    const { error } = await auth.adminClient.rpc("team_assign_role_after_invite", {
+    const { error } = await rpc.rpc("team_assign_role_after_invite", {
       p_operation_id: operationId, p_lease_token: lease, p_role: role,
     });
     if (error) {
       // Papel falhou (ex.: ator rebaixado no meio) — parcial estruturado e
       // recuperável pela tela; a finalização NÃO exige ator admin (R3-5).
-      return await finalize(auth, operationId, lease!, "partial", "invited_without_role",
+      return await finalize(rpc, operationId, lease!, "partial", "invited_without_role",
         apiCodeFor((error as RpcErrorLike).code, "role_assign_failed"),
         { recoverable: true });
     }
   }
 
-  return await finalize(auth, operationId, lease!, "succeeded", "invited_with_role");
+  return await finalize(rpc, operationId, lease!, "succeeded", "invited_with_role");
 }
 
 /** "timeout" = estourou o relógio; undefined = falha; null = não existe. */
@@ -546,7 +561,7 @@ async function markProvenance(
  * (exata) — e-mail é fallback só para a janela antes do passo 4.
  */
 async function reconcileInvite(
-  auth: AuthorizedContext,
+  rpc: TeamRpcClient,
   authAdmin: TeamAuthAdminApi,
   operationId: string,
   lease: string,
@@ -558,7 +573,7 @@ async function reconcileInvite(
   if (op.phase === "preflight") {
     // Nenhuma chamada externa aconteceu — encerrar como falha reexecutável
     // com operation_id NOVO (caminho único de envio de convite).
-    return await finalize(auth, operationId, lease, "failed", "invite_not_started", null);
+    return await finalize(rpc, operationId, lease, "failed", "invite_not_started", null);
   }
 
   let found: AuthUserLike | null;
@@ -566,63 +581,63 @@ async function reconcileInvite(
     const byId = await withTimeout(authAdmin.getUserById(op.target_user_id), timeoutMs);
     if (byId === "timeout") return externalTimeoutResponse(operationId);
     if (byId.error) {
-      return await finalize(auth, operationId, lease, "failed", "auth_lookup_failed", "auth_list_failed");
+      return await finalize(rpc, operationId, lease, "failed", "auth_lookup_failed", "auth_list_failed");
     }
     found = byId.data?.user ?? null;
   } else {
     const byEmail = await findUserByEmail(authAdmin, email, timeoutMs);
     if (byEmail === "timeout") return externalTimeoutResponse(operationId);
     if (byEmail === undefined) {
-      return await finalize(auth, operationId, lease, "failed", "auth_lookup_failed", "auth_list_failed");
+      return await finalize(rpc, operationId, lease, "failed", "auth_lookup_failed", "auth_list_failed");
     }
     found = byEmail;
   }
 
   if (found === null) {
     // Convite nunca materializou usuário: falha; reenvio SÓ por nova operação.
-    return await finalize(auth, operationId, lease, "failed", "invite_failed", null);
+    return await finalize(rpc, operationId, lease, "failed", "invite_failed", null);
   }
 
   if (op.target_user_id && found.id !== op.target_user_id) {
-    return await finalize(auth, operationId, lease, "failed", "reconcile_mismatch", null);
+    return await finalize(rpc, operationId, lease, "failed", "reconcile_mismatch", null);
   }
 
   if (found.app_metadata?.team_operation_id !== operationId) {
     // Usuário existe mas NÃO nasceu desta operação — jamais ganha papel aqui.
-    return await finalize(auth, operationId, lease, "succeeded", classifyExisting(found), null, {
+    return await finalize(rpc, operationId, lease, "succeeded", classifyExisting(found), null, {
       existing_user_id: found.id,
     });
   }
 
   // Nasceu desta operação: completar o que faltar.
   if (op.phase === "invite_requested") {
-    const { error: targetErr } = await auth.adminClient.rpc("team_advance_phase", {
+    const { error: targetErr } = await rpc.rpc("team_advance_phase", {
       p_operation_id: operationId, p_lease_token: lease,
       p_new_phase: "invite_requested", p_target_user_id: found.id, p_detail_patch: null,
     });
     if (targetErr) return mapRpcError(targetErr, operationId);
-    const { error } = await auth.adminClient.rpc("team_advance_phase", {
+    const { error } = await rpc.rpc("team_advance_phase", {
       p_operation_id: operationId, p_lease_token: lease,
       p_new_phase: "auth_user_observed", p_target_user_id: null, p_detail_patch: null,
     });
     if (error) return mapRpcError(error, operationId);
   }
   if (op.phase === "invite_requested" || op.phase === "auth_user_observed") {
-    const { error } = await auth.adminClient.rpc("team_assign_role_after_invite", {
+    const { error } = await rpc.rpc("team_assign_role_after_invite", {
       p_operation_id: operationId, p_lease_token: lease, p_role: role,
     });
     if (error) {
-      return await finalize(auth, operationId, lease, "partial", "invited_without_role",
+      return await finalize(rpc, operationId, lease, "partial", "invited_without_role",
         apiCodeFor((error as RpcErrorLike).code, "role_assign_failed"), { recoverable: true });
     }
   }
-  return await finalize(auth, operationId, lease, "succeeded", "invited_with_role");
+  return await finalize(rpc, operationId, lease, "succeeded", "invited_with_role");
 }
 
 // ── set_roles / revoke_access ───────────────────────────────────────────────
 
 async function handleSetRoles(
-  auth: AuthorizedContext,
+  rpc: TeamRpcClient,
   actor: string,
   operationId: string,
   body: Record<string, unknown>,
@@ -642,17 +657,17 @@ async function handleSetRoles(
   }
 
   const fingerprint = await canonicalFingerprint(["set_roles", target, ...(roles as string[])]);
-  const begin = await beginOperation(auth, {
-    operationId, actor, action: "set_roles", targetEmail: null, targetUserId: target, fingerprint,
+  const begin = await beginOperation(rpc, {
+    operationId, action: "set_roles", targetEmail: null, targetUserId: target, fingerprint,
   });
   if (begin.errorResponse) return begin.errorResponse;
   const { kind, lease_token: lease, op } = begin.result!;
   if (kind === "replay") return opResponse(op);
   if (kind === "takeover" && op.phase === "role_assigned") {
-    return await finalize(auth, operationId, lease!, "succeeded", "roles_set");
+    return await finalize(rpc, operationId, lease!, "succeeded", "roles_set");
   }
 
-  const { data, error } = await auth.adminClient.rpc("team_set_roles", {
+  const { data, error } = await rpc.rpc("team_set_roles", {
     p_operation_id: operationId, p_lease_token: lease, p_roles: roles,
   });
   if (error) {
@@ -661,18 +676,18 @@ async function handleSetRoles(
     // failed para o registro de domínio não ficar pendurado.
     const code = (error as RpcErrorLike).code;
     if (code && code !== "T0002" && code !== "T0010") {
-      await finalize(auth, operationId, lease!, "failed", "rejected", apiCodeFor(code, code));
+      await finalize(rpc, operationId, lease!, "failed", "rejected", apiCodeFor(code, code));
     }
     return mapped;
   }
   const state = data as { user_id: string; roles: string[] };
-  return await finalize(auth, operationId, lease!, "succeeded", "roles_set", null, {
+  return await finalize(rpc, operationId, lease!, "succeeded", "roles_set", null, {
     roles: state.roles,
   });
 }
 
 async function handleRevokeAccess(
-  auth: AuthorizedContext,
+  rpc: TeamRpcClient,
   actor: string,
   operationId: string,
   body: Record<string, unknown>,
@@ -683,29 +698,29 @@ async function handleRevokeAccess(
   }
 
   const fingerprint = await canonicalFingerprint(["revoke_access", target]);
-  const begin = await beginOperation(auth, {
-    operationId, actor, action: "revoke_access", targetEmail: null, targetUserId: target, fingerprint,
+  const begin = await beginOperation(rpc, {
+    operationId, action: "revoke_access", targetEmail: null, targetUserId: target, fingerprint,
   });
   if (begin.errorResponse) return begin.errorResponse;
   const { kind, lease_token: lease, op } = begin.result!;
   if (kind === "replay") return opResponse(op);
   if (kind === "takeover" && op.phase === "role_assigned") {
-    return await finalize(auth, operationId, lease!, "succeeded", "access_revoked");
+    return await finalize(rpc, operationId, lease!, "succeeded", "access_revoked");
   }
 
-  const { data, error } = await auth.adminClient.rpc("team_revoke_access", {
+  const { data, error } = await rpc.rpc("team_revoke_access", {
     p_operation_id: operationId, p_lease_token: lease,
   });
   if (error) {
     const mapped = mapRpcError(error, operationId);
     const code = (error as RpcErrorLike).code;
     if (code && code !== "T0002" && code !== "T0010") {
-      await finalize(auth, operationId, lease!, "failed", "rejected", apiCodeFor(code, code));
+      await finalize(rpc, operationId, lease!, "failed", "rejected", apiCodeFor(code, code));
     }
     return mapped;
   }
   const state = data as { user_id: string; roles: string[] };
-  return await finalize(auth, operationId, lease!, "succeeded", "access_revoked", null, {
+  return await finalize(rpc, operationId, lease!, "succeeded", "access_revoked", null, {
     roles: state.roles,
   });
 }
@@ -713,7 +728,7 @@ async function handleRevokeAccess(
 // ── send_recovery ───────────────────────────────────────────────────────────
 
 async function handleSendRecovery(
-  auth: AuthorizedContext,
+  rpc: TeamRpcClient,
   authAdmin: TeamAuthAdminApi,
   deps: ManageTeamDependencies,
   actor: string,
@@ -728,8 +743,8 @@ async function handleSendRecovery(
   }
 
   const fingerprint = await canonicalFingerprint(["send_recovery", target]);
-  const begin = await beginOperation(auth, {
-    operationId, actor, action: "send_recovery", targetEmail: null, targetUserId: target, fingerprint,
+  const begin = await beginOperation(rpc, {
+    operationId, action: "send_recovery", targetEmail: null, targetUserId: target, fingerprint,
   });
   if (begin.errorResponse) return begin.errorResponse;
   const { kind, lease_token: lease, op } = begin.result!;
@@ -740,27 +755,27 @@ async function handleSendRecovery(
     // que a chamada começou. Falso sucesso é proibido: fecha como PARTIAL
     // com resultado desconhecido (fria T1, achado 4).
     if (op.phase === "recovery_requested") {
-      return await finalize(auth, operationId, lease!, "partial", "recovery_request_unknown");
+      return await finalize(rpc, operationId, lease!, "partial", "recovery_request_unknown");
     }
-    return await finalize(auth, operationId, lease!, "failed", "recovery_not_started");
+    return await finalize(rpc, operationId, lease!, "failed", "recovery_not_started");
   }
 
   const lookup = await withTimeout(authAdmin.getUserById(target), timeoutMs);
   if (lookup === "timeout") return externalTimeoutResponse(operationId);
   if (lookup.error || !lookup.data?.user) {
-    return await finalize(auth, operationId, lease!, "failed", "user_not_found", null);
+    return await finalize(rpc, operationId, lease!, "failed", "user_not_found", null);
   }
   const found = lookup.data.user;
   if (!found.email_confirmed_at) {
-    return await finalize(auth, operationId, lease!, "failed", "user_not_confirmed", null);
+    return await finalize(rpc, operationId, lease!, "failed", "user_not_confirmed", null);
   }
   const email = (found.email ?? "").toLowerCase();
   if (!email) {
-    return await finalize(auth, operationId, lease!, "failed", "user_without_email", null);
+    return await finalize(rpc, operationId, lease!, "failed", "user_without_email", null);
   }
 
   {
-    const { error } = await auth.adminClient.rpc("team_advance_phase", {
+    const { error } = await rpc.rpc("team_advance_phase", {
       p_operation_id: operationId, p_lease_token: lease,
       p_new_phase: "recovery_requested", p_target_user_id: null, p_detail_patch: null,
     });
@@ -770,9 +785,9 @@ async function handleSendRecovery(
   const sent = await withTimeout(deps.sendRecoveryEmail(email, redirectTo), timeoutMs);
   if (sent === "timeout") return externalTimeoutResponse(operationId);
   if (sent.error) {
-    return await finalize(auth, operationId, lease!, "failed", "recovery_send_failed", null);
+    return await finalize(rpc, operationId, lease!, "failed", "recovery_send_failed", null);
   }
-  return await finalize(auth, operationId, lease!, "succeeded", "recovery_requested");
+  return await finalize(rpc, operationId, lease!, "succeeded", "recovery_requested");
 }
 
 // ── util ────────────────────────────────────────────────────────────────────

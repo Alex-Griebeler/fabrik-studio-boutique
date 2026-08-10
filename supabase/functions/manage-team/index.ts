@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.111.0";
 import {
   handleManageTeam,
   type TeamAuthAdminApi,
+  type TeamRpcClient,
 } from "../_shared/team/manageTeam.ts";
 
 /**
@@ -24,6 +25,17 @@ Deno.serve((req) =>
     getAuthAdmin: (auth) =>
       // deno-lint-ignore no-explicit-any
       (auth.adminClient as any).auth.admin as TeamAuthAdminApi,
+    getRpcClient: (req) => {
+      // RPCs no contexto do USUÁRIO: anon key + o Authorization da própria
+      // requisição — auth.uid() dentro das funções É o ator. service_role
+      // nem tem EXECUTE na saga (fria T1 r2).
+      const url = Deno.env.get("SUPABASE_URL")!;
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+      return createClient(url, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
+      }) as unknown as TeamRpcClient;
+    },
     sendRecoveryEmail: async (email, redirectTo) => {
       // Cliente DEDICADO com anon key (F5): /recover é endpoint público do
       // Auth — service key não o toca e não dá bypass de rate limit.

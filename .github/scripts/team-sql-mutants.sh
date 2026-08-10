@@ -12,6 +12,8 @@ set -euo pipefail
 DB_URL="${1:?uso: team-sql-mutants.sh <db-url> <migration>}"
 MIGRATION="${2:?uso: team-sql-mutants.sh <db-url> <migration>}"
 PSQL=(psql "$DB_URL" -v ON_ERROR_STOP=0 -qtA)
+CLAIMS_A="SELECT set_config('request.jwt.claims', '{\"sub\":\"00000000-0000-0000-0000-00000000000a\",\"role\":\"authenticated\"}', false);"
+CLAIMS_C="SELECT set_config('request.jwt.claims', '{\"sub\":\"00000000-0000-0000-0000-00000000000c\",\"role\":\"authenticated\"}', false);"
 
 fail() { echo "FALHA: $1" >&2; exit 1; }
 
@@ -39,9 +41,9 @@ restore() { psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f "$MIGRATION" > /dev/null; }
 # Sonda com SQLSTATE explícito (VERBOSITY verbose imprime o código exato) —
 # retorno 0 = o SQLSTATE ESPERADO apareceu.
 expect_sqlstate() {
-  local sql="$1"; local state="$2"
+  local sql="$1"; local state="$2"; local claims="${3:-$CLAIMS_A}"
   local out
-  out=$(psql "$DB_URL" -qtA -c '\set VERBOSITY verbose' -c "$sql" 2>&1 || true)
+  out=$(psql "$DB_URL" -qtA -c '\set VERBOSITY verbose' -c "$claims $sql" 2>&1 || true)
   grep -q "$state" <<<"$out"
 }
 
@@ -69,8 +71,8 @@ psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c \
   "CREATE OR REPLACE FUNCTION private.team_require_admin(p_actor uuid) RETURNS void
    LANGUAGE plpgsql SET search_path = '' AS \$\$ BEGIN RETURN; END; \$\$;"
 if expect_sqlstate "SELECT public.team_begin_operation(
-  '$OPM2', '$INSTRUTOR', 'set_roles',
-  NULL, '$ADMIN_B', 'fp-m2')" 'T0004'; then
+  '$OPM2', 'set_roles',
+  NULL, '$ADMIN_B', 'fp-m2')" 'T0004' "$CLAIMS_C"; then
   restore; fail "M2 sobreviveu: não-admin ainda toma T0004 (mutação não pegou?)"
 fi
 restore
@@ -79,8 +81,8 @@ echo "M2 morto"
 expire_leases
 OPM3=$(uuidgen | tr 'A-Z' 'a-z')
 echo "== M3: fingerprint ignorado → assinatura divergente deixaria de dar T0001"
-psql "$DB_URL" -qtA -c "SELECT public.team_begin_operation(
-  '$OPM3', '$ADMIN_A', 'set_roles',
+psql "$DB_URL" -qtA -c "$CLAIMS_A SELECT public.team_begin_operation(
+  '$OPM3', 'set_roles',
   NULL, '$INSTRUTOR', 'fp-m3')" > /dev/null 2>&1 || true
 # o retry só cai na comparação de fingerprint com o lease VENCIDO (senão T0010)
 expire_leases
@@ -95,7 +97,7 @@ print(body)
 PY
 psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f /tmp/m3.sql > /dev/null
 if expect_sqlstate "SELECT public.team_begin_operation(
-  '$OPM3', '$ADMIN_A', 'set_roles',
+  '$OPM3', 'set_roles',
   NULL, '$INSTRUTOR', 'fp-DIVERGENTE')" 'T0001'; then
   restore; fail "M3 sobreviveu"
 fi
@@ -166,10 +168,10 @@ PY
 psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f /tmp/m6.sql > /dev/null
 psql "$DB_URL" -qtA -c "INSERT INTO public.user_roles (user_id, role)
   VALUES ('$ALUNA', 'reception') ON CONFLICT DO NOTHING" > /dev/null 2>&1 || true
-TOK=$(psql "$DB_URL" -qtA -c "SELECT (public.team_begin_operation(
-  '$OPM6', '$ADMIN_A', 'revoke_access',
-  NULL, '$ALUNA', 'fp-m6')) ->> 'lease_token'")
-psql "$DB_URL" -qtA -c "SELECT public.team_revoke_access(
+TOK=$(psql "$DB_URL" -qtA -c "$CLAIMS_A SELECT (public.team_begin_operation(
+  '$OPM6', 'revoke_access',
+  NULL, '$ALUNA', 'fp-m6')) ->> 'lease_token'" | tail -1)
+psql "$DB_URL" -qtA -c "$CLAIMS_A SELECT public.team_revoke_access(
   '$OPM6', '$TOK')" > /dev/null 2>&1 || true
 STUDENT=$(psql "$DB_URL" -qtA -c "SELECT count(*) FROM public.user_roles
   WHERE user_id = '$ALUNA' AND role = 'student'")
@@ -193,16 +195,16 @@ body = src[start:end]
 body = body.replace("IF p_action = 'send_recovery' AND EXISTS (", "IF false AND EXISTS (")
 print(body)
 PY
-TOK=$(psql "$DB_URL" -qtA -c "SELECT (public.team_begin_operation(
-  '$OPM7', '$ADMIN_A', 'send_recovery',
-  NULL, '$INSTRUTOR', 'fp-m7')) ->> 'lease_token'")
-psql "$DB_URL" -qtA -c "SELECT public.team_advance_phase(
+TOK=$(psql "$DB_URL" -qtA -c "$CLAIMS_A SELECT (public.team_begin_operation(
+  '$OPM7', 'send_recovery',
+  NULL, '$INSTRUTOR', 'fp-m7')) ->> 'lease_token'" | tail -1)
+psql "$DB_URL" -qtA -c "$CLAIMS_A SELECT public.team_advance_phase(
   '$OPM7', '$TOK', 'recovery_requested', NULL, NULL);
   SELECT public.team_finalize_operation(
   '$OPM7', '$TOK', 'succeeded', 'recovery_requested', NULL, NULL)" > /dev/null 2>&1 || true
 psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f /tmp/m7.sql > /dev/null
 if expect_sqlstate "SELECT public.team_begin_operation(
-  '$OPM7B', '$ADMIN_A', 'send_recovery',
+  '$OPM7B', 'send_recovery',
   NULL, '$INSTRUTOR', 'fp-m7b')" 'T0011'; then
   restore; fail "M7 sobreviveu"
 fi

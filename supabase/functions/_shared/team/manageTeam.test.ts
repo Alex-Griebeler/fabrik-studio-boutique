@@ -162,6 +162,7 @@ function makeDeps(
     deps: {
       createClient: createClientMock,
       getAuthAdmin: () => authAdmin,
+      getRpcClient: () => fake.client,
       sendRecoveryEmail: sendRecovery,
       getAppUrl: () => env.APP_URL,
     } as unknown as ManageTeamDependencies,
@@ -643,6 +644,7 @@ describe("handleManageTeam", () => {
       const deps = {
         createClient: createClientMock,
         getAuthAdmin: () => slowAdmin,
+        getRpcClient: () => fake.client,
         sendRecoveryEmail: vi.fn(),
         getAppUrl: () => env.APP_URL,
         externalTimeoutMs: 10,
@@ -716,6 +718,7 @@ describe("handleManageTeam", () => {
       const deps = {
         createClient: createClientMock,
         getAuthAdmin: () => makeAuthAdmin().api,
+        getRpcClient: () => fake.client,
         sendRecoveryEmail: vi.fn(),
         getAppUrl: () => undefined,
       } as unknown as ManageTeamDependencies;
@@ -731,6 +734,7 @@ describe("handleManageTeam", () => {
       const deps = {
         createClient: createClientMock,
         getAuthAdmin: () => makeAuthAdmin().api,
+        getRpcClient: () => fake.client,
         sendRecoveryEmail: vi.fn(),
         getAppUrl: () => undefined,
       } as unknown as ManageTeamDependencies;
