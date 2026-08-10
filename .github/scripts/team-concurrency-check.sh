@@ -108,6 +108,11 @@ STARTED=$("${PSQL[@]}" -c "SELECT count(*) FROM public.team_operations
 [ "$STARTED" = "1" ] || fail "cenário 2: esperado exatamente 1 claim, há $STARTED"
 echo "cenário 2 OK: claim por alvo sob corrida ficou com exatamente 1 operação"
 
+# o claim vivo do cenário 2 não pode vazar pro 3 (mesmo alvo+ação)
+"${PSQL[@]}" -c "UPDATE public.team_operations
+  SET lease_expires_at = now() - interval '1 second'
+  WHERE status = 'started'" > /dev/null
+
 
 # ── Cenário 3: set_roles × set_roles CONCORRENTES (alvos distintos — no mesmo
 # alvo o claim T0005 já barra no begin, provado no cenário 2). Aqui NADA pode
@@ -132,6 +137,7 @@ SELECT public.team_set_roles('$OP3A',
 SQL
 PID_A=$!
 "${PSQL[@]}" <<SQL > /tmp/team-conc-3b.out 2>&1 &
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
 SELECT public.team_set_roles('$OP3B',
   '$TOK_B', ARRAY['reception']::public.app_role[]);
 SQL

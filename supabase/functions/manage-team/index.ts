@@ -14,9 +14,10 @@ import {
  *
  * Exige JWT de staff `admin`: sem credencial => 401, sem role => 403; bearer
  * de service_role não é aceito (autor humano sempre registrado). As guardas
- * de verdade (último admin, student intocável, lease/fencing, idempotência)
- * moram no BANCO — RPCs transacionais service-only da migration
- * 20260812150000. A implementação vive em `_shared/team/` para ficar sem
+ * de verdade (último admin, student intocável, lease/fencing de identidade,
+ * idempotência) moram no BANCO — RPCs SECURITY DEFINER (owner team_ops)
+ * executadas COM O JWT DO USUÁRIO (o ator é auth.uid(); service_role nem
+ * executa a saga) — migration 20260812150000. A implementação vive em `_shared/team/` para ficar sem
  * import de VALOR do SDK e assim ser coberta por teste.
  */
 Deno.serve((req) =>

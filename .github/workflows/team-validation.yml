@@ -133,18 +133,34 @@ jobs:
           TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           eval "$(supabase status --workdir "$TEAM_WORKDIR" -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=')"
-          # service_role com lease inválido → o corpo do PostgREST traz code T0002
-          BODY=$(curl -s -X POST "$API_URL/rest/v1/rpc/team_set_roles" \
+          DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          # JWT REAL de admin (o ator das RPCs é auth.uid())
+          ADMIN_ID="00000000-0000-0000-0000-00000000000a"
+          curl -s -X PUT "$API_URL/auth/v1/admin/users/$ADMIN_ID" \
             -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"password":"senha-ci-12345","email_confirm":true}' > /dev/null
+          JWT=$(curl -s -X POST "$API_URL/auth/v1/token?grant_type=password" \
+            -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \
+            -d '{"email":"admin1@fabrik.test","password":"senha-ci-12345"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+          [ -n "$JWT" ] || { echo "password grant falhou"; exit 1; }
+          # admin com lease inválido → o corpo do PostgREST traz code T0002
+          BODY=$(curl -s -X POST "$API_URL/rest/v1/rpc/team_set_roles" \
+            -H "apikey: $ANON_KEY" -H "Authorization: Bearer $JWT" \
             -H "Content-Type: application/json" \
             -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
           echo "$BODY" | grep -q '"code":"T0002"' || { echo "esperado code T0002 no corpo: $BODY"; exit 1; }
-          # authenticated/anon não executam a RPC (privilégio negado)
-          CODE=$(curl -s -o /tmp/anon.out -w "%{http_code}" -X POST "$API_URL/rest/v1/rpc/team_set_roles" \
+          # service_role NÃO executa a saga (privilégio revogado — fria r2)
+          CODE=$(curl -s -o /tmp/svc.out -w "%{http_code}" -X POST "$API_URL/rest/v1/rpc/team_set_roles" \
+            -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
+          [ "$CODE" -ge 400 ] || { echo "service_role deveria ser barrado, veio $CODE"; cat /tmp/svc.out; exit 1; }
+          # anon idem
+          CODE2=$(curl -s -o /tmp/anon.out -w "%{http_code}" -X POST "$API_URL/rest/v1/rpc/team_set_roles" \
             -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" \
             -H "Content-Type: application/json" -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
-          [ "$CODE" -ge 400 ] || { echo "anon deveria ser barrado, veio $CODE"; cat /tmp/anon.out; exit 1; }
-          echo "PostgREST OK: T0002 chega por code; anon barrado ($CODE)"
+          [ "$CODE2" -ge 400 ] || { echo "anon deveria ser barrado, veio $CODE2"; cat /tmp/anon.out; exit 1; }
+          echo "PostgREST OK: T0002 por code com admin real; service_role ($CODE) e anon ($CODE2) barrados"
       - name: Edge manage-team servida de VERDADE (smoke + mapeamento HTTP)
         env:
           TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}

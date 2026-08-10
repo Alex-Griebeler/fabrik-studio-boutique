@@ -411,7 +411,7 @@ REVOKE ALL ON FUNCTION private.team_validate_detail(text, jsonb) FROM PUBLIC, an
 GRANT EXECUTE ON FUNCTION private.team_validate_detail(text, jsonb) TO service_role;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 6. RPCs da saga (SECURITY INVOKER, service-only)
+-- 6. RPCs da saga (SECURITY DEFINER owner team_ops; EXECUTE de authenticated)
 --    Contrato de erros (spec §F10, classe T0 — PTxxx é reservado do PostgREST):
 --      T0001 operation_id_conflict   T0002 stale_lease      T0003 last_admin
 --      T0004 actor_not_admin         T0005 operation_already_in_progress
@@ -527,7 +527,7 @@ BEGIN
       RAISE EXCEPTION 'operation_id já usado com outra assinatura'
         USING ERRCODE = 'T0001';
     END IF;
-    IF op.actor_user_id <> p_actor
+    IF COALESCE(op.taken_over_by, op.actor_user_id) <> p_actor
        AND op.status = 'started' AND op.lease_expires_at >= now() THEN
       RAISE EXCEPTION 'operation_id já usado com outra assinatura'
         USING ERRCODE = 'T0001';
@@ -544,8 +544,10 @@ BEGIN
     UPDATE public.team_operations
     SET lease_token = new_token,
         lease_expires_at = now() + interval '90 seconds',
-        taken_over_by = CASE WHEN actor_user_id <> p_actor THEN p_actor
-                             ELSE taken_over_by END
+        -- ator efetivo passa a ser quem assumiu; o ORIGINAL reassumindo limpa
+        -- a marca (NULLIF) — o fencing de identidade sempre aponta pro dono
+        -- atual do lease.
+        taken_over_by = NULLIF(p_actor, actor_user_id)
     WHERE operation_id = p_operation_id;
     SELECT * INTO op FROM public.team_operations WHERE operation_id = p_operation_id;
     RETURN jsonb_build_object('kind', 'takeover', 'lease_token', new_token,
