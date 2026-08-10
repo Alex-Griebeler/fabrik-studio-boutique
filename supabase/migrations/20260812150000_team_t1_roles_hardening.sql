@@ -840,7 +840,8 @@ BEGIN
 END;
 $$;
 
--- Grants das RPCs públicas: service-only.
+-- Grants das RPCs públicas: EXECUTE de authenticated (gate interno via auth.uid);
+-- service_role e anon FORA.
 DO $grants$
 DECLARE
   fn text;
@@ -949,7 +950,7 @@ BEGIN
      OR has_schema_privilege('authenticated', 'private', 'USAGE') THEN
     RAISE EXCEPTION 'pós-condição: privilégios do schema private errados';
   END IF;
-  -- RPCs: service_role executa, authenticated não
+  -- RPCs: authenticated executa (gate interno); service_role e anon não
   IF has_function_privilege('service_role',
        'public.team_set_roles(uuid, uuid, public.app_role[])', 'EXECUTE')
      OR NOT has_function_privilege('authenticated',

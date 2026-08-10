@@ -155,11 +155,14 @@ jobs:
             -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
           [ "$CODE" -ge 400 ] || { echo "service_role deveria ser barrado, veio $CODE"; cat /tmp/svc.out; exit 1; }
+          grep -q '"code":"42501"' /tmp/svc.out || { echo "esperado 42501 (privilégio), veio:"; cat /tmp/svc.out; exit 1; }
+          if grep -q '"code":"T0002"' /tmp/svc.out; then echo "service_role EXECUTOU a RPC (grant indevido)"; exit 1; fi
           # anon idem
           CODE2=$(curl -s -o /tmp/anon.out -w "%{http_code}" -X POST "$API_URL/rest/v1/rpc/team_set_roles" \
             -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" \
             -H "Content-Type: application/json" -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
           [ "$CODE2" -ge 400 ] || { echo "anon deveria ser barrado, veio $CODE2"; cat /tmp/anon.out; exit 1; }
+          if grep -q '"code":"T0002"' /tmp/anon.out; then echo "anon EXECUTOU a RPC (grant indevido)"; exit 1; fi
           echo "PostgREST OK: T0002 por code com admin real; service_role ($CODE) e anon ($CODE2) barrados"
       - name: Edge manage-team servida de VERDADE (smoke + mapeamento HTTP)
         env:

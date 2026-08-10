@@ -3,7 +3,7 @@
 -- IDs do fixture: admin A=...000a, admin B=...000b, instrutor=...000c, aluna=...000d.
 
 BEGIN;
-SELECT plan(74);
+SELECT plan(77);
 
 -- Passagem de tokens entre blocos DO e asserts.
 CREATE TEMP TABLE _t1_tokens (k text PRIMARY KEY, v uuid) ON COMMIT DROP;
@@ -553,6 +553,46 @@ SELECT throws_ok(
     '99999999-0000-0000-0000-000000000011', %L, 'role_assigned', NULL, NULL) $$,
     (SELECT v FROM _t1_tokens WHERE k = 'op11')),
   'T0012', NULL, 'token válido com auth.uid() de terceiro toma T0012');
+-- Takeover ENCADEADO (fria r4): A (dono atual) retry vivo → T0010; lease
+-- vence; B (ator original, admin de novo) REASSUME → taken_over_by limpa e o
+-- token novo funciona nas mãos de B.
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
+SELECT throws_ok(
+  $$ SELECT public.team_begin_operation(
+       '99999999-0000-0000-0000-000000000011',
+       'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-11') $$,
+  'T0010', NULL, 'dono atual (quem assumiu) faz retry vivo e toma T0010');
+
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('00000000-0000-0000-0000-00000000000b', 'admin');
+UPDATE public.team_operations
+SET lease_expires_at = now() - interval '1 second'
+WHERE operation_id = '99999999-0000-0000-0000-000000000011';
+SELECT set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}', false);
+DO $re11$
+DECLARE r jsonb;
+BEGIN
+  r := public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000011',
+    'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-11');
+  IF (r ->> 'kind') <> 'takeover' THEN
+    RAISE EXCEPTION 'esperado takeover na reassunção, veio %', r ->> 'kind';
+  END IF;
+  DELETE FROM _t1_tokens WHERE k = 'op11b';
+  INSERT INTO _t1_tokens VALUES ('op11b', (r ->> 'lease_token')::uuid);
+END $re11$;
+SELECT is(
+  (SELECT taken_over_by FROM public.team_operations
+   WHERE operation_id = '99999999-0000-0000-0000-000000000011'),
+  NULL::uuid,
+  'reassunção pelo ator ORIGINAL limpa taken_over_by');
+SELECT lives_ok(
+  format($$ SELECT public.team_advance_phase(
+    '99999999-0000-0000-0000-000000000011', %L, 'role_assigned', NULL, NULL) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op11b')),
+  'token novo funciona nas mãos do ator original reassumido');
 SELECT set_config('request.jwt.claims',
   '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', false);
 
