@@ -24,8 +24,7 @@ Deno.serve((req) =>
   handleManageTeam(req, {
     createClient,
     getAuthAdmin: (auth) =>
-      // deno-lint-ignore no-explicit-any
-      (auth.adminClient as any).auth.admin as TeamAuthAdminApi,
+      (auth.adminClient as unknown as { auth: { admin: TeamAuthAdminApi } }).auth.admin,
     getRpcClient: (req) => {
       // RPCs no contexto do USUÁRIO: anon key + o Authorization da própria
       // requisição — auth.uid() dentro das funções É o ator. service_role

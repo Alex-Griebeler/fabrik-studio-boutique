@@ -68,6 +68,9 @@ GRANT USAGE ON SCHEMA private TO team_ops;
 GRANT USAGE ON SCHEMA public TO team_ops;
 GRANT CREATE ON SCHEMA private TO team_ops;
 GRANT CREATE ON SCHEMA public TO team_ops;
+-- as RPCs DEFINER (rodando como team_ops) derivam o ator de auth.uid()
+GRANT USAGE ON SCHEMA auth TO team_ops;
+GRANT EXECUTE ON FUNCTION auth.uid() TO team_ops;
 
 REVOKE ALL ON FUNCTION private.team_lock_user_roles() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION private.team_lock_user_roles() TO service_role, team_ops;
