@@ -53,7 +53,6 @@ export interface MatchResult {
     high_confidence: number;
     medium_confidence: number;
     low_confidence: number;
-    auto_applied: number;
   };
 }
 
@@ -93,6 +92,22 @@ export function useBankTransactions(importId: string | null) {
   });
 }
 
+/** Erro tipado de arquivo já importado — a tela abre o diálogo de reimportar. */
+export class DuplicateImportError extends Error {
+  readonly isDuplicate = true;
+  readonly details: string;
+  constructor(details?: string) {
+    super("Arquivo duplicado");
+    this.details = details ?? "Este arquivo já foi importado anteriormente.";
+  }
+}
+
+/** Shape mínimo do FunctionsHttpError para ler o status sem `any`. */
+interface InvokeErrorLike {
+  context?: { status?: number };
+  status?: number;
+}
+
 export function useUploadBankStatement() {
   const qc = useQueryClient();
   return useMutation({
@@ -102,20 +117,15 @@ export function useUploadBankStatement() {
       });
       if (error) {
         // Check for 409 duplicate response embedded in FunctionsHttpError
-        if ((error as any)?.context?.status === 409 || (error as any)?.status === 409) {
-          const dupError = new Error("Arquivo duplicado") as any;
-          dupError.isDuplicate = true;
-          dupError.details = data?.details || "Este arquivo já foi importado anteriormente.";
-          throw dupError;
+        const httpError = error as InvokeErrorLike;
+        if (httpError?.context?.status === 409 || httpError?.status === 409) {
+          throw new DuplicateImportError(data?.details);
         }
         throw error;
       }
       if (data?.error) {
         if (data.error === "Arquivo duplicado") {
-          const dupError = new Error("Arquivo duplicado") as any;
-          dupError.isDuplicate = true;
-          dupError.details = data.details || "Este arquivo já foi importado anteriormente.";
-          throw dupError;
+          throw new DuplicateImportError(data.details);
         }
         throw new Error(data.error);
       }
@@ -125,108 +135,45 @@ export function useUploadBankStatement() {
       qc.invalidateQueries({ queryKey: ["bank-imports"] });
       qc.invalidateQueries({ queryKey: ["bank-transactions"] });
       const s = data?.summary;
-      const expMsg = s?.expenses_created ? ` | ${s.expenses_created} despesas criadas automaticamente` : "";
-      toast.success(`Importação concluída! ${s?.total_transactions ?? 0} transações processadas.${expMsg}`);
+      toast.success(`Importação concluída! ${s?.total_transactions ?? 0} transações processadas.`);
     },
-    onError: (err: any) => {
-      if (!err.isDuplicate) {
+    onError: (err: Error) => {
+      if (!(err instanceof DuplicateImportError)) {
         toast.error(`Erro na importação: ${err.message}`);
       }
     },
   });
 }
 
+/**
+ * Busca sugestões de vínculo. Desde a Onda 2c-1 a edge function é
+ * somente-sugestão: nenhuma escrita acontece em nenhum caminho — aplicar
+ * vínculo vira RPC transacional na 2c-3. Por isso este hook não invalida
+ * mais invoices/expenses: nada muda ao rodar.
+ */
 export function useRunMatching() {
-  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ importId, autoApply }: { importId?: string; autoApply?: boolean }) => {
+    mutationFn: async ({ importId }: { importId?: string }) => {
       const { data, error } = await supabase.functions.invoke("match-bank-transactions", {
-        body: { import_id: importId ?? null, auto_apply: autoApply ?? false },
+        body: { import_id: importId ?? null },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data as MatchResult;
     },
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      qc.invalidateQueries({ queryKey: ["expenses"] });
       const s = data.stats;
       if (s.total_matches === 0) {
-        toast.info("Nenhum match encontrado para as transações pendentes.");
+        toast.info("Nenhuma sugestão encontrada para as transações pendentes.");
       } else {
         toast.success(
-          `${s.total_matches} matches encontrados! (${s.high_confidence} alta, ${s.medium_confidence} média, ${s.low_confidence} baixa)${s.auto_applied > 0 ? ` — ${s.auto_applied} aplicados automaticamente` : ""}`
+          `${s.total_matches} sugestões encontradas (${s.high_confidence} alta, ${s.medium_confidence} média, ${s.low_confidence} baixa). A vinculação chega na próxima fase da conciliação.`
         );
       }
     },
     onError: (err: Error) => {
-      toast.error(`Erro no matching: ${err.message}`);
+      toast.error(`Erro ao buscar sugestões: ${err.message}`);
     },
-  });
-}
-
-export function useApproveMatch() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ transactionId, matchedType, matchedId }: { transactionId: string; matchedType: "invoice" | "expense"; matchedId: string }) => {
-      const updateData: Record<string, unknown> = {
-        match_status: "manual_matched",
-        match_confidence: "manual",
-        matched_at: new Date().toISOString(),
-      };
-      if (matchedType === "invoice") {
-        updateData.matched_invoice_id = matchedId;
-      } else {
-        updateData.matched_expense_id = matchedId;
-      }
-      const { error } = await supabase
-        .from("bank_transactions")
-        .update(updateData)
-        .eq("id", transactionId);
-      if (error) throw error;
-
-      // Update matched record
-      if (matchedType === "invoice") {
-        const { data: tx } = await supabase.from("bank_transactions").select("posted_date, amount_cents").eq("id", transactionId).maybeSingle();
-        await supabase.from("invoices").update({ status: "paid", payment_date: tx?.posted_date, paid_amount_cents: tx?.amount_cents }).eq("id", matchedId);
-      } else {
-        const { data: tx } = await supabase.from("bank_transactions").select("posted_date").eq("id", transactionId).maybeSingle();
-        await supabase.from("expenses").update({ status: "paid", payment_date: tx?.posted_date }).eq("id", matchedId);
-      }
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      qc.invalidateQueries({ queryKey: ["expenses"] });
-      toast.success("Match aprovado!");
-    },
-    onError: () => toast.error("Erro ao aprovar match."),
-  });
-}
-
-export function useRejectMatch() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (transactionId: string) => {
-      const { error } = await supabase
-        .from("bank_transactions")
-        .update({
-          match_status: "unmatched",
-          match_confidence: null,
-          matched_invoice_id: null,
-          matched_expense_id: null,
-          matched_at: null,
-          matched_by: null,
-        })
-        .eq("id", transactionId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
-      toast.success("Match rejeitado.");
-    },
-    onError: () => toast.error("Erro ao rejeitar match."),
   });
 }
 
@@ -266,113 +213,14 @@ export function useRestoreTransaction() {
   });
 }
 
-export function useDeleteBankImport() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (importId: string) => {
-      // Delete all transactions first (FK constraint)
-      const { error: txError } = await supabase
-        .from("bank_transactions")
-        .delete()
-        .eq("import_id", importId);
-      if (txError) throw txError;
+// useDeleteBankImport morreu na 2c-1: apagava transações e import em duas
+// chamadas client-side sem transação, sem lineage e sem backup — e permitia
+// apagar os 6 imports legados ANTES do backup obrigatório da limpeza (A6).
+// A exclusão volta na 2c-2 como RPC `bank_import_delete`, que recusa import
+// com vínculo; os legados só saem pelo runbook da 2c-6.
 
-      // Delete the import record
-      const { error: impError } = await supabase
-        .from("bank_imports")
-        .delete()
-        .eq("id", importId);
-      if (impError) throw impError;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["bank-imports"] });
-      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
-      toast.success("Importação excluída com sucesso!");
-    },
-    onError: (err: Error) => {
-      toast.error(`Erro ao excluir importação: ${err.message}`);
-    },
-  });
-}
-
-export function useBatchApproveMatches() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (suggestions: MatchSuggestion[]) => {
-      // Fetch all required data upfront to avoid N+1 queries and get transaction dates
-      const transactionIds = suggestions.map(s => s.transaction_id);
-      const { data: transactions } = await supabase
-        .from("bank_transactions")
-        .select("id, posted_date")
-        .in("id", transactionIds);
-      
-      const txMap = new Map(transactions?.map(t => [t.id, t.posted_date]) ?? []);
-
-      // Batch update all bank_transactions
-      const updatePromises = suggestions.map(s => {
-        const updateData: Record<string, unknown> = {
-          match_status: "manual_matched",
-          match_confidence: "manual",
-          matched_at: new Date().toISOString(),
-        };
-        if (s.matched_type === "invoice") {
-          updateData.matched_invoice_id = s.matched_id;
-        } else {
-          updateData.matched_expense_id = s.matched_id;
-        }
-        return supabase
-          .from("bank_transactions")
-          .update(updateData)
-          .eq("id", s.transaction_id);
-      });
-      
-      const updateResults = await Promise.all(updatePromises);
-      const updateErrors = updateResults.filter(r => r.error);
-      if (updateErrors.length > 0) {
-        throw new Error(`Erro ao atualizar ${updateErrors.length} transações: ${updateErrors[0].error?.message}`);
-      }
-
-      // Batch update invoices and expenses separately
-      const invoiceSuggestions = suggestions.filter(s => s.matched_type === "invoice");
-      const expenseSuggestions = suggestions.filter(s => s.matched_type === "expense");
-
-       if (invoiceSuggestions.length > 0) {
-         // Fetch transaction amounts for paid_amount_cents
-         const invoiceTxIds = invoiceSuggestions.map(s => s.transaction_id);
-         const { data: txData } = await supabase
-           .from("bank_transactions")
-           .select("id, posted_date, amount_cents")
-           .in("id", invoiceTxIds);
-         
-         const txAmountMap = new Map(txData?.map(t => [t.id, { date: t.posted_date, amount: t.amount_cents }]) ?? []);
-         
-         for (const s of invoiceSuggestions) {
-           const txInfo = txAmountMap.get(s.transaction_id);
-           const { error } = await supabase
-             .from("invoices")
-             .update({ status: "paid", payment_date: txInfo?.date, paid_amount_cents: txInfo?.amount })
-             .eq("id", s.matched_id);
-           if (error) throw error;
-         }
-       }
-
-      if (expenseSuggestions.length > 0) {
-        for (const s of expenseSuggestions) {
-          const postedDate = txMap.get(s.transaction_id);
-          const { error } = await supabase
-            .from("expenses")
-            .update({ status: "paid", payment_date: postedDate })
-            .eq("id", s.matched_id);
-          if (error) throw error;
-        }
-      }
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      qc.invalidateQueries({ queryKey: ["expenses"] });
-      toast.success(`${variables.length} matches aprovados em lote!`);
-    },
-    onError: () => toast.error("Erro ao aprovar matches em lote."),
-  });
-}
+// Os hooks useApproveMatch / useRejectMatch / useBatchApproveMatches morreram
+// na Onda 2c-1. Eram o modelo velho: aprovar QUITAVA a fatura/despesa em
+// escritas client-side sem transação, e rejeitar limpava a transação sem
+// desfazer a quitação (bug C3 — 1 crédito podia pagar 2 faturas). O modelo
+// novo (aprovar = vincular, por RPC transacional) chega na 2c-3.

@@ -112,7 +112,7 @@ const App = () => (
               <Route
                 path="/bank-reconciliation"
                 element={
-                  <ProtectedRoute allowedRoles={["admin", "manager"]}>
+                  <ProtectedRoute allowedRoles={["admin"]}>
                     <AppLayout><BankReconciliation /></AppLayout>
                   </ProtectedRoute>
                 }

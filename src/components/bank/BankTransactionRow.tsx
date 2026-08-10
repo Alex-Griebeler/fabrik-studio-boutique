@@ -1,7 +1,6 @@
-import { Check, X, EyeOff, Link2, Undo2 } from "lucide-react";
+import { X, EyeOff, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCents } from "@/hooks/usePlans";
@@ -26,7 +25,6 @@ const typeLabels: Record<string, string> = {
 
 const matchStatusLabels: Record<string, string> = {
   unmatched: "Pendente",
-  suggested: "Verificar",
   auto_matched: "Vinculado",
   manual_matched: "Vinculado",
   ignored: "Ignorado",
@@ -34,7 +32,6 @@ const matchStatusLabels: Record<string, string> = {
 
 const matchStatusColors: Record<string, string> = {
   unmatched: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  suggested: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
   auto_matched: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
   manual_matched: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
   ignored: "bg-muted text-muted-foreground",
@@ -59,16 +56,15 @@ function formatDate(d: string | null) {
 
 interface BankTransactionRowProps {
   tx: BankTransaction;
+  /**
+   * Sugestão de correspondência (Onda 2c-1: SÓ informação — os botões de
+   * aprovar/vincular morreram junto com o modelo que quitava; a vinculação
+   * real chega por RPC na 2c-3/2c-5).
+   */
   suggestion: MatchSuggestion | undefined;
-  showCheckbox: boolean;
-  isSelected: boolean;
-  onToggleSelect: (id: string) => void;
-  onApprove: (suggestion: MatchSuggestion) => void;
-  onReject: (transactionId: string) => void;
-  onManualMatch: (tx: BankTransaction) => void;
+  onDismissSuggestion: (transactionId: string) => void;
   onIgnore: (transactionId: string) => void;
   onRestore?: (transactionId: string) => void;
-  isApprovePending: boolean;
   isIgnorePending: boolean;
   isRestorePending?: boolean;
 }
@@ -76,15 +72,9 @@ interface BankTransactionRowProps {
 export function BankTransactionRow({
   tx,
   suggestion,
-  showCheckbox,
-  isSelected,
-  onToggleSelect,
-  onApprove,
-  onReject,
-  onManualMatch,
+  onDismissSuggestion,
   onIgnore,
   onRestore,
-  isApprovePending,
   isIgnorePending,
   isRestorePending,
 }: BankTransactionRowProps) {
@@ -92,16 +82,6 @@ export function BankTransactionRow({
 
   return (
     <TableRow className={hasSuggestion ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}>
-      {showCheckbox && (
-        <TableCell>
-          {hasSuggestion && (
-            <Checkbox
-              checked={isSelected}
-              onCheckedChange={() => onToggleSelect(tx.id)}
-            />
-          )}
-        </TableCell>
-      )}
       <TableCell>{formatDate(tx.posted_date)}</TableCell>
       <TableCell>
         <Badge variant="outline" className={tx.transaction_type === "credit"
@@ -127,85 +107,48 @@ export function BankTransactionRow({
         {tx.transaction_type === "credit" ? "+" : "−"}{formatCents(Math.abs(tx.amount_cents))}
       </TableCell>
       <TableCell>
-        <Badge variant="outline" className={hasSuggestion ? matchStatusColors.suggested : (matchStatusColors[tx.match_status] ?? "")}>
+        <Badge variant="outline" className={hasSuggestion ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" : (matchStatusColors[tx.match_status] ?? "")}>
           {hasSuggestion ? "Sugestão" : (matchStatusLabels[tx.match_status] ?? tx.match_status)}
         </Badge>
       </TableCell>
       <TableCell>
         <div className="flex gap-1">
-          {hasSuggestion && suggestion && (
-            <>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Confirmar vínculo sugerido"
-                      className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
-                      onClick={() => onApprove(suggestion)}
-                      disabled={isApprovePending}
-                    >
-                      <Check className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Confirmar vínculo com {suggestion.matched_type === "invoice" ? "fatura" : "despesa"}</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Descartar sugestão"
-                      className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
-                      onClick={() => onReject(tx.id)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Descartar sugestão</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </>
+          {hasSuggestion && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Descartar sugestão"
+                    className="h-7 w-7 text-muted-foreground"
+                    onClick={() => onDismissSuggestion(tx.id)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Descartar sugestão (só visual)</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
-          {tx.match_status === "unmatched" && !hasSuggestion && (
-            <>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Vincular manualmente"
-                      className="h-7 w-7"
-                      onClick={() => onManualMatch(tx)}
-                    >
-                      <Link2 className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Vincular manualmente a uma fatura ou despesa</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Ignorar transação"
-                      className="h-7 w-7"
-                      onClick={() => onIgnore(tx.id)}
-                      disabled={isIgnorePending}
-                    >
-                      <EyeOff className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Ignorar transação</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </>
+          {tx.match_status === "unmatched" && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Ignorar transação"
+                    className="h-7 w-7"
+                    onClick={() => onIgnore(tx.id)}
+                    disabled={isIgnorePending}
+                  >
+                    <EyeOff className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Ignorar transação</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
           {tx.match_status === "ignored" && onRestore && (
             <TooltipProvider>
