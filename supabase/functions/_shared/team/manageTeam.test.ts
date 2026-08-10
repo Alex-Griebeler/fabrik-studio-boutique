@@ -551,7 +551,7 @@ describe("handleManageTeam", () => {
       expect(sendRecovery).not.toHaveBeenCalled();
     });
 
-    it("takeover NUNCA reenvia: phase recovery_requested finaliza succeeded", async () => {
+    it("takeover NUNCA reenvia: phase recovery_requested finaliza PARTIAL (resultado desconhecido)", async () => {
       const fake = makeFake({
         rpcScript: (call) => {
           if (call.name === "team_begin_operation") {
@@ -566,7 +566,7 @@ describe("handleManageTeam", () => {
       const { deps, sendRecovery } = makeDeps(fake, makeAuthAdmin().api);
       const res = await handleManageTeam(
         request({ action: "send_recovery", operation_id: OP_ID, user_id: TARGET }), deps);
-      await expect(res.json()).resolves.toMatchObject({ status: "succeeded", outcome: "recovery_requested" });
+      await expect(res.json()).resolves.toMatchObject({ status: "partial", outcome: "recovery_request_unknown" });
       expect(sendRecovery).not.toHaveBeenCalled();
     });
   });

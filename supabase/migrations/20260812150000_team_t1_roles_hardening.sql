@@ -46,18 +46,68 @@ SECURITY INVOKER
 SET search_path = ''
 AS $$ SELECT pg_advisory_xact_lock(20260810, 1); $$;
 
+-- Role de CAPACIDADE (fria T1, achado 3): as RPCs viram SECURITY DEFINER com
+-- owner team_ops — e o service_role PERDE o DML direto em user_roles e
+-- team_operations. Um bearer de service_role comprometido (o incidente A3.1
+-- foi exatamente isso) não escreve papéis por fora da saga nunca mais.
+DO $role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'team_ops') THEN
+    CREATE ROLE team_ops NOLOGIN;
+  END IF;
+END $role$;
+GRANT USAGE ON SCHEMA private TO team_ops;
+GRANT USAGE ON SCHEMA public TO team_ops;
+
 REVOKE ALL ON FUNCTION private.team_lock_user_roles() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION private.team_lock_user_roles() TO service_role;
+GRANT EXECUTE ON FUNCTION private.team_lock_user_roles() TO service_role, team_ops;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 2. user_roles: fim da escrita direta
 -- ────────────────────────────────────────────────────────────────────────────
 
 REVOKE INSERT, UPDATE, DELETE ON public.user_roles FROM PUBLIC, anon, authenticated;
+-- TRUNCATE ignora RLS e triggers de LINHA: com o GRANT ALL default da nuvem,
+-- qualquer authenticated poderia zerar user_roles inteira (fria T1, CRÍTICO).
+-- Morre para TODO MUNDO — inclusive service_role.
+REVOKE TRUNCATE ON public.user_roles FROM PUBLIC, anon, authenticated, service_role;
+REVOKE INSERT, UPDATE, DELETE ON public.user_roles FROM service_role;
 DROP POLICY IF EXISTS "user_roles_insert" ON public.user_roles;
 DROP POLICY IF EXISTS "user_roles_update" ON public.user_roles;
 DROP POLICY IF EXISTS "user_roles_delete" ON public.user_roles;
--- ("user_roles_select" — admin OU dono — permanece; service_role intacto.)
+-- ("user_roles_select" — admin OU dono — permanece.)
+
+-- team_ops escreve (as RPCs DEFINER rodam como ela); policies próprias porque
+-- RLS segue ligada e team_ops não tem BYPASSRLS.
+GRANT SELECT, INSERT, DELETE ON public.user_roles TO team_ops;
+DROP POLICY IF EXISTS "user_roles_teamops_select" ON public.user_roles;
+CREATE POLICY "user_roles_teamops_select" ON public.user_roles
+  FOR SELECT TO team_ops USING (true);
+DROP POLICY IF EXISTS "user_roles_teamops_insert" ON public.user_roles;
+CREATE POLICY "user_roles_teamops_insert" ON public.user_roles
+  FOR INSERT TO team_ops WITH CHECK (true);
+DROP POLICY IF EXISTS "user_roles_teamops_delete" ON public.user_roles;
+CREATE POLICY "user_roles_teamops_delete" ON public.user_roles
+  FOR DELETE TO team_ops USING (true);
+
+-- Cinto e suspensório: TRUNCATE bloqueado por trigger de STATEMENT (pega até
+-- owner/superuser, que ignoram privilégios mas não triggers).
+CREATE OR REPLACE FUNCTION public.fn_user_roles_no_truncate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  RAISE EXCEPTION 'TRUNCATE em user_roles é proibido';
+END;
+$$;
+ALTER FUNCTION public.fn_user_roles_no_truncate() OWNER TO postgres;
+REVOKE ALL ON FUNCTION public.fn_user_roles_no_truncate() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS user_roles_no_truncate ON public.user_roles;
+CREATE TRIGGER user_roles_no_truncate
+  BEFORE TRUNCATE ON public.user_roles
+  FOR EACH STATEMENT EXECUTE FUNCTION public.fn_user_roles_no_truncate();
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 3. Guarda de user_roles
@@ -134,6 +184,7 @@ CREATE TABLE IF NOT EXISTS public.team_operations (
   detail jsonb NOT NULL DEFAULT '{}'::jsonb,
   lease_expires_at timestamptz NULL,
   lease_token uuid NULL,
+  taken_over_by uuid NULL,                 -- admin ATUAL que assumiu op órfã (fria T1, achado 2)
   error_code text NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   finished_at timestamptz NULL
@@ -143,10 +194,36 @@ ALTER TABLE public.team_operations ENABLE ROW LEVEL SECURITY;
 -- Service-only: sem policy nenhuma (RLS ligada sem policy = zero acesso via
 -- API para anon/authenticated mesmo que um grant futuro escorregue).
 REVOKE ALL ON public.team_operations FROM PUBLIC, anon, authenticated;
--- service_role: grants POSITIVOS mínimos — sem DELETE e sem TRUNCATE
--- (TRUNCATE ignora RLS e triggers: apagaria a auditoria de domínio inteira).
+-- service_role NÃO escreve aqui (fria T1: DML direto = bypass da saga e do
+-- fencing). Só a role de capacidade das RPCs.
 REVOKE ALL ON public.team_operations FROM service_role;
-GRANT SELECT, INSERT, UPDATE ON public.team_operations TO service_role;
+GRANT SELECT ON public.team_operations TO service_role;   -- leitura p/ a Edge (list/replay é via RPC; SELECT p/ depuração via service)
+GRANT SELECT, INSERT, UPDATE ON public.team_operations TO team_ops;
+DROP POLICY IF EXISTS "team_operations_teamops_all" ON public.team_operations;
+CREATE POLICY "team_operations_teamops_all" ON public.team_operations
+  FOR ALL TO team_ops USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "team_operations_service_select" ON public.team_operations;
+CREATE POLICY "team_operations_service_select" ON public.team_operations
+  FOR SELECT TO service_role USING (true);
+
+CREATE OR REPLACE FUNCTION public.fn_team_operations_no_truncate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  RAISE EXCEPTION 'TRUNCATE em team_operations é proibido';
+END;
+$$;
+ALTER FUNCTION public.fn_team_operations_no_truncate() OWNER TO postgres;
+REVOKE ALL ON FUNCTION public.fn_team_operations_no_truncate() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS team_operations_no_truncate ON public.team_operations;
+CREATE TRIGGER team_operations_no_truncate
+  BEFORE TRUNCATE ON public.team_operations
+  FOR EACH STATEMENT EXECUTE FUNCTION public.fn_team_operations_no_truncate();
+
+ALTER TABLE public.team_operations ADD COLUMN IF NOT EXISTS taken_over_by uuid NULL;
 
 CREATE INDEX IF NOT EXISTS idx_team_ops_actor ON public.team_operations (actor_user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_team_ops_target_user ON public.team_operations (target_user_id);
@@ -405,7 +482,7 @@ CREATE OR REPLACE FUNCTION public.team_begin_operation(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -420,10 +497,17 @@ BEGIN
   FOR UPDATE;
 
   IF FOUND THEN
-    -- Retry legítimo = mesmo ator + ação + fingerprint. Qualquer divergência é
-    -- conflito e NÃO devolve nada da operação original.
-    IF op.actor_user_id <> p_actor OR op.action <> p_action
-       OR op.payload_fingerprint <> p_fingerprint THEN
+    -- Ação e payload têm que bater SEMPRE. O ator tem que bater enquanto o
+    -- lease vive; com lease VENCIDO, outro admin ATUAL pode assumir a
+    -- operação órfã (ator original rebaixado/apagado não pode deixar a saga
+    -- presa pra sempre — fria T1, achado 2). O ator ORIGINAL fica registrado;
+    -- quem assumiu vai em taken_over_by.
+    IF op.action <> p_action OR op.payload_fingerprint <> p_fingerprint THEN
+      RAISE EXCEPTION 'operation_id já usado com outra assinatura'
+        USING ERRCODE = 'T0001';
+    END IF;
+    IF op.actor_user_id <> p_actor
+       AND op.status = 'started' AND op.lease_expires_at >= now() THEN
       RAISE EXCEPTION 'operation_id já usado com outra assinatura'
         USING ERRCODE = 'T0001';
     END IF;
@@ -437,7 +521,10 @@ BEGIN
     -- Lease vencido: takeover com fencing novo — o worker antigo perde a escrita.
     new_token := gen_random_uuid();
     UPDATE public.team_operations
-    SET lease_token = new_token, lease_expires_at = now() + interval '90 seconds'
+    SET lease_token = new_token,
+        lease_expires_at = now() + interval '90 seconds',
+        taken_over_by = CASE WHEN actor_user_id <> p_actor THEN p_actor
+                             ELSE taken_over_by END
     WHERE operation_id = p_operation_id;
     SELECT * INTO op FROM public.team_operations WHERE operation_id = p_operation_id;
     RETURN jsonb_build_object('kind', 'takeover', 'lease_token', new_token,
@@ -495,7 +582,7 @@ CREATE OR REPLACE FUNCTION public.team_advance_phase(
 )
 RETURNS void
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -526,7 +613,7 @@ CREATE OR REPLACE FUNCTION public.team_finalize_operation(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -560,7 +647,7 @@ CREATE OR REPLACE FUNCTION public.team_assign_role_after_invite(
 )
 RETURNS void
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -579,7 +666,7 @@ BEGIN
     RAISE EXCEPTION 'invite sem alvo persistido' USING ERRCODE = 'T0001';
   END IF;
 
-  PERFORM private.team_require_admin(op.actor_user_id);
+  PERFORM private.team_require_admin(COALESCE(op.taken_over_by, op.actor_user_id));
 
   IF NOT (p_role = ANY (private.team_staff_roles())) THEN
     RAISE EXCEPTION 'papel % não é staff', p_role USING ERRCODE = 'T0008';
@@ -606,7 +693,7 @@ CREATE OR REPLACE FUNCTION public.team_set_roles(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -629,7 +716,7 @@ BEGIN
   IF op.target_user_id IS NULL THEN
     RAISE EXCEPTION 'set_roles sem alvo persistido' USING ERRCODE = 'T0001';
   END IF;
-  p_actor := op.actor_user_id;
+  p_actor := COALESCE(op.taken_over_by, op.actor_user_id);
   p_target := op.target_user_id;
 
   PERFORM private.team_require_admin(p_actor);
@@ -684,7 +771,7 @@ CREATE OR REPLACE FUNCTION public.team_revoke_access(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -705,7 +792,7 @@ BEGIN
   IF op.target_user_id IS NULL THEN
     RAISE EXCEPTION 'revoke_access sem alvo persistido' USING ERRCODE = 'T0001';
   END IF;
-  p_actor := op.actor_user_id;
+  p_actor := COALESCE(op.taken_over_by, op.actor_user_id);
   p_target := op.target_user_id;
 
   PERFORM private.team_require_admin(p_actor);
@@ -745,9 +832,28 @@ BEGIN
   ] LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn);
+    -- DEFINER com owner de CAPACIDADE (fria T1): quem executa é service_role,
+    -- quem ESCREVE é team_ops — service_role sem DML direto não tem bypass.
+    EXECUTE format('ALTER FUNCTION %s OWNER TO team_ops', fn);
   END LOOP;
 END;
 $grants$;
+
+-- team_ops precisa executar as auxiliares privadas (as DEFINER rodam como ela).
+DO $pgrants$
+DECLARE fn text;
+BEGIN
+  FOREACH fn IN ARRAY ARRAY[
+    'private.team_lock_user_roles()',
+    'private.team_staff_roles()',
+    'private.team_require_admin(uuid)',
+    'private.team_require_lease(uuid, uuid)',
+    'private.team_validate_detail(text, jsonb)'
+  ] LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO team_ops', fn);
+  END LOOP;
+END;
+$pgrants$;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 7. Pós-condições: a migration aborta se qualquer promessa falhou.
@@ -766,8 +872,43 @@ BEGIN
     RAISE EXCEPTION 'pós-condição: team_operations legível por cliente';
   END IF;
   IF has_table_privilege('service_role', 'public.team_operations', 'DELETE')
-     OR has_table_privilege('service_role', 'public.team_operations', 'TRUNCATE') THEN
-    RAISE EXCEPTION 'pós-condição: service_role deleta/trunca team_operations';
+     OR has_table_privilege('service_role', 'public.team_operations', 'TRUNCATE')
+     OR has_table_privilege('service_role', 'public.team_operations', 'INSERT')
+     OR has_table_privilege('service_role', 'public.team_operations', 'UPDATE') THEN
+    RAISE EXCEPTION 'pós-condição: service_role ainda escreve team_operations';
+  END IF;
+  IF has_table_privilege('service_role', 'public.user_roles', 'INSERT')
+     OR has_table_privilege('service_role', 'public.user_roles', 'UPDATE')
+     OR has_table_privilege('service_role', 'public.user_roles', 'DELETE')
+     OR has_table_privilege('service_role', 'public.user_roles', 'TRUNCATE') THEN
+    RAISE EXCEPTION 'pós-condição: service_role ainda escreve/trunca user_roles';
+  END IF;
+  IF has_table_privilege('authenticated', 'public.user_roles', 'TRUNCATE')
+     OR has_table_privilege('anon', 'public.user_roles', 'TRUNCATE') THEN
+    RAISE EXCEPTION 'pós-condição: cliente ainda trunca user_roles';
+  END IF;
+  IF NOT has_table_privilege('team_ops', 'public.user_roles', 'INSERT')
+     OR NOT has_table_privilege('team_ops', 'public.team_operations', 'UPDATE') THEN
+    RAISE EXCEPTION 'pós-condição: team_ops sem os privilégios de capacidade';
+  END IF;
+  -- as 6 RPCs são DEFINER e pertencem a team_ops
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p
+    WHERE p.oid IN (
+      'public.team_begin_operation(uuid, uuid, text, text, uuid, text)'::regprocedure,
+      'public.team_advance_phase(uuid, uuid, text, uuid, jsonb)'::regprocedure,
+      'public.team_finalize_operation(uuid, uuid, text, text, text, jsonb)'::regprocedure,
+      'public.team_assign_role_after_invite(uuid, uuid, public.app_role)'::regprocedure,
+      'public.team_set_roles(uuid, uuid, public.app_role[])'::regprocedure,
+      'public.team_revoke_access(uuid, uuid)'::regprocedure)
+      AND (NOT p.prosecdef OR p.proowner <> (SELECT oid FROM pg_roles WHERE rolname = 'team_ops'))
+  ) THEN
+    RAISE EXCEPTION 'pós-condição: RPC sem DEFINER/owner team_ops';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                 WHERE tgrelid = 'public.user_roles'::regclass
+                   AND tgname = 'user_roles_no_truncate') THEN
+    RAISE EXCEPTION 'pós-condição: trigger anti-TRUNCATE ausente em user_roles';
   END IF;
   -- SELECT de user_roles preservado (RLS continua filtrando)
   IF NOT has_table_privilege('authenticated', 'public.user_roles', 'SELECT') THEN

@@ -121,14 +121,35 @@ fi
 restore
 echo "M4 morto"
 
-echo "== M5: INSERT antes de DELETE invertido → a ordem no corpo é o contrato"
-# Inversão é inobservável de fora numa transação; o contrato é PROVADO pela
-# ordem no corpo da função implantada (a sonda quebra se alguém inverter).
-POS=$(psql "$DB_URL" -qtA -c "
-  SELECT position('INSERT INTO public.user_roles' IN pg_get_functiondef('public.team_set_roles(uuid, uuid, public.app_role[])'::regprocedure))
-       < position('DELETE FROM public.user_roles' IN pg_get_functiondef('public.team_set_roles(uuid, uuid, public.app_role[])'::regprocedure))")
-[ "$POS" = "t" ] || fail "M5: INSERT não vem antes de DELETE em team_set_roles"
-echo "M5 morto (ordem provada no corpo implantado)"
+echo "== M5: INSERT/DELETE invertidos de VERDADE → a sonda de ordem detecta"
+# A inversão é inobservável de fora numa transação; a sonda é a ordem no corpo
+# IMPLANTADO. Mutante real: implanta a versão invertida e exige que a sonda
+# acuse; depois confirma que a original passa.
+ORDER_PROBE="SELECT position('INSERT INTO public.user_roles' IN pg_get_functiondef('public.team_set_roles(uuid, uuid, public.app_role[])'::regprocedure))
+     < position('DELETE FROM public.user_roles' IN pg_get_functiondef('public.team_set_roles(uuid, uuid, public.app_role[])'::regprocedure))"
+python3 - "$MIGRATION" <<'PY' > /tmp/m5.sql
+import sys, re
+src = open(sys.argv[1]).read()
+start = src.index("CREATE OR REPLACE FUNCTION public.team_set_roles")
+end = src.index("$$;", start) + 3
+body = src[start:end]
+ins_start = body.index("  -- INSERT antes de DELETE")
+ins_end = body.index("  DELETE FROM public.user_roles")
+del_end = body.index("  SELECT COALESCE", ins_end)
+insert_block = body[ins_start:ins_end]
+delete_block = body[ins_end:del_end]
+body = body[:ins_start] + delete_block + insert_block + body[del_end:]
+print(body)
+PY
+psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f /tmp/m5.sql > /dev/null
+POS=$(psql "$DB_URL" -qtA -c "$ORDER_PROBE")
+if [ "$POS" = "t" ]; then
+  restore; fail "M5 sobreviveu: sonda não detectou a inversão"
+fi
+restore
+POS=$(psql "$DB_URL" -qtA -c "$ORDER_PROBE")
+[ "$POS" = "t" ] || fail "M5: original reprovada na sonda de ordem"
+echo "M5 morto (inversão implantada foi detectada; original passa)"
 
 expire_leases
 OPM6=$(uuidgen | tr 'A-Z' 'a-z')

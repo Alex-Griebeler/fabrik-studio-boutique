@@ -3,7 +3,7 @@
 -- IDs do fixture: admin A=...000a, admin B=...000b, instrutor=...000c, aluna=...000d.
 
 BEGIN;
-SELECT plan(60);
+SELECT plan(72);
 
 -- Passagem de tokens entre blocos DO e asserts.
 CREATE TEMP TABLE _t1_tokens (k text PRIMARY KEY, v uuid) ON COMMIT DROP;
@@ -450,6 +450,97 @@ SELECT throws_ok(
   $$ UPDATE public.team_operations SET phase = 'auth_user_observed'
      WHERE operation_id = '99999999-0000-0000-0000-000000000010' $$,
   'P0001', NULL, 'send_recovery não entra em phase de convite');
+
+-- ── 8. Fria T1: TRUNCATE, service_role sem escrita, DEFINER/team_ops,
+--        takeover administrativo de operação órfã ─────────────────────────
+
+SELECT ok(NOT has_table_privilege('authenticated', 'public.user_roles', 'TRUNCATE')
+      AND NOT has_table_privilege('anon', 'public.user_roles', 'TRUNCATE'),
+  'cliente não trunca user_roles');
+SELECT ok(NOT has_table_privilege('service_role', 'public.user_roles', 'INSERT')
+      AND NOT has_table_privilege('service_role', 'public.user_roles', 'UPDATE')
+      AND NOT has_table_privilege('service_role', 'public.user_roles', 'DELETE')
+      AND NOT has_table_privilege('service_role', 'public.user_roles', 'TRUNCATE'),
+  'service_role não escreve nem trunca user_roles (bypass da saga morto)');
+SELECT ok(NOT has_table_privilege('service_role', 'public.team_operations', 'INSERT')
+      AND NOT has_table_privilege('service_role', 'public.team_operations', 'UPDATE'),
+  'service_role não escreve team_operations');
+SELECT ok(has_table_privilege('team_ops', 'public.user_roles', 'INSERT')
+      AND has_table_privilege('team_ops', 'public.user_roles', 'DELETE')
+      AND has_table_privilege('team_ops', 'public.team_operations', 'UPDATE'),
+  'team_ops tem os privilégios de capacidade');
+
+-- TRUNCATE bloqueado por trigger de statement (até para superuser)
+SELECT throws_ok('TRUNCATE public.user_roles', 'P0001', NULL,
+  'TRUNCATE em user_roles é proibido por trigger');
+SELECT throws_ok('TRUNCATE public.team_operations', 'P0001', NULL,
+  'TRUNCATE em team_operations é proibido por trigger');
+
+-- RPCs são DEFINER com owner team_ops
+SELECT ok((SELECT p.prosecdef AND pg_get_userbyid(p.proowner) = 'team_ops'
+           FROM pg_proc p
+           WHERE p.oid = 'public.team_set_roles(uuid, uuid, public.app_role[])'::regprocedure),
+  'team_set_roles é SECURITY DEFINER de team_ops');
+
+-- Takeover administrativo: ator original rebaixado não deixa a saga presa.
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('00000000-0000-0000-0000-00000000000b', 'admin');
+UPDATE public.team_operations
+SET lease_expires_at = now() - interval '1 second'
+WHERE status = 'started';
+
+SELECT is(
+  (public.team_begin_operation(
+     '99999999-0000-0000-0000-000000000011',
+     '00000000-0000-0000-0000-00000000000b',
+     'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-11'
+   ) ->> 'kind'),
+  'new', 'op11 nasce com o admin B');
+
+-- com lease VIVO, outro admin não assume (T0001)
+SELECT throws_ok(
+  $$ SELECT public.team_begin_operation(
+       '99999999-0000-0000-0000-000000000011',
+       '00000000-0000-0000-0000-00000000000a',
+       'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-11') $$,
+  'T0001', NULL, 'outro admin não assume operação com lease vivo');
+
+-- B é rebaixado; lease vence; A assume a órfã (mesma assinatura)
+DELETE FROM public.user_roles
+WHERE user_id = '00000000-0000-0000-0000-00000000000b' AND role = 'admin';
+UPDATE public.team_operations
+SET lease_expires_at = now() - interval '1 second'
+WHERE operation_id = '99999999-0000-0000-0000-000000000011';
+
+DO $tk11$
+DECLARE r jsonb;
+BEGIN
+  r := public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000011',
+    '00000000-0000-0000-0000-00000000000a',
+    'revoke_access', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-11');
+  IF (r ->> 'kind') <> 'takeover' THEN
+    RAISE EXCEPTION 'esperado takeover, veio %', r ->> 'kind';
+  END IF;
+  INSERT INTO _t1_tokens VALUES ('op11', (r ->> 'lease_token')::uuid);
+END $tk11$;
+
+SELECT is(
+  (SELECT taken_over_by FROM public.team_operations
+   WHERE operation_id = '99999999-0000-0000-0000-000000000011'),
+  '00000000-0000-0000-0000-00000000000a'::uuid,
+  'takeover registra quem assumiu (ator original preservado)');
+
+SELECT lives_ok(
+  format($$ SELECT public.team_revoke_access(
+    '99999999-0000-0000-0000-000000000011', %L) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op11')),
+  'quem assumiu (admin atual) completa a mutação da órfã');
+SELECT is(
+  (SELECT array_agg(role ORDER BY role)::text FROM public.user_roles
+   WHERE user_id = '00000000-0000-0000-0000-00000000000d'),
+  '{student}',
+  'takeover administrativo também preserva o student');
 
 SELECT * FROM finish();
 ROLLBACK;

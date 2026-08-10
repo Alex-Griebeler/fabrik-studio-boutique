@@ -735,11 +735,14 @@ async function handleSendRecovery(
   const { kind, lease_token: lease, op } = begin.result!;
   if (kind === "replay") return opResponse(op);
   if (kind === "takeover") {
-    // E-mail é "envio solicitado" (D8): pós-takeover NUNCA reenviamos —
-    // encerramos com o que dá pra afirmar.
-    const outcome = op.phase === "recovery_requested" ? "recovery_requested" : "recovery_not_started";
-    return await finalize(auth, operationId, lease!,
-      op.phase === "recovery_requested" ? "succeeded" : "failed", outcome);
+    // E-mail é "envio solicitado" (D8): pós-takeover NUNCA reenviamos. E
+    // phase=recovery_requested só prova INTENÇÃO de chamar o provedor — não
+    // que a chamada começou. Falso sucesso é proibido: fecha como PARTIAL
+    // com resultado desconhecido (fria T1, achado 4).
+    if (op.phase === "recovery_requested") {
+      return await finalize(auth, operationId, lease!, "partial", "recovery_request_unknown");
+    }
+    return await finalize(auth, operationId, lease!, "failed", "recovery_not_started");
   }
 
   const lookup = await withTimeout(authAdmin.getUserById(target), timeoutMs);

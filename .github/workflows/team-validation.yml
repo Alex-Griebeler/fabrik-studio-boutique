@@ -85,10 +85,12 @@ jobs:
           cp supabase/config.toml "$TEAM_WORKDIR/supabase/config.toml"
           cp .github/p0-test-fixtures/team-base.sql "$TEAM_WORKDIR/supabase/migrations/20260812140000_team_base.sql"
           cp supabase/migrations/20260812150000_team_t1_roles_hardening.sql "$TEAM_WORKDIR/supabase/migrations/20260812150000_team_t1_roles_hardening.sql"
+          # a Edge REAL vai ser servida: leva as functions inteiras
+          cp -R supabase/functions "$TEAM_WORKDIR/supabase/functions"
       - name: Start full local stack (Auth + PostgREST reais)
         env:
           TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
-        run: supabase start --workdir "$TEAM_WORKDIR" -x studio,imgproxy,inbucket,edge-runtime,logflare,vector
+        run: supabase start --workdir "$TEAM_WORKDIR" -x studio,imgproxy,inbucket,logflare,vector
       - name: Concurrency harness (2 real connections)
         run: |
           chmod +x .github/scripts/team-concurrency-check.sh
@@ -143,3 +145,47 @@ jobs:
             -H "Content-Type: application/json" -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
           [ "$CODE" -ge 400 ] || { echo "anon deveria ser barrado, veio $CODE"; cat /tmp/anon.out; exit 1; }
           echo "PostgREST OK: T0002 chega por code; anon barrado ($CODE)"
+      - name: Edge manage-team servida de VERDADE (smoke + mapeamento HTTP)
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          eval "$(supabase status --workdir "$TEAM_WORKDIR" -o env | grep -E '^(API_URL|SERVICE_ROLE_KEY|ANON_KEY)=')"
+          echo "APP_URL=https://ci.example.test" > "$TEAM_WORKDIR/.env.ci"
+          supabase functions serve manage-team --workdir "$TEAM_WORKDIR" \
+            --env-file "$TEAM_WORKDIR/.env.ci" --no-verify-jwt > /tmp/serve.log 2>&1 &
+          SERVE_PID=$!
+          FN="$API_URL/functions/v1/manage-team"
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -X OPTIONS "$FN" || true)
+            [ "$CODE" = "200" ] && break; sleep 2
+          done
+          [ "$CODE" = "200" ] || { cat /tmp/serve.log; echo "função não subiu"; exit 1; }
+          # smoke sem credencial / método errado
+          NOAUTH=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$FN" -H "Content-Type: application/json" -d '{}')
+          [ "$NOAUTH" = "401" ] || { echo "esperado 401 sem credencial, veio $NOAUTH"; exit 1; }
+          BADM=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$FN")
+          [ "$BADM" = "405" ] || { echo "esperado 405 em GET, veio $BADM"; exit 1; }
+          # JWT real do admin A: define senha via Admin API e faz password grant
+          ADMIN_ID="00000000-0000-0000-0000-00000000000a"
+          curl -s -X PUT "$API_URL/auth/v1/admin/users/$ADMIN_ID" \
+            -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"password":"senha-ci-12345","email_confirm":true}' > /dev/null
+          JWT=$(curl -s -X POST "$API_URL/auth/v1/token?grant_type=password" \
+            -H "apikey: $ANON_KEY" -H "Content-Type: application/json" \
+            -d '{"email":"admin1@fabrik.test","password":"senha-ci-12345"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+          [ -n "$JWT" ] || { echo "password grant falhou"; exit 1; }
+          # e2e: set_roles OK (200) e retry com payload divergente = 409 por T0001
+          OP="e2e00000-0000-4000-8000-000000000001"
+          R1=$(curl -s -o /tmp/e2e1.out -w "%{http_code}" -X POST "$FN" \
+            -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+            -d "{\"action\":\"set_roles\",\"operation_id\":\"$OP\",\"user_id\":\"00000000-0000-0000-0000-00000000000d\",\"roles\":[\"reception\"]}")
+          [ "$R1" = "200" ] || { echo "set_roles e2e falhou ($R1)"; cat /tmp/e2e1.out; exit 1; }
+          grep -q '"outcome":"roles_set"' /tmp/e2e1.out || { cat /tmp/e2e1.out; exit 1; }
+          R2=$(curl -s -o /tmp/e2e2.out -w "%{http_code}" -X POST "$FN" \
+            -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+            -d "{\"action\":\"set_roles\",\"operation_id\":\"$OP\",\"user_id\":\"00000000-0000-0000-0000-00000000000d\",\"roles\":[\"manager\"]}")
+          [ "$R2" = "409" ] || { echo "esperado 409 por T0001, veio $R2"; cat /tmp/e2e2.out; exit 1; }
+          grep -q '"error_code":"operation_id_conflict"' /tmp/e2e2.out || { cat /tmp/e2e2.out; exit 1; }
+          kill "$SERVE_PID" || true
+          echo "Edge e2e OK: 401/405, set_roles 200 e ERRCODE→HTTP (T0001→409) provados na função REAL"
