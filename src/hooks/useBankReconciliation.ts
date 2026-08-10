@@ -202,34 +202,11 @@ export function useRestoreTransaction() {
   });
 }
 
-export function useDeleteBankImport() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (importId: string) => {
-      // Delete all transactions first (FK constraint)
-      const { error: txError } = await supabase
-        .from("bank_transactions")
-        .delete()
-        .eq("import_id", importId);
-      if (txError) throw txError;
-
-      // Delete the import record
-      const { error: impError } = await supabase
-        .from("bank_imports")
-        .delete()
-        .eq("id", importId);
-      if (impError) throw impError;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["bank-imports"] });
-      qc.invalidateQueries({ queryKey: ["bank-transactions"] });
-      toast.success("Importação excluída com sucesso!");
-    },
-    onError: (err: Error) => {
-      toast.error(`Erro ao excluir importação: ${err.message}`);
-    },
-  });
-}
+// useDeleteBankImport morreu na 2c-1: apagava transações e import em duas
+// chamadas client-side sem transação, sem lineage e sem backup — e permitia
+// apagar os 6 imports legados ANTES do backup obrigatório da limpeza (A6).
+// A exclusão volta na 2c-2 como RPC `bank_import_delete`, que recusa import
+// com vínculo; os legados só saem pelo runbook da 2c-6.
 
 // Os hooks useApproveMatch / useRejectMatch / useBatchApproveMatches morreram
 // na Onda 2c-1. Eram o modelo velho: aprovar QUITAVA a fatura/despesa em

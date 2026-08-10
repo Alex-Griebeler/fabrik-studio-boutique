@@ -12,16 +12,21 @@ SELECT col_not_null('public', 'bank_imports', 'parser_version', 'parser_version 
 SELECT col_default_is('public', 'bank_imports', 'parser_version', '''unknown''::text',
   'default é unknown (não-confiável)');
 
--- 3. Backfill: TODOS os imports pré-existentes viraram legacy_untrusted
+-- 3. Backfill: os imports ANTERIORES à coluna viraram legacy_untrusted
 SELECT is(
   (SELECT count(*)::int FROM public.bank_imports WHERE parser_version = 'legacy_untrusted'),
   2,
   'os imports legados do fixture foram backfillados para legacy_untrusted'
 );
+
+-- 3b. Idempotência SEMÂNTICA da quarentena A4: o import criado ENTRE as duas
+-- aplicações da migration (seed da CI, nasceu com o default 'unknown')
+-- continua 'unknown' depois da reaplicação — o backfill só pega IS NULL e
+-- não pode reclassificar a janela segura como legado.
 SELECT is(
-  (SELECT count(*)::int FROM public.bank_imports WHERE parser_version NOT IN ('legacy_untrusted')),
-  0,
-  'nenhum import pré-existente escapou do backfill'
+  (SELECT parser_version FROM public.bank_imports WHERE file_name = 'janela_a4_sem_versao.ofx'),
+  'unknown',
+  'import da janela A4 não é reclassificado pela reaplicação'
 );
 
 -- 4. Insert novo sem versão explícita nasce unknown (quarentena A4)

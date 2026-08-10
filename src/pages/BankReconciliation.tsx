@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from "react";
-import { Upload, Loader2, Wand2, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Upload, Loader2, Wand2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useBankImports, useBankTransactions, useUploadBankStatement,
-  useRunMatching, useIgnoreTransaction,
-  useDeleteBankImport, useRestoreTransaction,
+  useRunMatching, useIgnoreTransaction, useRestoreTransaction,
   type MatchSuggestion,
 } from "@/hooks/useBankReconciliation";
 import {
@@ -68,7 +67,6 @@ export default function BankReconciliation() {
   const uploadMutation = useUploadBankStatement();
   const matchMutation = useRunMatching();
   const ignoreMutation = useIgnoreTransaction();
-  const deleteMutation = useDeleteBankImport();
   const restoreMutation = useRestoreTransaction();
 
   const handleRestore = useCallback((txId: string) => {
@@ -206,46 +204,9 @@ export default function BankReconciliation() {
           </Select>
         )}
 
-        {activeImport && (
-          <TooltipProvider>
-            <AlertDialog>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="icon" className="text-destructive hover:text-destructive" disabled={deleteMutation.isPending}>
-                      {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                    </Button>
-                  </AlertDialogTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Excluir esta importação</TooltipContent>
-              </Tooltip>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Excluir importação?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Tem certeza que deseja excluir a importação <strong>{activeImport.file_name}</strong>? Todas as {activeImport.total_transactions ?? 0} transações associadas serão removidas permanentemente.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    onClick={() => {
-                      deleteMutation.mutate(activeImportId!, {
-                        onSuccess: () => {
-                          setSelectedImport(null);
-                          setMatchSuggestions([]);
-                        },
-                      });
-                    }}
-                  >
-                    Excluir
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </TooltipProvider>
-        )}
+        {/* O botão de excluir importação morreu na 2c-1 junto com o hook:
+            apagava sem transação/lineage/backup. A exclusão volta na 2c-2
+            como RPC bank_import_delete. */}
 
         {(activeImport || isConsolidatedView) && (
           <div className="flex gap-2 ml-auto">
