@@ -3,7 +3,7 @@
 -- IDs do fixture: admin A=...000a, admin B=...000b, instrutor=...000c, aluna=...000d.
 
 BEGIN;
-SELECT plan(48);
+SELECT plan(60);
 
 -- Passagem de tokens entre blocos DO e asserts.
 CREATE TEMP TABLE _t1_tokens (k text PRIMARY KEY, v uuid) ON COMMIT DROP;
@@ -358,6 +358,98 @@ SELECT throws_ok(
   $$ UPDATE public.team_operations SET phase = 'role_assigned'
      WHERE operation_id = '99999999-0000-0000-0000-000000000008' $$,
   'P0001', NULL, 'invite não pula preflight→role_assigned');
+
+-- ── 7. Rodada 2 do Codex: replay sem token, grants positivos, fencing em
+--        assign/finalize, ator rebaixado real, detail direto, matriz recovery ─
+
+-- replay real (op1 é terminal): o retorno NÃO carrega lease_token
+SELECT ok(
+  NOT ((public.team_begin_operation(
+     '99999999-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0000-00000000000a',
+     'set_roles', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-1')) ? 'lease_token'),
+  'replay não vaza lease_token');
+
+SELECT ok(has_function_privilege('service_role',
+  'public.team_advance_phase(uuid, uuid, text, uuid, jsonb)', 'EXECUTE'),
+  'service_role executa team_advance_phase');
+SELECT ok(has_function_privilege('service_role',
+  'public.team_finalize_operation(uuid, uuid, text, text, text, jsonb)', 'EXECUTE'),
+  'service_role executa team_finalize_operation');
+SELECT ok(has_function_privilege('service_role',
+  'public.team_assign_role_after_invite(uuid, uuid, public.app_role)', 'EXECUTE'),
+  'service_role executa team_assign_role_after_invite');
+SELECT ok(has_function_privilege('service_role',
+  'public.team_revoke_access(uuid, uuid)', 'EXECUTE'),
+  'service_role executa team_revoke_access');
+
+-- fencing também em assign e finalize (op5 está terminal; token morto)
+SELECT throws_ok(
+  format($$ SELECT public.team_assign_role_after_invite(
+    '99999999-0000-0000-0000-000000000005', %L, 'manager'::public.app_role) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op5novo')),
+  'T0002', NULL, 'assign com token morto toma T0002');
+SELECT throws_ok(
+  format($$ SELECT public.team_finalize_operation(
+    '99999999-0000-0000-0000-000000000005', %L, 'failed', 'x', NULL, NULL) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op5novo')),
+  'T0002', NULL, 'finalize com token morto toma T0002');
+
+-- Ator REBAIXADO DE VERDADE pós-begin: mutação de privilégio recusa (T0004),
+-- mas a FINALIZAÇÃO com o lease vigente funciona (R3-5 — nada fica preso).
+DO $b9$
+DECLARE r jsonb;
+BEGIN
+  r := public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000009',
+    '00000000-0000-0000-0000-00000000000b',
+    'revoke_access', NULL, '00000000-0000-0000-0000-00000000000c', 'fp-9');
+  INSERT INTO _t1_tokens VALUES ('op9', (r ->> 'lease_token')::uuid);
+END $b9$;
+DELETE FROM public.user_roles
+WHERE user_id = '00000000-0000-0000-0000-00000000000b' AND role = 'admin';
+
+SELECT throws_ok(
+  format($$ SELECT public.team_revoke_access(
+    '99999999-0000-0000-0000-000000000009', %L) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op9')),
+  'T0004', NULL, 'ator rebaixado após begin não muta privilégio');
+SELECT lives_ok(
+  format($$ SELECT public.team_finalize_operation(
+    '99999999-0000-0000-0000-000000000009', %L,
+    'partial', 'rejected', 'actor_not_admin', NULL) $$,
+    (SELECT v FROM _t1_tokens WHERE k = 'op9')),
+  'finalização não exige ator admin — operação nunca fica presa');
+
+-- detail por escrita DIRETA também é validado
+SELECT throws_ok(
+  $$ INSERT INTO public.team_operations
+       (operation_id, actor_user_id, action, payload_fingerprint,
+        lease_token, lease_expires_at, detail)
+     VALUES ('99999999-0000-0000-0000-00000000fffe',
+       '00000000-0000-0000-0000-00000000000a', 'invite', 'fp',
+       gen_random_uuid(), now() + interval '90 seconds',
+       '{"action_link":"https://x"}'::jsonb) $$,
+  'P0001', NULL, 'INSERT direto não nasce com detail preenchido');
+
+DO $b10$
+BEGIN
+  PERFORM public.team_begin_operation(
+    '99999999-0000-0000-0000-000000000010',
+    '00000000-0000-0000-0000-00000000000a',
+    'send_recovery', NULL, '00000000-0000-0000-0000-00000000000d', 'fp-10');
+END $b10$;
+SELECT throws_ok(
+  $$ UPDATE public.team_operations
+     SET detail = '{"lease_token":"vazado"}'::jsonb
+     WHERE operation_id = '99999999-0000-0000-0000-000000000010' $$,
+  'P0001', NULL, 'UPDATE direto de detail passa pela allowlist');
+
+-- matriz: send_recovery não conhece auth_user_observed
+SELECT throws_ok(
+  $$ UPDATE public.team_operations SET phase = 'auth_user_observed'
+     WHERE operation_id = '99999999-0000-0000-0000-000000000010' $$,
+  'P0001', NULL, 'send_recovery não entra em phase de convite');
 
 SELECT * FROM finish();
 ROLLBACK;

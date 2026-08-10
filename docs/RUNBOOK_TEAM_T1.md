@@ -13,7 +13,9 @@
    do Auth. Sem isso a função responde `server_misconfigured`.
 4. **Deploy** da edge function `manage-team`.
 5. **Smoke**: `OPTIONS` → 200 · `POST` sem credencial → 401 · `GET` → 405.
-6. **Gate D8 (staging/real, checklist anexado à PR de T2 antes do merge dela):**
+6. **Gate D8 (real, PARTE DO DEPLOY DE T1 — o deploy NÃO é declarado
+   concluído sem este checklist executado e registrado; T2 nem começa sem
+   ele; não há staging — o gate roda contra produção com contas de teste):**
    - convite REAL para e-mail do Alex → e-mail chega, link abre
      `/reset-password`, senha definida, login funciona, papel visível;
    - `deleteUser` REAL pela Admin API de um usuário de teste (o cascade × guard
@@ -49,7 +51,7 @@ prosseguir se TODAS as condições passarem, na ordem:
      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
      WHERE c.contype = 'f'
        AND c.confrelid IN ('auth.users'::regclass, 'public.profiles'::regclass)
-       AND c.conrelid::regclass::text NOT IN ('public.user_roles','public.profiles')
+       AND c.conrelid NOT IN ('public.user_roles'::regclass, 'public.profiles'::regclass)
    )
    SELECT CASE
      WHEN n_colunas > 1 THEN format('-- FK COMPOSTA em %s(%s): revisar MANUALMENTE e ABORTAR até entender', tabela, coluna)

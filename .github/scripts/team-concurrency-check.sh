@@ -17,6 +17,15 @@ ADMIN_A='00000000-0000-0000-0000-00000000000a'
 ADMIN_B='00000000-0000-0000-0000-00000000000b'
 TARGET='00000000-0000-0000-0000-00000000000c'
 
+# Auto-contenção: execuções anteriores (harness/mutantes) podem ter deixado
+# operações started com lease vivo — expira tudo para os claims não vazarem
+# entre execuções. Op ids são SEMPRE aleatórios pelo mesmo motivo.
+"${PSQL[@]}" -c "UPDATE public.team_operations
+  SET lease_expires_at = now() - interval '1 second'
+  WHERE status = 'started'" > /dev/null
+OP2A=$(uuidgen | tr 'A-Z' 'a-z'); OP2B=$(uuidgen | tr 'A-Z' 'a-z')
+OP3A=$(uuidgen | tr 'A-Z' 'a-z'); OP3B=$(uuidgen | tr 'A-Z' 'a-z')
+
 fail() { echo "FALHA: $1" >&2; exit 1; }
 
 # ── Cenário 1: último-admin sob corrida ─────────────────────────────────────
@@ -65,7 +74,7 @@ rm -f /tmp/team-conc-2a.out /tmp/team-conc-2b.out
 "${PSQL[@]}" <<SQL > /tmp/team-conc-2a.out 2>&1 &
 BEGIN;
 SELECT public.team_begin_operation(
-  '88888888-0000-0000-0000-000000000001', '$ADMIN_A', 'set_roles',
+  '$OP2A', '$ADMIN_A', 'set_roles',
   NULL, '$TARGET', 'fp-conc');
 SELECT pg_sleep(2);
 COMMIT;
@@ -77,7 +86,7 @@ sleep 0.5
 "${PSQL[@]}" <<SQL > /tmp/team-conc-2b.out 2>&1 &
 BEGIN;
 SELECT public.team_begin_operation(
-  '88888888-0000-0000-0000-000000000002', '$ADMIN_A', 'set_roles',
+  '$OP2B', '$ADMIN_A', 'set_roles',
   NULL, '$TARGET', 'fp-conc');
 COMMIT;
 SQL
@@ -88,43 +97,60 @@ wait "$PID_B" || true
 
 ERRS=$(grep -l 'T0005\|em andamento' /tmp/team-conc-2a.out /tmp/team-conc-2b.out | wc -l | tr -d ' ')
 STARTED=$("${PSQL[@]}" -c "SELECT count(*) FROM public.team_operations
-  WHERE operation_id::text LIKE '88888888-%' AND status = 'started'")
+  WHERE operation_id IN ('$OP2A','$OP2B') AND status = 'started'
+    AND lease_expires_at >= now()")
 
 [ "$ERRS" = "1" ] || fail "cenário 2: esperado exatamente 1 falha T0005, houve $ERRS"
 [ "$STARTED" = "1" ] || fail "cenário 2: esperado exatamente 1 claim, há $STARTED"
 echo "cenário 2 OK: claim por alvo sob corrida ficou com exatamente 1 operação"
 
 
-# ── Cenário 3: mutações de ações DIFERENTES no mesmo alvo (claim é por
-# alvo+ação, então ambas passam no begin) — o advisory lock serializa e o
-# estado final tem que ser um dos dois desfechos SERIAIS, nunca interleave.
+# ── Cenário 3: set_roles × set_roles CONCORRENTES (alvos distintos — no mesmo
+# alvo o claim T0005 já barra no begin, provado no cenário 2). Aqui NADA pode
+# falhar: as duas RPCs devem completar, ambas as operações terminarem em
+# role_assigned e os dois estados finais baterem exatamente.
 
 rm -f /tmp/team-conc-3a.out /tmp/team-conc-3b.out
 
+TARGET_B='00000000-0000-0000-0000-00000000000d'   # aluna (student intocável)
+
 TOK_A=$("${PSQL[@]}" -c "SELECT (public.team_begin_operation(
-  '77777777-0000-0000-0000-000000000001', '$ADMIN_A', 'set_roles',
+  '$OP3A', '$ADMIN_A', 'set_roles',
   NULL, '$TARGET', 'fp-c3a')) ->> 'lease_token'")
 TOK_B=$("${PSQL[@]}" -c "SELECT (public.team_begin_operation(
-  '77777777-0000-0000-0000-000000000002', '$ADMIN_A', 'revoke_access',
-  NULL, '$TARGET', 'fp-c3b')) ->> 'lease_token'")
+  '$OP3B', '$ADMIN_A', 'set_roles',
+  NULL, '$TARGET_B', 'fp-c3b')) ->> 'lease_token'")
 
 "${PSQL[@]}" <<SQL > /tmp/team-conc-3a.out 2>&1 &
-SELECT public.team_set_roles('77777777-0000-0000-0000-000000000001',
+SELECT public.team_set_roles('$OP3A',
   '$TOK_A', ARRAY['instructor','manager']::public.app_role[]);
 SQL
 PID_A=$!
 "${PSQL[@]}" <<SQL > /tmp/team-conc-3b.out 2>&1 &
-SELECT public.team_revoke_access('77777777-0000-0000-0000-000000000002', '$TOK_B');
+SELECT public.team_set_roles('$OP3B',
+  '$TOK_B', ARRAY['reception']::public.app_role[]);
 SQL
 PID_B=$!
-wait "$PID_A" || true
-wait "$PID_B" || true
+wait "$PID_A"; RA=$?
+wait "$PID_B"; RB=$?
 
-FINAL=$("${PSQL[@]}" -c "SELECT COALESCE(array_agg(role ORDER BY role)::text, '{}')
+[ "$RA" = "0" ] && [ "$RB" = "0" ] || {
+  cat /tmp/team-conc-3a.out /tmp/team-conc-3b.out
+  fail "cenário 3: uma das set_roles falhou (exit $RA/$RB)"; }
+grep -q "ERROR" /tmp/team-conc-3a.out /tmp/team-conc-3b.out && {
+  cat /tmp/team-conc-3a.out /tmp/team-conc-3b.out
+  fail "cenário 3: ERROR na saída"; }
+
+PHASES=$("${PSQL[@]}" -c "SELECT count(*) FROM public.team_operations
+  WHERE operation_id IN ('$OP3A','$OP3B') AND phase = 'role_assigned'")
+[ "$PHASES" = "2" ] || fail "cenário 3: esperadas 2 operações em role_assigned, há $PHASES"
+
+FINAL_A=$("${PSQL[@]}" -c "SELECT array_agg(role ORDER BY role)::text
   FROM public.user_roles WHERE user_id = '$TARGET'")
-case "$FINAL" in
-  "{instructor,manager}"|"{}") echo "cenário 3 OK: desfecho serial ($FINAL)" ;;
-  *) fail "cenário 3: estado final não-serial: $FINAL" ;;
-esac
+FINAL_B=$("${PSQL[@]}" -c "SELECT array_agg(role ORDER BY role)::text
+  FROM public.user_roles WHERE user_id = '$TARGET_B'")
+[ "$FINAL_A" = "{instructor,manager}" ] || fail "cenário 3: alvo A terminou $FINAL_A"
+[ "$FINAL_B" = "{reception,student}" ] || fail "cenário 3: alvo B terminou $FINAL_B (student deve FICAR)"
+echo "cenário 3 OK: duas set_roles concorrentes, ambas completas, estados exatos"
 
 echo "team-concurrency-check: TODOS os cenários OK"

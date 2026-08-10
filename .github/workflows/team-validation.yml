@@ -8,6 +8,7 @@ on:
       - ".github/p0-test-fixtures/team-base.sql"
       - ".github/scripts/team-concurrency-check.sh"
       - ".github/scripts/team-mutants.sh"
+      - ".github/scripts/team-sql-mutants.sh"
       - ".github/workflows/team-validation.yml"
       - "supabase/migrations/20260812150000_team_t1_roles_hardening.sql"
       - "supabase/tests/team_t1_hardening.test.sql"
@@ -134,3 +135,11 @@ jobs:
             -H "Content-Type: application/json" -d '{"p_operation_id":"99999999-0000-0000-0000-0000000000aa","p_lease_token":"99999999-0000-0000-0000-0000000000bb","p_roles":["instructor"]}')
           [ "$CODE" -ge 400 ] || { echo "anon deveria ser barrado, veio $CODE"; cat /tmp/anon.out; exit 1; }
           echo "PostgREST OK: T0002 chega por code; anon barrado ($CODE)"
+      - name: SQL mutants must die (7 normativos)
+        env:
+          TEAM_WORKDIR: ${{ runner.temp }}/team-int-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          chmod +x .github/scripts/team-sql-mutants.sh .github/scripts/team-concurrency-check.sh
+          .github/scripts/team-sql-mutants.sh \
+            "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            supabase/migrations/20260812150000_team_t1_roles_hardening.sql

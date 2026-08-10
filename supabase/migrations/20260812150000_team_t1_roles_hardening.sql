@@ -178,8 +178,16 @@ BEGIN
        OR NEW.lease_token IS NULL OR NEW.lease_expires_at IS NULL THEN
       RAISE EXCEPTION 'team_operations: INSERT só nasce started/preflight com lease';
     END IF;
+    -- detail nasce vazio SEMPRE (nem service_role fora das RPCs escapa).
+    IF NEW.detail <> '{}'::jsonb THEN
+      RAISE EXCEPTION 'team_operations: INSERT exige detail vazio';
+    END IF;
     RETURN NEW;
   END IF;
+
+  -- UPDATE: o documento COMPLETO passa pela allowlist da ação registrada —
+  -- escrita direta por service_role não injeta campo sensível.
+  PERFORM private.team_validate_detail(OLD.action, NEW.detail);
 
   -- Terminal congelado por inteiro.
   IF OLD.status <> 'started' THEN
@@ -295,15 +303,22 @@ BEGIN
     END IF;
   END LOOP;
   IF p_patch ? 'existing_user_id'
-     AND (p_patch ->> 'existing_user_id') !~ '^[0-9a-f-]{36}$' THEN
+     AND (p_patch ->> 'existing_user_id')
+       !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
     RAISE EXCEPTION 'detail.existing_user_id deve ser uuid';
   END IF;
   IF p_patch ? 'recoverable'
      AND jsonb_typeof(p_patch -> 'recoverable') <> 'boolean' THEN
     RAISE EXCEPTION 'detail.recoverable deve ser boolean';
   END IF;
-  IF p_patch ? 'roles' AND jsonb_typeof(p_patch -> 'roles') <> 'array' THEN
-    RAISE EXCEPTION 'detail.roles deve ser array';
+  IF p_patch ? 'roles' THEN
+    IF jsonb_typeof(p_patch -> 'roles') <> 'array' THEN
+      RAISE EXCEPTION 'detail.roles deve ser array';
+    END IF;
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_patch -> 'roles') e
+               WHERE jsonb_typeof(e.value) <> 'string') THEN
+      RAISE EXCEPTION 'detail.roles deve conter apenas strings';
+    END IF;
   END IF;
 END;
 $$;
