@@ -4,7 +4,8 @@
 # guarda original era o que o segurava. Restauração: reaplica a migration
 # pristina (CREATE OR REPLACE) ao final de cada mutante.
 #
-# Roda POR ÚLTIMO no job de integração (muta funções do banco efêmero da CI).
+# Roda no job de integração ANTES do passo destrutivo de deleteUser (muta
+# funções do banco efêmero e restaura ao final de cada mutante).
 # Uso: team-sql-mutants.sh <DB_URL> <caminho-da-migration>
 set -euo pipefail
 
