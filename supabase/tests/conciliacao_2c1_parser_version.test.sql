@@ -9,7 +9,7 @@ SELECT has_column('public', 'bank_imports', 'parser_version', 'bank_imports.pars
 SELECT col_not_null('public', 'bank_imports', 'parser_version', 'parser_version é NOT NULL');
 
 -- 2. Default fail-closed: import criado sem declarar versão nasce 'unknown'
-SELECT col_default_is('public', 'bank_imports', 'parser_version', '''unknown''::text',
+SELECT col_default_is('public', 'bank_imports', 'parser_version', 'unknown',
   'default é unknown (não-confiável)');
 
 -- 3. Backfill: os imports ANTERIORES à coluna viraram legacy_untrusted
