@@ -161,7 +161,8 @@ FINAL_A=$("${PSQL[@]}" -c "SELECT array_agg(role ORDER BY role)::text
 FINAL_B=$("${PSQL[@]}" -c "SELECT array_agg(role ORDER BY role)::text
   FROM public.user_roles WHERE user_id = '$TARGET_B'")
 [ "$FINAL_A" = "{instructor,manager}" ] || fail "cenário 3: alvo A terminou $FINAL_A"
-[ "$FINAL_B" = "{reception,student}" ] || fail "cenário 3: alvo B terminou $FINAL_B (student deve FICAR)"
+# ORDER BY em enum segue a POSIÇÃO da declaração (student < manager < reception)
+[ "$FINAL_B" = "{student,reception}" ] || fail "cenário 3: alvo B terminou $FINAL_B (student deve FICAR)"
 echo "cenário 3 OK: duas set_roles concorrentes, ambas completas, estados exatos"
 
 echo "team-concurrency-check: TODOS os cenários OK"
