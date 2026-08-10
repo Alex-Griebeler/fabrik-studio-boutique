@@ -98,12 +98,22 @@ END;
 $$;
 
 -- ── Usuários de teste (espelho de produção: 2 admins) + instrutor + aluna ──
-INSERT INTO auth.users (id, email)
-VALUES
-  ('00000000-0000-0000-0000-00000000000a', 'admin1@fabrik.test'),
-  ('00000000-0000-0000-0000-00000000000b', 'admin2@fabrik.test'),
-  ('00000000-0000-0000-0000-00000000000c', 'instrutor@fabrik.test'),
-  ('00000000-0000-0000-0000-00000000000d', 'aluna@fabrik.test');
+-- instance_id/aud/role são OBRIGATÓRIOS para o GoTrue enxergar as linhas
+-- (a Admin API filtra por instance_id — sem isso, deleteUser/updateUser = 404).
+INSERT INTO auth.users
+  (instance_id, id, aud, role, email, encrypted_password,
+   email_confirmed_at, created_at, updated_at,
+   raw_app_meta_data, raw_user_meta_data)
+SELECT
+  '00000000-0000-0000-0000-000000000000', v.id, 'authenticated', 'authenticated',
+  v.email, '', now(), now(), now(),
+  '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
+FROM (VALUES
+  ('00000000-0000-0000-0000-00000000000a'::uuid, 'admin1@fabrik.test'),
+  ('00000000-0000-0000-0000-00000000000b'::uuid, 'admin2@fabrik.test'),
+  ('00000000-0000-0000-0000-00000000000c'::uuid, 'instrutor@fabrik.test'),
+  ('00000000-0000-0000-0000-00000000000d'::uuid, 'aluna@fabrik.test')
+) AS v(id, email);
 
 INSERT INTO public.user_roles (user_id, role)
 VALUES
