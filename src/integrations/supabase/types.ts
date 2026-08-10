@@ -3195,6 +3195,63 @@ export type Database = {
           },
         ]
       }
+      team_operations: {
+        Row: {
+          action: string
+          actor_user_id: string
+          created_at: string
+          detail: Json
+          error_code: string | null
+          finished_at: string | null
+          lease_expires_at: string | null
+          lease_token: string | null
+          operation_id: string
+          outcome: string | null
+          payload_fingerprint: string
+          phase: string
+          status: string
+          taken_over_by: string | null
+          target_email: string | null
+          target_user_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          created_at?: string
+          detail?: Json
+          error_code?: string | null
+          finished_at?: string | null
+          lease_expires_at?: string | null
+          lease_token?: string | null
+          operation_id: string
+          outcome?: string | null
+          payload_fingerprint: string
+          phase?: string
+          status?: string
+          taken_over_by?: string | null
+          target_email?: string | null
+          target_user_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          created_at?: string
+          detail?: Json
+          error_code?: string | null
+          finished_at?: string | null
+          lease_expires_at?: string | null
+          lease_token?: string | null
+          operation_id?: string
+          outcome?: string | null
+          payload_fingerprint?: string
+          phase?: string
+          status?: string
+          taken_over_by?: string | null
+          target_email?: string | null
+          target_user_id?: string | null
+        }
+        Relationships: []
+      }
       trainer_service_rates: {
         Row: {
           created_at: string
@@ -3628,6 +3685,57 @@ export type Database = {
         Returns: string
       }
       mark_overdue_invoices: { Args: never; Returns: undefined }
+      team_advance_phase: {
+        Args: {
+          p_detail_patch?: Json
+          p_lease_token: string
+          p_new_phase: string
+          p_operation_id: string
+          p_target_user_id?: string
+        }
+        Returns: undefined
+      }
+      team_assign_role_after_invite: {
+        Args: {
+          p_lease_token: string
+          p_operation_id: string
+          p_role: Database["public"]["Enums"]["app_role"]
+        }
+        Returns: undefined
+      }
+      team_begin_operation: {
+        Args: {
+          p_action: string
+          p_fingerprint: string
+          p_operation_id: string
+          p_target_email: string
+          p_target_user_id: string
+        }
+        Returns: Json
+      }
+      team_finalize_operation: {
+        Args: {
+          p_detail_patch?: Json
+          p_error_code?: string
+          p_lease_token: string
+          p_operation_id: string
+          p_outcome: string
+          p_status: string
+        }
+        Returns: Json
+      }
+      team_revoke_access: {
+        Args: { p_lease_token: string; p_operation_id: string }
+        Returns: Json
+      }
+      team_set_roles: {
+        Args: {
+          p_lease_token: string
+          p_operation_id: string
+          p_roles: Database["public"]["Enums"]["app_role"][]
+        }
+        Returns: Json
+      }
       update_lead_anamnese: {
         Args: {
           p_email?: string
