@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import {
   useBankImports, useBankTransactions, useUploadBankStatement,
   useRunMatching, useIgnoreTransaction, useRestoreTransaction,
+  DuplicateImportError,
   type MatchSuggestion,
 } from "@/hooks/useBankReconciliation";
 import {
@@ -86,8 +87,8 @@ export default function BankReconciliation() {
             setSelectedImport(null);
           }
         },
-        onError: (err: any) => {
-          if (err.isDuplicate) {
+        onError: (err: Error) => {
+          if (err instanceof DuplicateImportError) {
             setDuplicateDialog({ open: true, details: err.details, pendingUpload: { fileContent, fileName, fileType } });
           }
         },

@@ -92,6 +92,22 @@ export function useBankTransactions(importId: string | null) {
   });
 }
 
+/** Erro tipado de arquivo já importado — a tela abre o diálogo de reimportar. */
+export class DuplicateImportError extends Error {
+  readonly isDuplicate = true;
+  readonly details: string;
+  constructor(details?: string) {
+    super("Arquivo duplicado");
+    this.details = details ?? "Este arquivo já foi importado anteriormente.";
+  }
+}
+
+/** Shape mínimo do FunctionsHttpError para ler o status sem `any`. */
+interface InvokeErrorLike {
+  context?: { status?: number };
+  status?: number;
+}
+
 export function useUploadBankStatement() {
   const qc = useQueryClient();
   return useMutation({
@@ -101,20 +117,15 @@ export function useUploadBankStatement() {
       });
       if (error) {
         // Check for 409 duplicate response embedded in FunctionsHttpError
-        if ((error as any)?.context?.status === 409 || (error as any)?.status === 409) {
-          const dupError = new Error("Arquivo duplicado") as any;
-          dupError.isDuplicate = true;
-          dupError.details = data?.details || "Este arquivo já foi importado anteriormente.";
-          throw dupError;
+        const httpError = error as InvokeErrorLike;
+        if (httpError?.context?.status === 409 || httpError?.status === 409) {
+          throw new DuplicateImportError(data?.details);
         }
         throw error;
       }
       if (data?.error) {
         if (data.error === "Arquivo duplicado") {
-          const dupError = new Error("Arquivo duplicado") as any;
-          dupError.isDuplicate = true;
-          dupError.details = data.details || "Este arquivo já foi importado anteriormente.";
-          throw dupError;
+          throw new DuplicateImportError(data.details);
         }
         throw new Error(data.error);
       }
@@ -126,8 +137,8 @@ export function useUploadBankStatement() {
       const s = data?.summary;
       toast.success(`Importação concluída! ${s?.total_transactions ?? 0} transações processadas.`);
     },
-    onError: (err: any) => {
-      if (!err.isDuplicate) {
+    onError: (err: Error) => {
+      if (!(err instanceof DuplicateImportError)) {
         toast.error(`Erro na importação: ${err.message}`);
       }
     },
