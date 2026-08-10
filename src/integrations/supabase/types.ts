@@ -621,6 +621,7 @@ export type Database = {
           file_url: string | null
           id: string
           imported_by: string | null
+          parser_version: string
           period_end: string | null
           period_start: string | null
           status: string
@@ -640,6 +641,7 @@ export type Database = {
           file_url?: string | null
           id?: string
           imported_by?: string | null
+          parser_version?: string
           period_end?: string | null
           period_start?: string | null
           status?: string
@@ -659,6 +661,7 @@ export type Database = {
           file_url?: string | null
           id?: string
           imported_by?: string | null
+          parser_version?: string
           period_end?: string | null
           period_start?: string | null
           status?: string
