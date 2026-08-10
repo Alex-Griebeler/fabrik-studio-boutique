@@ -41,8 +41,8 @@ jobs:
           # Entre as duas aplicações nasce um import 'unknown' (a janela A4:
           # Edge antiga no ar depois da migration). A reaplicação NÃO pode
           # reclassificá-lo como legacy_untrusted — o pgTAP verifica.
-          echo "INSERT INTO public.bank_imports (file_name, file_type, status) VALUES ('janela_a4_sem_versao.ofx', 'ofx', 'completed');" > "$CONC_WORKDIR/supabase/migrations/20260811150000_5_seed_janela_a4.sql"
-          cp supabase/migrations/20260811150000_conciliacao_2c1_parser_version.sql "$CONC_WORKDIR/supabase/migrations/20260811150001_conciliacao_2c1_idempotency.sql"
+          echo "INSERT INTO public.bank_imports (file_name, file_type, status) VALUES ('janela_a4_sem_versao.ofx', 'ofx', 'completed');" > "$CONC_WORKDIR/supabase/migrations/20260811150001_seed_janela_a4.sql"
+          cp supabase/migrations/20260811150000_conciliacao_2c1_parser_version.sql "$CONC_WORKDIR/supabase/migrations/20260811150002_conciliacao_2c1_idempotency.sql"
           cp supabase/tests/conciliacao_2c1_parser_version.test.sql "$CONC_WORKDIR/supabase/tests/"
 
       - name: Start isolated database and apply migration twice
